@@ -100,7 +100,12 @@ void ui_key_struck(int key, PlayMode mode) {
     float x = TOP_W * (key + 1) / (float)(MUSIC_KEYS + 1);
     bool drum = mode == PLAY_DRUM;
     int n = drum ? 5 : mode == PLAY_CHORD ? 4 : 3;
-    for (int i = 0; i < n; i++) spawn_burst(x, 176.0f, drum ? 1.4f : 1.0f, drum ? 9.0f : 7.0f, drum ? 17.0f : 14.0f);
+    for (int i = 0; i < n; i++) spawn_burst(x, 160.0f, drum ? 1.4f : 1.0f, drum ? 9.0f : 7.0f, drum ? 17.0f : 14.0f);
+}
+
+void ui_seq_struck(int key, bool drum) {
+    float x = TOP_W * (key + 1) / (float)(MUSIC_KEYS + 1);
+    for (int i = 0; i < 2; i++) spawn_burst(x, 160.0f, drum ? 1.1f : 0.9f, 6.0f, drum ? 13.0f : 11.0f);
 }
 
 void ui_top_update(const AppState *app, const AudioStats *stats) {
@@ -114,7 +119,7 @@ void ui_top_update(const AppState *app, const AudioStats *stats) {
         if (s_burst[i].life > 0) motif_step(&s_burst[i], TOP_W, TOP_H);
 
     // A lazy ambient drift keeps the screen alive in silence.
-    if (s_frame % 50 == 0) spawn_burst(rng_f(&s_rng) * TOP_W, 178.0f, 0.4f, 6.0f, 11.0f);
+    if (s_frame % 50 == 0) spawn_burst(rng_f(&s_rng) * TOP_W, 162.0f, 0.4f, 6.0f, 11.0f);
 }
 
 // --------------------------------------------------------- prism scene ----
@@ -270,9 +275,37 @@ static void draw_title(void) {
     }
 }
 
+// Transport sticker plus 16 step stickers; the playing step jumps up.
+static void draw_steps(const AppState *app) {
+    const Theme *t = ui_theme();
+    const SeqStatus *st = &app->seq;
+    const u32 ink = rgba(t->ink, 0xFF);
+    const float y = 165;
+
+    uint32_t face = st->playing ? t->pal[3] : t->card;
+    sh_card(6, y - 1, 40, 16, rgba(face, 0xFF), ink, 2);
+    u32 icon = rgba(ink_on(t, face), 0xFF);
+    if (st->playing)
+        sh_rect(11, y + 3, 7, 7, icon);
+    else
+        sh_tri(15, y + 6.5f, 5, 0.0f, icon);
+    if (st->recording && ((s_frame / 15) & 1)) sh_circle(15, y + 6.5f, 3, rgba(t->pal[0], 0xFF));
+    ui_text(33, y - 0.5f, 0.38f, icon, C2D_AlignCenter, "%d", st->bpm);
+
+    for (int s = 0; s < SEQ_STEPS; s++) {
+        const bool head = st->playing && s == st->step;
+        const bool full = app->pattern.drums[s] || app->pattern.synth[s].count;
+        float x = 52 + s * 21.5f, lift = head ? -5.0f : 0.0f;
+        uint32_t f = head ? t->pal[0] : full ? t->pal[1 + (s / 4) % 4] : t->card;
+        sh_card(x, y + lift, 18, 14, rgba(f, full || head ? 0xFF : 0xC0), ink, head ? 3 : 1.5f);
+        if (s % 4 == 0) sh_circle(x + 9, y + 7 + lift, 1.8f, rgba(ink_on(t, f), 0xFF));
+    }
+}
+
 static void draw_hud(const AppState *app, const AudioStats *stats) {
     const Theme *t = ui_theme();
     draw_title();
+    draw_steps(app);
 
     static const char *const mode_names[] = {"NOTE", "CHORD", "DRUMS"};
     uint32_t mode_face = t->pal[app->mode == PLAY_NOTE ? 1 : app->mode == PLAY_CHORD ? 4 : 0];
@@ -301,7 +334,7 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     ui_text(wx + 6, wy + 1, 0.4f, rgba(ink_on(t, t->pal[0]), 0xFF), 0, "%s_%03d.PAT", bank, app->patch);
     uint32_t text = ink_on(t, t->card);
     ui_text(wx + 8, wy + 16, 0.58f, rgba(text, 0xFF), 0, "%s", patch_names[app->patch - PATCH_FIRST]);
-    ui_text(wx + 8, wy + 33, 0.36f, rgba(text, 0xB0), 0, "L chord  R drums  PAD patch/oct  SELECT bank  START quit");
+    ui_text(wx + 8, wy + 33, 0.36f, rgba(text, 0xB0), 0, "L chord  R drums  PAD patch/oct  SELECT bank  START play  hold START quit");
     // Little stickers on the card's corner.
     sh_tri(wx + ww - 22, wy + 31, 9, s_frame * 0.02f, rgba(t->pal[1], 0xFF));
     sh_circle(wx + ww - 40, wy + 34, 5, rgba(t->pal[3], 0xFF));

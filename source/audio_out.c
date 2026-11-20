@@ -11,10 +11,11 @@
 #include <string.h>
 
 #include "engine.h"
+#include "seq.h"
 
 #define CHANNEL 0
 #define NUM_WAVEBUFS 4
-#define BLOCKS_PER_WAVEBUF 2
+#define BLOCKS_PER_WAVEBUF 4  // 4 x 128-frame AMY blocks = 512 frames
 #define AUDIO_STACK_SIZE (128 * 1024)
 
 static ndspWaveBuf s_wavebufs[NUM_WAVEBUFS];
@@ -58,9 +59,13 @@ static void record_block(const int16_t *block, int frames, uint64_t ticks) {
     float level = peak / 32768.0f;
     s_stats.level = level > s_stats.level ? level : s_stats.level * 0.92f;
     s_stats.blocks++;
-    // Keep the newest block for the scope (mono mix, one point per frame).
+    // Rolling window of the newest SCOPE_POINTS frames (mono mix).
     int n = frames < SCOPE_POINTS ? frames : SCOPE_POINTS;
-    for (int i = 0; i < n; i++) s_scope[i] = (int16_t)((block[2 * i] + block[2 * i + 1]) / 2);
+    memmove(s_scope, s_scope + n, (SCOPE_POINTS - n) * sizeof(int16_t));
+    for (int i = 0; i < n; i++) {
+        const int16_t *f = block + 2 * (frames - n + i);
+        s_scope[SCOPE_POINTS - n + i] = (int16_t)((f[0] + f[1]) / 2);
+    }
     LightLock_Unlock(&s_stats_lock);
 }
 
@@ -68,6 +73,9 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
     int16_t *dst = wb->data_pcm16;
     const int frames = engine_block_frames();
     for (int b = 0; b < BLOCKS_PER_WAVEBUF; b++) {
+        // The sequencer clock runs here, on the sample clock: steps that fall
+        // due are sent to the engine just before the block that plays them.
+        seq_advance(frames, engine_sample_rate());
         uint64_t t0 = svcGetSystemTick();
         const int16_t *block = engine_render_block();
         uint64_t t1 = svcGetSystemTick();

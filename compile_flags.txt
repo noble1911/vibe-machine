@@ -4,7 +4,7 @@
 -D__3DS__
 -DAMY_NO_MINIAUDIO
 -DAMY_WAVETABLE
--DBLOCK_SIZE_BITS=8
+-DBLOCK_SIZE_BITS=7
 -Isource
 -Ithird_party/amy/src
 -I/opt/devkitpro/libctru/include

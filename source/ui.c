@@ -95,7 +95,7 @@ static float slider_x(int i) { return SLIDER_X0 + i * (SLIDER_W + SLIDER_GAP); }
 
 int ui_hit_slider(int x, int y) {
     // Generous vertical margin so a drag that overshoots still counts.
-    if (y < SLIDER_Y0 - 24 || y > SLIDER_Y0 + SLIDER_H + 16) return -1;
+    if (y < SLIDER_LABEL_Y - 2 || y > SLIDER_Y0 + SLIDER_H + 16) return -1;
     for (int i = 0; i < PARAM_COUNT; i++) {
         float sx = slider_x(i);
         if (x >= sx - SLIDER_GAP / 2.0f && x < sx + SLIDER_W + SLIDER_GAP / 2.0f) return i;
@@ -110,7 +110,43 @@ int ui_hit_key(int x, int y) {
 }
 
 bool ui_hit_theme(int x, int y) {
-    return x >= THEME_X - 4 && x < THEME_X + THEME_W + 4 && y >= THEME_Y - 4 && y < THEME_Y + THEME_H + 24;
+    return x >= THEME_X - 4 && x < THEME_X + THEME_W + 4 && y >= THEME_Y - 4 && y < THEME_Y + THEME_H + 30;
+}
+
+static bool in_box(int x, int y, int bx, int by, int bw, int bh) {
+    return x >= bx && x < bx + bw && y >= by && y < by + bh;
+}
+
+int ui_hit_tab(int x, int y) {
+    if (in_box(x, y, TAB_SOUND_X - 2, 0, TAB_SOUND_W + 4, TAB_Y + TAB_H + 3)) return PAGE_SOUND;
+    if (in_box(x, y, TAB_SEQ_X - 2, 0, TAB_SEQ_W + 4, TAB_Y + TAB_H + 3)) return PAGE_SEQ;
+    return -1;
+}
+
+SeqButton ui_hit_seq_button(int x, int y) {
+    if (y > TAB_Y + TAB_H + 3) return SEQ_BTN_NONE;
+    if (in_box(x, y, SEQ_PLAY_X - 2, 0, SEQ_BTN_W + 3, 24)) return SEQ_BTN_PLAY;
+    if (in_box(x, y, SEQ_REC_X - 2, 0, SEQ_BTN_W + 3, 24)) return SEQ_BTN_REC;
+    if (in_box(x, y, SEQ_BPM_DOWN_X - 3, 0, SEQ_BPM_BTN_W + 4, 24)) return SEQ_BTN_BPM_DOWN;
+    if (in_box(x, y, SEQ_BPM_UP_X - 1, 0, SEQ_BPM_BTN_W + 4, 24)) return SEQ_BTN_BPM_UP;
+    if (in_box(x, y, SEQ_CLEAR_X - 2, 0, SEQ_CLEAR_W + 4, 24)) return SEQ_BTN_CLEAR;
+    return SEQ_BTN_NONE;
+}
+
+bool ui_hit_seq_cell(int x, int y, int *step, int *row) {
+    if (x < SEQ_GRID_X || x >= SEQ_GRID_X + SEQ_STEPS * SEQ_CELL_W) return false;
+    int s = (x - SEQ_GRID_X) / SEQ_CELL_W;
+    if (y >= SEQ_SYNTH_Y - 2 && y < SEQ_SYNTH_Y + SEQ_SYNTH_H + 2) {
+        *step = s;
+        *row = 0;
+        return true;
+    }
+    if (y >= SEQ_DRUM_Y && y < SEQ_DRUM_Y + SEQ_LANES * SEQ_DRUM_PITCH) {
+        *step = s;
+        *row = 1 + (y - SEQ_DRUM_Y) / SEQ_DRUM_PITCH;
+        return true;
+    }
+    return false;
 }
 
 float ui_slider_value(int y) {

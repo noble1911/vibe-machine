@@ -55,7 +55,7 @@ AMY_CFILES	:=	amy.c algorithms.c api.c amy_midi.c custom.c cv_trigger.c \
 			delay.c envelope.c examples.c filters.c instrument.c \
 			interp_partials.c log2_exp2.c midi_mappings.c note_output.c \
 			oscillators.c parse.c patches.c pcm.c sequencer.c transfer.c
-AMY_DEFINES	:=	-DAMY_NO_MINIAUDIO -DAMY_WAVETABLE -DBLOCK_SIZE_BITS=8
+AMY_DEFINES	:=	-DAMY_NO_MINIAUDIO -DAMY_WAVETABLE -DBLOCK_SIZE_BITS=7
 
 #---------------------------------------------------------------------------------
 # options for code generation

@@ -7,7 +7,8 @@ animated graphics, built to fit the original 3DS.
 
 > **Status: early prototype.** It plays 256 Juno-6 and DX7 patches from
 > the buttons and touchscreen, with chords, drums, four effect sliders, a
-> live waveform and a DSP load meter. No sequencer or tape yet.
+> live waveform and a DSP load meter, plus a 16-step sequencer with live
+> recording. No tape recorder yet.
 
 **The look:** loud 90s Memphis. Nine themes (Prism, Graph Paper,
 Midnight, Teal Pop, Lime Rave, Grape Soda, Leopard, Sunshine and Vapor
@@ -34,7 +35,10 @@ synthesis library (MIT) that also runs on the ESP32 and RP2040.
 | Touch sliders | TONE (tilt EQ), ECHO, VERB (reverb), VOL |
 | Touch keys | Play (slide across keys to glide) |
 | Touch THEME | Next colour theme |
-| START | Quit |
+| START | Play / stop the sequencer (hold START to quit) |
+| Touch SOUND / SEQ tabs | Switch bottom-screen page |
+| SEQ page: tap or drag cells | Paint steps (the synth row uses the last notes you played) |
+| SEQ page: ▶ ● − BPM + CLR | Play/stop, arm recording, tempo, clear |
 
 ## Running it
 
@@ -84,6 +88,7 @@ release.
 | `source/engine.c` | Thread-safe wrapper around AMY (the only file that talks to AMY) |
 | `source/audio_out.c` | ndsp streaming on a dedicated audio thread, load and scope stats |
 | `source/music.c` | Scales, chords and the drum map (pure logic) |
+| `source/seq.c` | 16-step sequencer; its clock runs on the audio thread |
 | `source/ui*.c` | Both screens (`ui_top.c`, `ui_bottom.c`), touch layout, text |
 | `source/shapes.c`, `motif.c`, `theme.c` | Memphis drawing primitives, motifs and the theme table |
 | `source/amy_platform_3ds.c` | Platform hooks AMY expects |

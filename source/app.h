@@ -5,6 +5,9 @@
 
 #include "engine.h"
 #include "music.h"
+#include "seq.h"
+
+typedef enum { PAGE_SOUND, PAGE_SEQ, PAGE_COUNT } Page;
 
 typedef struct {
     int patch;                  // AMY patch number, PATCH_FIRST..PATCH_LAST
@@ -15,4 +18,7 @@ typedef struct {
     int active_slider;          // slider being dragged, or -1
     bool audio_ok;              // false if ndsp could not start
     unsigned frame;             // frame counter, drives animation
+    Page page;                  // bottom-screen page
+    SeqPattern pattern;         // snapshot of the sequencer, taken each frame
+    SeqStatus seq;
 } AppState;

@@ -32,6 +32,10 @@ uploads `vibe-machine.3dsx` as an artifact; `v*` tags publish a release.
 - The audio thread (`audio_out.c`) runs on the app core at a higher priority
   than the UI. Never block it on the UI, the filesystem or the network.
 - ndsp's callback only signals an event; the refill happens on our thread.
+- The sequencer clock (`seq_advance`) runs on the audio thread once per AMY
+  block (128 samples, ~2.9 ms), so steps follow the sample clock. It must
+  never call into UI code; the UI polls `seq_status()` / `seq_snapshot()`
+  once per frame instead.
 
 ## Conventions
 
