@@ -63,6 +63,7 @@ typedef struct {
     int index;
     uint8_t pitch, part;
     double start;
+    uint8_t slot;  // the pattern it was recorded into (the slot may change before release)
 } RecHeld;
 static RecHeld s_rec_held[MAX_REC_HELD];
 static int s_nrec;
@@ -478,6 +479,13 @@ void seq_roll_set(int index, int step, int pitch, int len) {
     UNLOCK(&s_lock);
 }
 
+void seq_roll_set_vel(int index, int vel) {
+    LOCK(&s_lock);
+    SeqPattern *p = &s_pats[s_cur];
+    if (index >= 0 && index < p->count) p->notes[index].vel = (uint8_t)(vel < 1 ? 1 : vel > 255 ? 255 : vel);
+    UNLOCK(&s_lock);
+}
+
 void seq_roll_remove(int index) {
     LOCK(&s_lock);
     remove_locked(&s_pats[s_cur], index);
@@ -538,7 +546,7 @@ void seq_record_synth(int part, const SeqNote *note) {
             if (idx < 0) continue;
             if (ahead && s_nskip < MAX_SKIPS) s_skip_notes[s_nskip++] = (Skip){(uint8_t)step, note->notes[i], (uint8_t)part};
             if (s_nrec < MAX_REC_HELD)  // remember when it started, to set its length on release
-                s_rec_held[s_nrec++] = (RecHeld){idx, note->notes[i], (uint8_t)part, s_ticks + (ahead ? 1.0 : 0.0)};
+                s_rec_held[s_nrec++] = (RecHeld){idx, note->notes[i], (uint8_t)part, s_ticks + (ahead ? 1.0 : 0.0), (uint8_t)s_cur};
         }
     }
     UNLOCK(&s_lock);
@@ -548,10 +556,10 @@ void seq_record_release(int part, const SeqNote *note) {
     if (!note || !note->count) return;
     LOCK(&s_lock);
     const double now = now_steps();
-    SeqPattern *p = &s_pats[s_cur];
     for (int k = 0; k < note->count; k++)
         for (int i = 0; i < s_nrec; i++) {
             if (s_rec_held[i].pitch != note->notes[k] || s_rec_held[i].part != part) continue;
+            SeqPattern *p = &s_pats[s_rec_held[i].slot];
             int idx = s_rec_held[i].index;
             if (idx < p->count && p->notes[idx].pitch == s_rec_held[i].pitch) {
                 int len = (int)(now - s_rec_held[i].start + 0.5);

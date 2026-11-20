@@ -124,6 +124,7 @@ void seq_set_synth(int part, int step, const SeqNote *note);
 int seq_roll_add(int part, int step, int pitch, int len, int vel);  // index, or -1 if full
 void seq_roll_set(int index, int step, int pitch, int len);
 void seq_roll_remove(int index);
+void seq_roll_set_vel(int index, int vel);  // 1..255
 // The part's note covering (step, pitch), i.e. starting at or before step
 // and still sounding there; -1 if none.
 int seq_roll_find(int part, int step, int pitch);

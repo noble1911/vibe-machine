@@ -119,7 +119,7 @@ The grid is one bar of 16 steps. From the top:
 | ▶ / ■ | Play / stop (same as START) |
 | ● | Arm live recording (blinks when armed) |
 | − 112 + | Tempo, 40–240 BPM. Hold − or + to scroll |
-| ✕ | Clear the current pattern |
+| ✕ | **Tap**: clear the current pattern (in the piano roll, only the current part's notes). **Hold**: **undo** the last clear, dice roll or slot copy (hold again to redo) |
 | Dice | Roll a fresh groove into the current pattern |
 
 ### Recording live
@@ -182,6 +182,9 @@ where melodies, chords and long notes live.
 - **Drag a note's last cell** to change its length. Notes can run past the
   end of the bar (a small arrow shows it) and hold over into the next.
 - **Tap a note** (without dragging) to remove it.
+- **Hold L and tap a note** to change how hard it plays: normal → **loud**
+  (a bar along its top) → **soft** (washed out) → normal. Accents still
+  push a step's notes up to loud.
 - **Drag the keyboard strip** on the left to scroll up and down. Tap it to
   hear a pitch.
 - **C / #** (top-left) switches between **C major** rows (every row is in

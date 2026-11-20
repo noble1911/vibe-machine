@@ -456,6 +456,9 @@ static void draw_transport(const AppState *app) {
 
     // Clear: a cross. Dice: five pips.
     sticker(SEQ_CLEAR_X, TAB_Y, SEQ_CLEAR_W, TAB_H, t->card, false, 0);
+    if (app->clear_hold_t > 0.0f)  // hold: undo
+        sh_rect(SEQ_CLEAR_X + 1, TAB_Y + TAB_H - 3, (SEQ_CLEAR_W - 2) * (app->clear_hold_t > 1 ? 1 : app->clear_hold_t), 3,
+                rgba(t->pal[0], 0xFF));
     sh_bar(SEQ_CLEAR_X + SEQ_CLEAR_W / 2.0f, cy, 12, 3, 0.785f, rgba(t->pal[0], 0xFF));
     sh_bar(SEQ_CLEAR_X + SEQ_CLEAR_W / 2.0f, cy, 12, 3, -0.785f, rgba(t->pal[0], 0xFF));
     draw_die(SEQ_DICE_X, TAB_Y, SEQ_DICE_W, t->pal[3]);
@@ -654,6 +657,10 @@ static void draw_roll(const AppState *app) {
         if (over) sh_tri(gx + gw - 3, y + ROLL_ROW_H / 2.0f - 0.5f, 3, 0.0f, rgba(ink_on(t, face), 0xFF));
         if (!chrom && !music_in_scale(n->pitch))  // shown on the row below its pitch
             ui_text(x + 2 + lift, y - 2.5f + lift, 0.26f, rgba(ink_on(t, face), 0xFF), 0, "#");
+        if (n->vel < 120)  // soft: washed out
+            sh_rect(x + lift + 2, y + lift + 2, w - 4, ROLL_ROW_H - 5, rgba(t->card, 0x90));
+        else if (n->vel > 200)  // loud: a bar along the top
+            sh_rect(x + lift + 2, y + lift + 1.5f, w - 4, 1.5f, rgba(ink_on(t, face), 0xFF));
     }
     // Scroll hints at the strip's ends.
     if (app->roll_scroll + ROLL_ROWS < rows) sh_tri(ROLL_KEYS_X + ROLL_KEYS_W / 2.0f, gy - 2, 3, -1.5708f, rgba(t->pal[2], 0xFF));

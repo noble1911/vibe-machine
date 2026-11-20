@@ -80,6 +80,7 @@ typedef enum {
     TOUCH_SONG_BTN,
 } TouchMode;
 
+#define UNDO_HOLD_FRAMES 40   // hold the SEQ page's ✕ this long to undo
 #define SONG_SHEET_FRAMES 30  // hold SONG this long to open / close the SONG sheet
 
 #define PART_MUTE_FRAMES 40  // hold a SYNTH part sticker this long to (un)mute it
@@ -1505,8 +1506,16 @@ static void roll_drag(int x, int y) {
 }
 
 static void roll_end(void) {
-    // A tap on a note (no drag) removes it.
-    if (!s_roll_moved && !s_roll_created && s_app.roll_active >= 0) seq_roll_remove(s_app.roll_active);
+    // A tap on a note (no drag) removes it; with L held, it changes how hard
+    // it plays: normal -> loud -> soft -> normal.
+    if (!s_roll_moved && !s_roll_created && s_app.roll_active >= 0) {
+        if (hidKeysHeld() & KEY_L) {
+            const int v = s_app.pattern.notes[s_app.roll_active].vel;
+            seq_roll_set_vel(s_app.roll_active, v > 200 ? 90 : v < 120 ? (int)(SEQ_VEL_SYNTH * 255) : 255);
+        } else {
+            seq_roll_remove(s_app.roll_active);
+        }
+    }
     s_app.roll_active = -1;
 }
 
@@ -1527,14 +1536,50 @@ static void paint_cell(int step, int row) {
     s_paint_step = step;
 }
 
+// One level of undo for the big edits (✕, the dice, copying into a slot):
+// the slot as it was before.
+static SeqPattern s_undo;
+static int s_undo_slot = -1;
+
+static void undo_save(int slot) {
+    seq_get_slot(slot, &s_undo);
+    s_undo_slot = slot;
+}
+
+static void undo(void) {
+    if (s_undo_slot < 0) {
+        notice("NOTHING TO UNDO");
+        return;
+    }
+    SeqPattern now;
+    seq_get_slot(s_undo_slot, &now);
+    seq_put_slot(s_undo_slot, &s_undo);
+    s_undo = now;  // hold again to redo
+    notice("UNDONE (HOLD X AGAIN TO REDO)");
+}
+
+// ✕: in the piano roll, only the current part's notes; on the grid, the
+// whole pattern.
+static void clear_pattern(void) {
+    undo_save(s_app.seq.slot);
+    if (s_app.roll_view) {
+        SeqPattern p = s_app.pattern;
+        p.count = 0;
+        seq_set_part_pattern(s_app.part, &p);  // drums and accents stay as they are
+    } else {
+        seq_clear();
+    }
+}
+
 static void press_button(SeqButton b) {
     switch (b) {
         case SEQ_BTN_PLAY: seq_toggle_play(); break;
         case SEQ_BTN_REC: seq_set_recording(!s_app.seq.recording); break;
         case SEQ_BTN_BPM_DOWN: seq_set_bpm(s_app.seq.bpm - 1); break;
         case SEQ_BTN_BPM_UP: seq_set_bpm(s_app.seq.bpm + 1); break;
-        case SEQ_BTN_CLEAR: seq_clear(); break;
+        case SEQ_BTN_CLEAR: break;  // on release (a hold is undo)
         case SEQ_BTN_DICE: {
+            undo_save(s_app.seq.slot);
             SeqPattern p;
             dice_groove(&p, (uint32_t)svcGetSystemTick() ^ (s_app.frame * 2654435761u), s_app.octave);
             seq_set_part_pattern(s_app.part, &p);  // new drums, and new notes for this part only
@@ -1763,6 +1808,8 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             seq_select_slot(s_app.slot_hold);
             if (s_app.arr_view) arr_assign(s_app.slot_hold);  // SONG sheet: the picked row plays this slot
         }
+        if (s_touch == TOUCH_BUTTON && s_button == SEQ_BTN_CLEAR && s_button_frames < UNDO_HOLD_FRAMES) clear_pattern();
+        s_app.clear_hold_t = 0.0f;
         if (s_touch == TOUCH_SONG_BTN && s_app.song_btn_hold >= 0) {
             const bool on = !s_app.seq.song;
             seq_set_song(on);
@@ -1884,6 +1931,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             break;
         case TOUCH_SLOT:
             if (s_slot_frames < SLOT_COPY_FRAMES && ++s_slot_frames == SLOT_COPY_FRAMES) {
+                undo_save(s_app.slot_hold);
                 seq_copy_to_slot(s_app.slot_hold);  // a variation, ready to edit
                 ui_key_struck(s_app.slot_hold, PLAY_CHORD);
             }
@@ -1902,6 +1950,10 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             break;
         case TOUCH_BUTTON:
             s_button_frames++;
+            if (s_button == SEQ_BTN_CLEAR) {  // hold ✕: undo
+                s_app.clear_hold_t = s_button_frames / (float)UNDO_HOLD_FRAMES;
+                if (s_button_frames == UNDO_HOLD_FRAMES) undo();
+            }
             if ((s_button == SEQ_BTN_BPM_DOWN || s_button == SEQ_BTN_BPM_UP) && s_button_frames > REPEAT_DELAY &&
                 s_button_frames % REPEAT_EVERY == 0)
                 press_button(s_button);

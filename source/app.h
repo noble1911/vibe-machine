@@ -48,6 +48,7 @@ typedef struct {
     bool arr_view;              // ...or the SONG sheet (the arrangement), which wins
     SeqArrangement arr;         // snapshot of the arrangement, taken each frame
     int arr_sel;                // SONG sheet: the picked row, or -1
+    float clear_hold_t;         // 0..1 progress of holding ✕ (undo)
     int song_btn_hold;          // frames SONG has been held (hold: open the sheet), or -1
     bool roll_chromatic;        // roll rows: every semitone, or only the scale
     int roll_scroll;            // roll row shown at the bottom

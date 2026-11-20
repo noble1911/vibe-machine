@@ -17,7 +17,7 @@
 #define BOTTOM_W 320
 #define BOTTOM_H 240
 
-// Bottom screen, every page: a row of four icon tabs at the top...
+// Bottom screen, every page: a row of six icon tabs at the top...
 #define TAB_Y 2
 #define TAB_H 18
 #define TAB_X0 2
