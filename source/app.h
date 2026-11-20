@@ -63,6 +63,12 @@ typedef struct {
     float mix_meter[MIX_STRIPS];  // 0..1, with a fall-back, for the meters
     int mix_strip;              // strip being dragged, or -1
     int mix_grab;               // MixGrab: its fader, or MIX_GRAB_KNOB + knob
+    // Story build (make STORY=1): the caption on the top screen, and the
+    // pretend stylus on the bottom one.
+    const char *caption;
+    int caption_n;              // step number shown with it (0: none)
+    bool cursor_on, cursor_down;
+    float cursor_x, cursor_y;
     int mixdown;                // 0, 1 recording the song, 2 letting the echoes ring out
     float mixdown_secs;         // length written so far
 

@@ -14,7 +14,11 @@
 #include "sounds.h"
 #include "tape.h"
 
+#ifdef VM_STORY
+#define STORAGE_DIR "sdmc:/3ds/vibe-machine-story"  // the scripted demo never touches your files
+#else
 #define STORAGE_DIR "sdmc:/3ds/vibe-machine"
+#endif
 #define STORAGE_PATH STORAGE_DIR "/state.vms"
 
 typedef struct {

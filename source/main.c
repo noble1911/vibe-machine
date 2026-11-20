@@ -102,6 +102,8 @@ static AppState s_app;
 static int s_theme;
 
 static TouchMode s_touch;
+static touchPosition s_tp;  // this frame's stylus (real, or the story's)
+static u32 s_keys_held;     // this frame's held buttons (real, or the story's)
 static SeqButton s_button;
 static unsigned s_button_frames;
 static int s_paint_row, s_paint_step;
@@ -656,16 +658,36 @@ static void notice(const char *msg) {
 static WavStream s_mixdown;
 static unsigned s_mixdown_tail_end;
 
+#ifdef VM_RECORD
+// The story recording itself (make STORY=1 RECORD=1): both screens every
+// 4th frame as raw framebuffers, and the sound, for tools/make-video.sh.
+#define REC_DIR STORAGE_DIR "/record"
+#define REC_EVERY 4
+static FILE *s_rec_top, *s_rec_bot, *s_rec_times;
+static WavStream s_rec_audio;
+static bool s_rec_on;
+#endif
+
+// Everything the audio thread captured since last time: to the mixdown,
+// and (recording the story) to its soundtrack.
 static void mixdown_drain(void) {
     static int16_t buf[4096 * 2];
     int n;
-    while ((n = audio_out_capture_read(buf, 4096)) > 0) wav_stream_write(&s_mixdown, buf, n);
-    s_app.mixdown_secs = s_mixdown.frames / (float)engine_sample_rate();
+    while ((n = audio_out_capture_read(buf, 4096)) > 0) {
+        if (s_app.mixdown) wav_stream_write(&s_mixdown, buf, n);
+#ifdef VM_RECORD
+        if (s_rec_on) wav_stream_write(&s_rec_audio, buf, n);
+#endif
+    }
+    if (s_app.mixdown) s_app.mixdown_secs = s_mixdown.frames / (float)engine_sample_rate();
 }
 
 static void mixdown_finish(void) {
-    audio_out_capture(false);
     mixdown_drain();
+#ifdef VM_RECORD
+    if (!s_rec_on)
+#endif
+        audio_out_capture(false);
     const uint32_t dropped = audio_out_capture_dropped();
     const bool ok = wav_stream_close(&s_mixdown);
     s_app.mixdown = 0;
@@ -683,6 +705,7 @@ static void mixdown_finish(void) {
 static void stop_transports(void);
 
 static void mixdown_start(void) {
+    mixdown_drain();  // (recording the story: keep its soundtrack whole)
     char path[160];
     mkdir(MIXES_ROOT, 0777);
     snprintf(path, sizeof(path), "%s/%s.wav", MIXES_ROOT, s_app.song_name[0] ? s_app.song_name : "UNTITLED");
@@ -708,6 +731,9 @@ static void mixdown_button(void) {
 
 // Once a frame.
 static void mixdown_tick(void) {
+#ifdef VM_RECORD
+    if (s_rec_on) mixdown_drain();
+#endif
     if (!s_app.mixdown) return;
     mixdown_drain();
     if (s_app.mixdown == 1 && !seq_status().playing) {  // the song is over: let it ring out
@@ -995,7 +1021,12 @@ static void new_song(void) {
 static bool ask_name(char *out, const char *hint) {
     char suggestion[SONG_NAME_MAX + 1], buf[48];
     song_random_name((uint32_t)svcGetSystemTick(), suggestion);
-#ifdef VM_DEMO
+#if defined(VM_STORY)
+    (void)buf;
+    (void)hint;
+    strcpy(out, "MY FIRST SONG");
+    return true;
+#elif defined(VM_DEMO)
     (void)buf;
     strcpy(out, suggestion);
     return true;
@@ -1547,7 +1578,7 @@ static void roll_end(void) {
     // A tap on a note (no drag) removes it; with L held, it changes how hard
     // it plays: normal -> loud -> soft -> normal.
     if (!s_roll_moved && !s_roll_created && s_app.roll_active >= 0) {
-        if (hidKeysHeld() & KEY_L) {
+        if (s_keys_held & KEY_L) {
             const int v = s_app.pattern.notes[s_app.roll_active].vel;
             seq_roll_set_vel(s_app.roll_active, v > 200 ? 90 : v < 120 ? (int)(SEQ_VEL_SYNTH * 255) : 255);
         } else {
@@ -1876,8 +1907,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
     }
     if (!(held & KEY_TOUCH)) return;
 
-    touchPosition tp;
-    hidTouchRead(&tp);
+    const touchPosition tp = s_tp;
     if (down & KEY_TOUCH) touch_begin(tp.px, tp.py);
 
     switch (s_touch) {
@@ -2046,6 +2076,308 @@ static void update_lit_keys(void) {
 
 // ---------------------------------------------------------------- main ----
 
+#ifdef VM_STORY
+// ---------------------------------------------------------------- STORY ----
+// make STORY=1: a scripted session that makes a song from nothing to a
+// mixdown, by playing the 3DS the way a person would: stylus taps, drags
+// and holds that go through the real touch handlers (so it's an end-to-end
+// test of the UI as well as the demo video). Captions say what's happening.
+
+typedef enum { S_CAP, S_WAIT, S_WAITSEC, S_TAP, S_HOLD, S_DRAG, S_ROLL, S_CALL } StoryKind;
+typedef struct {
+    StoryKind k;
+    int a, b, c, d, n;  // TAP/HOLD: x y; DRAG: x y x2 y2 frames; ROLL: step pitch len
+    const char *text;   // CAP
+    void (*fn)(void);   // CALL
+} StoryEv;
+
+#define CAP(num, t) {S_CAP, num, 0, 0, 0, 0, t, NULL}
+#define WAIT(f) {S_WAIT, 0, 0, 0, 0, f, NULL, NULL}
+#define WAITSEC(s) {S_WAITSEC, 0, 0, 0, 0, s, NULL, NULL}  // seconds of (emulated) time, whatever the frame rate
+#define TAP(x, y) {S_TAP, x, y, 0, 0, 5, NULL, NULL}
+#define HOLD(x, y, f) {S_HOLD, x, y, 0, 0, f, NULL, NULL}
+#define DRAG(x, y, x2, y2, f) {S_DRAG, x, y, x2, y2, f, NULL, NULL}
+#define ROLL(step, pitch, len) {S_ROLL, step, pitch, len, 0, 0, NULL, NULL}
+#define CALL(f) {S_CALL, 0, 0, 0, 0, 0, NULL, f}
+
+// Where things are (the middles of the stickers the hit tests answer for).
+#define TABX(p) (TAB_X0 + (p) * TAB_PITCH + TAB_W / 2)
+#define TABY (TAB_Y + TAB_H / 2)
+#define GX(s) (SEQ_GRID_X + (s) * SEQ_CELL_W + SEQ_CELL_W / 2)
+#define DY(l) (SEQ_DRUM_Y + (l) * SEQ_DRUM_PITCH + SEQ_DRUM_H / 2)
+#define SLX(i) (SEQ_SLOT_X0 + (i) * SEQ_SLOT_PITCH + SEQ_SLOT_W / 2)
+#define SLY (SEQ_SLOT_Y + SEQ_SLOT_H / 2)
+#define SONGX (SEQ_SONG_X + SEQ_SONG_W / 2)
+#define ROLLX (SEQ_ROLL_X + SEQ_ROLL_W / 2)
+#define PLAYX (SEQ_PLAY_X + SEQ_BTN_W / 2)
+#define RECX (SEQ_REC_X + SEQ_BTN_W / 2)
+#define TILEX(i) (SYN_TILE_X0 + ((i) % SYN_TILE_COLS) * SYN_TILE_PITCH_X + SYN_TILE_W / 2)
+#define TILEY(i) (SYN_TILE_Y0 + ((i) / SYN_TILE_COLS) * SYN_TILE_PITCH_Y + SYN_TILE_H / 2)
+#define PICKX(k) (ROLL_PART_X0 + (k) * ROLL_PART_PITCH + ROLL_PART_W / 2)
+#define PICKY (ROLL_TOGGLE_Y + ROLL_TOGGLE_H / 2)
+#define KEYX(k) ((k) * KEY_W + KEY_W / 2)
+#define KEYY (KEYS_Y0 + 30)
+#define STRIPX(k) (MIX_X0 + (k) * MIX_PITCH)
+#define KNOBX(k, i) (STRIPX(k) + (((i) & 1) ? MIX_KNOB_DX1 : MIX_KNOB_DX0))
+#define KNOBY(i) ((i) < 2 ? MIX_KNOB_Y0 : MIX_KNOB_Y1)
+#define CAPY(level) ((int)(MIX_FADER_Y + MIX_FADER_H - 5 - (level) * (MIX_FADER_H - 10)))
+#define FADERX(k) (STRIPX(k) + MIX_FADER_DX + MIX_FADER_W / 2)
+#define FXSX (FX_STICK_X + FX_STICK_W / 2)
+#define FXSY(i) (FX_STICK_Y0 + (i) * FX_STICK_PITCH + FX_STICK_H / 2)
+#define CELLX(i) (ARR_X0 + ((i) % ARR_COLS) * ARR_PITCH_X + ARR_CELL_W / 2)
+#define CELLY(i) (ARR_Y0 + ((i) / ARR_COLS) * ARR_PITCH_Y + ARR_CELL_H / 2)
+#define CHIPX(k) (ARR_MUTE_X0 + (k) * ARR_MUTE_PITCH + ARR_MUTE_W / 2)
+#define CHIPY (ARR_HEAD_Y + ARR_HEAD_H / 2)
+
+enum { SND_JUNO = 0, SND_SQUELCH = 3, SND_BELL = 4 };
+
+static void story_blank(void) {  // a new song, really empty
+    new_song();
+    seq_clear();
+    seq_set_bpm(108);
+    switch_part(0);
+    s_app.page = PAGE_SOUND;
+    s_app.roll_view = false;
+    s_app.arr_view = false;
+}
+#ifdef VM_RECORD
+static void rec_start(void) {
+    mkdir(REC_DIR, 0777);
+    s_rec_top = fopen(REC_DIR "/top.raw", "wb");
+    s_rec_bot = fopen(REC_DIR "/bottom.raw", "wb");
+    s_rec_times = fopen(REC_DIR "/times.bin", "wb");
+    if (s_rec_top) setvbuf(s_rec_top, NULL, _IOFBF, 256 * 1024);
+    if (s_rec_bot) setvbuf(s_rec_bot, NULL, _IOFBF, 256 * 1024);
+    wav_stream_open(&s_rec_audio, REC_DIR "/audio.wav", engine_sample_rate(), 2);
+    audio_out_capture(true);
+    s_rec_on = s_rec_top && s_rec_bot && s_rec_times;
+}
+static void rec_stop(void) {
+    if (!s_rec_on) return;
+    mixdown_drain();
+    s_rec_on = false;
+    audio_out_capture(false);
+    fclose(s_rec_top);
+    fclose(s_rec_bot);
+    fclose(s_rec_times);
+    wav_stream_close(&s_rec_audio);
+    FILE *f = fopen(REC_DIR "/done", "wb");  // the host waits for this
+    if (f) fclose(f);
+}
+// Called with the GPU idle (right after a synced frame begin): the back
+// buffers hold a finished frame.
+static void rec_frame(void) {
+    if (!s_rec_on || s_app.frame % REC_EVERY) return;
+    // When it was, by the sound's clock (writing frames slows the frame
+    // loop, so frame counts aren't time; the host lines frames up by this).
+    const uint32_t t = s_rec_audio.frames;
+    fwrite(&t, sizeof(t), 1, s_rec_times);
+    u16 w, h;
+    u8 *fb = gfxGetFramebuffer(GFX_TOP, GFX_LEFT, &w, &h);
+    fwrite(fb, 3, (size_t)w * h, s_rec_top);
+    fb = gfxGetFramebuffer(GFX_BOTTOM, GFX_LEFT, &w, &h);
+    fwrite(fb, 3, (size_t)w * h, s_rec_bot);
+}
+#else
+static void rec_start(void) {}
+static void rec_stop(void) {}
+#endif
+
+static void story_scroll_bass(void) { s_app.roll_scroll = music_roll_row(36, false); }    // C2 at the bottom
+static void story_scroll_chords(void) { s_app.roll_scroll = music_roll_row(57, false); }  // A3 at the bottom
+
+static const StoryEv kStory[] = {
+    CAP(0, "VIBE MACHINE: FROM NOTHING TO A FINISHED SONG"),
+    CALL(story_blank),
+    CALL(rec_start),
+    WAIT(150),
+
+    CAP(1, "DRUMS: TAP THE GRID, DRAG FOR HATS"),
+    TAP(TABX(PAGE_SEQ), TABY),
+    TAP(GX(0), DY(0)), TAP(GX(4), DY(0)), TAP(GX(8), DY(0)), TAP(GX(10), DY(0)), TAP(GX(12), DY(0)),
+    TAP(GX(4), DY(1)), TAP(GX(12), DY(1)),
+    DRAG(GX(0), DY(2), GX(15), DY(2), 70),
+    TAP(PLAYX, TABY),
+    WAIT(120),
+
+    CAP(2, "BASS: PART 1 PLAYS SQUELCH"),
+    TAP(TABX(PAGE_SYNTH), TABY),
+    TAP(TILEX(SND_SQUELCH), TILEY(SND_SQUELCH)),
+    TAP(KEYX(5), KEYY), TAP(KEYX(4), KEYY),
+    CAP(2, "...ITS NOTES GO ON THE PIANO ROLL"),
+    TAP(TABX(PAGE_SEQ), TABY),
+    TAP(ROLLX, SLY),
+    CALL(story_scroll_bass),
+    ROLL(0, 45, 3), ROLL(3, 45, 1), ROLL(6, 48, 2), ROLL(8, 43, 3), ROLL(11, 43, 1), ROLL(12, 41, 2), ROLL(14, 40, 2),
+    WAIT(90),
+
+    CAP(3, "CHORDS: PART 2, A JUNO PAD"),
+    TAP(PICKX(1), PICKY),
+    TAP(TABX(PAGE_SYNTH), TABY),
+    TAP(TILEX(SND_JUNO), TILEY(SND_JUNO)),
+    TAP(TABX(PAGE_SEQ), TABY),
+    CALL(story_scroll_chords),
+    ROLL(0, 57, 8), ROLL(0, 60, 8), ROLL(0, 64, 8),
+    ROLL(8, 57, 4), ROLL(8, 60, 4), ROLL(8, 65, 4),
+    ROLL(12, 59, 4), ROLL(12, 62, 4), ROLL(12, 67, 4),
+    WAIT(90),
+
+    CAP(4, "LEAD: PART 3, A BELL ON TOP"),
+    TAP(PICKX(2), PICKY),
+    ROLL(2, 76, 1), ROLL(3, 74, 1), ROLL(4, 72, 2), ROLL(10, 69, 2), ROLL(13, 71, 1), ROLL(14, 72, 2),
+    WAIT(120),
+
+    CAP(5, "MIX: CRUSH DRUMS, DRIVE BASS, PAN CHORDS"),
+    TAP(TABX(PAGE_MIX), TABY),
+    DRAG(KNOBX(MIX_DRUMS, MIX_CRUSH), KNOBY(MIX_CRUSH), KNOBX(MIX_DRUMS, MIX_CRUSH), KNOBY(MIX_CRUSH) - 28, 30),
+    DRAG(KNOBX(0, MIX_DRIVE), KNOBY(MIX_DRIVE), KNOBX(0, MIX_DRIVE), KNOBY(MIX_DRIVE) - 45, 35),
+    DRAG(KNOBX(1, MIX_PAN), KNOBY(MIX_PAN), KNOBX(1, MIX_PAN), KNOBY(MIX_PAN) + 16, 25),
+    DRAG(FADERX(1), CAPY(0.75f), FADERX(1), CAPY(0.62f), 25),
+    DRAG(KNOBX(2, MIX_TONE), KNOBY(MIX_TONE), KNOBX(2, MIX_TONE), KNOBY(MIX_TONE) - 20, 25),
+    WAIT(120),
+
+    CAP(6, "VARIATION: HOLD B TO COPY, THEN CHANGE IT"),
+    TAP(TABX(PAGE_SEQ), TABY),
+    TAP(ROLLX, SLY),  // back to the grid
+    HOLD(SLX(1), SLY, 50),
+    TAP(GX(14), DY(0)), TAP(GX(15), DY(1)), TAP(GX(7), DY(1)),
+    TAP(GX(14), DY(3)),
+    WAIT(90),
+
+    CAP(7, "RECORD A FILTER SWEEP INTO PATTERN B"),
+    TAP(RECX, TABY),
+    TAP(TABX(PAGE_FX), TABY),
+    TAP(FXSX, FXSY(FX_SWEEP)),
+    DRAG(FX_PAD_X + 30, FX_PAD_Y + 100, FX_PAD_X + FX_PAD_W - 20, FX_PAD_Y + 20, 250),
+    TAP(TABX(PAGE_SEQ), TABY),
+    TAP(RECX, TABY),
+    WAIT(60),
+
+    CAP(8, "ARRANGE: HOLD SONG, ADD ROWS"),
+    HOLD(SONGX, SLY, 40),
+    TAP(CELLX(0), CELLY(0)), TAP(SLX(0), SLY), TAP(CELLX(0), CELLY(0)), TAP(CHIPX(MIX_DRUMS), CHIPY),
+    TAP(CELLX(1), CELLY(1)), TAP(SLX(0), SLY), TAP(CELLX(1), CELLY(1)),
+    TAP(CELLX(2), CELLY(2)), TAP(SLX(1), SLY), TAP(CELLX(2), CELLY(2)), TAP(CELLX(2), CELLY(2)),
+    TAP(CELLX(3), CELLY(3)), TAP(SLX(0), SLY), TAP(CELLX(3), CELLY(3)),
+    TAP(CELLX(4), CELLY(4)), TAP(SLX(1), SLY), TAP(CELLX(4), CELLY(4)),
+    WAIT(150),
+
+    CAP(9, "SAVE IT: SONGS, SAVE AS"),
+    TAP(TABX(PAGE_SOUND), TABY),
+    TAP(SONGS_BTN_X + SONGS_BTN_W / 2, SONGS_BTN_Y + SONGS_BTN_H / 2),
+    TAP(SONG_BTN_X + SONG_BTN_W / 2, SONG_BTN_Y0 + SONG_BTN_H / 2),
+    WAIT(200),
+
+    CAP(10, "MIXDOWN: THE WHOLE SONG TO A WAV"),
+    TAP(TABX(PAGE_MIX), TABY),
+    TAP(MIXDOWN_X + MIXDOWN_W / 2, TABY),
+    WAITSEC(4),
+    TAP(TABX(PAGE_SEQ), TABY),  // watch the song go by on the SONG sheet...
+    WAITSEC(13),
+    TAP(TABX(PAGE_FX), TABY),   // ...and the filter sweep play itself in B
+    WAITSEC(14),
+
+    CAP(0, "DONE: mixes/MY FIRST SONG.wav"),
+    WAIT(240),
+    CALL(rec_stop),
+    WAIT(100000),
+};
+
+#define STORY_MOVE 14  // frames the stylus takes to get somewhere
+#define STORY_GAP 10   // frames between gestures
+
+static int s_story_i, s_story_t;
+static float s_story_x = 160, s_story_y = 120;
+
+// Fills in this frame's input from the script. Returns nothing: it just
+// replaces what the hardware said.
+static void story_input(u32 *down, u32 *held, u32 *up, touchPosition *tp) {
+    *down = *held = *up = 0;
+    while (s_story_i < (int)(sizeof(kStory) / sizeof(kStory[0]))) {
+        const StoryEv *e = &kStory[s_story_i];
+        if (e->k == S_CAP) {
+            s_app.caption = e->text;
+            s_app.caption_n = e->a;
+            s_story_i++;
+            continue;
+        }
+        if (e->k == S_CALL) {
+            e->fn();
+            s_story_i++;
+            continue;
+        }
+        if (e->k == S_WAIT) {
+            if (++s_story_t >= e->n) {
+                s_story_i++;
+                s_story_t = 0;
+            }
+            return;
+        }
+        if (e->k == S_WAITSEC) {
+            static uint64_t until;
+            if (s_story_t++ == 0) until = svcGetSystemTick() + (uint64_t)e->n * SYSCLOCK_ARM11;
+            if (svcGetSystemTick() >= until) {
+                s_story_i++;
+                s_story_t = 0;
+            }
+            return;
+        }
+        // A gesture: glide there, press, (drag / hold), lift, pause.
+        int x = e->a, y = e->b, x2 = e->a, y2 = e->b, press = e->n;
+        if (e->k == S_DRAG) {
+            x2 = e->c;
+            y2 = e->d;
+        } else if (e->k == S_ROLL) {  // a note on the piano roll, stretched to its length
+            const int row = music_roll_row(e->b, s_app.roll_chromatic) - s_app.roll_scroll;
+            x = ROLL_X0 + e->a * ROLL_CELL_W + ROLL_CELL_W / 2;
+            y = ROLL_Y0 + (ROLL_ROWS - 1 - row) * ROLL_ROW_H + ROLL_ROW_H / 2;
+            // Length 1 after a longer note: a nudge left sets it (new notes
+            // take the last length you stretched to).
+            x2 = e->c > 1 ? x + (e->c - 1) * ROLL_CELL_W : x - ROLL_CELL_W;
+            y2 = y;
+            press = 6 + e->c * 3;
+        }
+        const int t = s_story_t++;
+        const float sx = s_story_x, sy = s_story_y;
+        s_app.cursor_on = true;
+        if (t < STORY_MOVE) {  // gliding over
+            const float f = (float)(t + 1) / STORY_MOVE, ease = f * f * (3 - 2 * f);
+            s_app.cursor_x = sx + (x - sx) * ease;
+            s_app.cursor_y = sy + (y - sy) * ease;
+            s_app.cursor_down = false;
+            if (t == STORY_MOVE - 1) {
+                s_story_x = x;
+                s_story_y = y;
+            }
+            return;
+        }
+        const int p = t - STORY_MOVE;
+        if (p <= press) {  // stylus down (dragging along, if it's a drag)
+            const float f = press > 0 ? (float)p / press : 1.0f;
+            const float cx = x + (x2 - x) * f, cy = y + (y2 - y) * f;
+            *held = KEY_TOUCH;
+            if (p == 0) *down = KEY_TOUCH;
+            tp->px = (u16)cx;
+            tp->py = (u16)cy;
+            s_app.cursor_x = cx;
+            s_app.cursor_y = cy;
+            s_app.cursor_down = true;
+            return;
+        }
+        if (p == press + 1) {  // lift
+            *up = KEY_TOUCH;
+            s_story_x = x2;
+            s_story_y = y2;
+            s_app.cursor_down = false;
+            return;
+        }
+        if (p < press + 1 + STORY_GAP) return;
+        s_story_i++;
+        s_story_t = 0;
+    }
+}
+#endif
+
 int main(void) {
     gfxInitDefault();
     gfxSet3D(true);  // the top-screen scene has real depth; the slider scales it
@@ -2126,6 +2458,12 @@ int main(void) {
     while (aptMainLoop()) {
         hidScanInput();
         u32 down = hidKeysDown(), held = hidKeysHeld(), up = hidKeysUp(), repeat = hidKeysDownRepeat();
+        hidTouchRead(&s_tp);
+#ifdef VM_STORY
+        story_input(&down, &held, &up, &s_tp);  // the script plays the 3DS
+        repeat = 0;
+#endif
+        s_keys_held = held;
         // (Not on the press frame itself: s_start_down is only set below.)
         if ((held & KEY_START) && !(down & KEY_START) && s_app.frame - s_start_down >= QUIT_HOLD_FRAMES) break;
 
@@ -2261,6 +2599,9 @@ int main(void) {
         float depth = osGet3DSliderState();
 
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
+#ifdef VM_RECORD
+        rec_frame();
+#endif
         C2D_TargetClear(top, bg);
         C2D_SceneBegin(top);
         ui_draw_top(&s_app, &stats, scope, -depth);

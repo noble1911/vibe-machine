@@ -474,6 +474,22 @@ static void draw_fx_overlay(const AppState *app) {
         sh_rect(0, 0, TOP_W, TOP_H, rgba(t->ink, (uint8_t)((1.0f - fx->tape_speed) * 0xA0)));
 }
 
+// Story build: what's happening, in a big sticker along the bottom.
+static void draw_caption(const AppState *app) {
+    if (!app->caption) return;
+    const Theme *t = ui_theme();
+    const float y = TOP_H - 34, h = 28;
+    const uint32_t face = t->pal[(app->caption_n + 2) % THEME_PALETTE];
+    sh_card(8, y, TOP_W - 16, h, rgba(face, 0xFF), rgba(t->ink, 0xFF), 4);
+    float tx = 18;
+    if (app->caption_n > 0) {  // the step number in a circle
+        sh_circle(24, y + h / 2.0f, 11, rgba(t->ink, 0xFF));
+        ui_text(24, y + 5, 0.55f, rgba(face, 0xFF), C2D_AlignCenter, "%d", app->caption_n);
+        tx = 42;
+    }
+    ui_text(tx, y + 6.5f, 0.46f, rgba(ink_on(t, face), 0xFF), 0, "%s", app->caption);
+}
+
 void ui_draw_top(const AppState *app, const AudioStats *stats, const int16_t *scope, float eye) {
     if (ui_theme()->sunset)
         draw_sunset(eye);
@@ -483,4 +499,5 @@ void ui_draw_top(const AppState *app, const AudioStats *stats, const int16_t *sc
     draw_bursts(eye);
     draw_fx_overlay(app);
     draw_hud(app, stats);
+    draw_caption(app);
 }

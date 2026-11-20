@@ -71,6 +71,17 @@ ifdef DEMO
 # Screenshot/attract build: cycles themes and plays silent notes by itself.
 CFLAGS	+=	-DVM_DEMO
 endif
+ifdef STORY
+# Story build: plays a scripted session that makes a song from nothing,
+# through the real touch handlers, with captions (for the demo video).
+# Keeps its files in its own folder on the SD card.
+CFLAGS	+=	-DVM_STORY
+endif
+ifdef RECORD
+# With STORY=1: the story records itself (screens every 4th frame, and the
+# sound) to sdmc:/3ds/vibe-machine-story/record/ for tools/make-video.sh.
+CFLAGS	+=	-DVM_RECORD
+endif
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 

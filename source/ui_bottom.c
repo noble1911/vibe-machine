@@ -1265,6 +1265,17 @@ void ui_draw_bottom(const AppState *app) {
         default: draw_sound_page(app); break;
     }
     for (int k = 0; k < MUSIC_KEYS; k++) draw_key(app, k);
+    if (app->cursor_on) {  // story build: the pretend stylus
+        const float cx = app->cursor_x, cy = app->cursor_y;
+        if (app->cursor_down) {
+            sh_ring(cx, cy, 9 + (s_frame % 10) * 0.6f, 2, rgba(t->pal[0], 0xC0));
+            sh_circle(cx, cy, 4, rgba(t->pal[0], 0xFF));
+        }
+        // A stylus coming in from the bottom right, tip on the point.
+        sh_bar(cx + 13, cy + 13, 30, 6, 0.785f, rgba(t->ink, 0xE0));
+        sh_bar(cx + 12, cy + 12, 28, 3.5f, 0.785f, rgba(0xFFFFFF, 0xFF));
+        sh_tri(cx + 2.5f, cy + 2.5f, 4, 3.927f, rgba(t->ink, 0xFF));
+    }
     if (app->notice_frames > 0 && !app->busy) {  // something went wrong (or needs saying)
         sh_card(40, 84, 240, 40, rgba(t->pal[0], 0xFF), rgba(t->ink, 0xFF), 4);
         ui_text(160, 96, 0.45f, rgba(ink_on(t, t->pal[0]), 0xFF), C2D_AlignCenter, "%s", app->notice);

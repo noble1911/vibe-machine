@@ -35,6 +35,10 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Story and demo builds compile
+        run: |
+          make STORY=1 RECORD=1 -j"$(nproc)" && make clean
+          make DEMO=1 -j"$(nproc)" && make clean
       - name: Build
         run: make -j"$(nproc)"
 

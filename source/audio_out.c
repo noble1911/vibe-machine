@@ -48,7 +48,7 @@ static volatile uint32_t s_cap_dropped;
 void audio_out_capture(bool on) {
     if (on && !s_cap) s_cap = (int16_t *)malloc(CAP_FRAMES * 2 * sizeof(int16_t));
     if (on && !s_cap) return;
-    if (on) {
+    if (on && !s_capturing) {  // starting: from now on (already on: carry on)
         __atomic_store_n(&s_cap_r, __atomic_load_n(&s_cap_w, __ATOMIC_ACQUIRE), __ATOMIC_RELEASE);
         s_cap_dropped = 0;
     }

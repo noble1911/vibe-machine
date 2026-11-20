@@ -50,5 +50,9 @@ build/mix_probe: mix_probe.c probe_platform.c ../source/mixer.c ../source/sounds
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
+build/inspect_song: inspect_song.c ../source/storage.c ../source/sampler.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
+
 clean:
 	rm -rf build

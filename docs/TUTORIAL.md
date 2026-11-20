@@ -4,6 +4,10 @@ A tour of everything Vibe Machine does, page by page, and then a few
 recipes to get you making things. It takes about twenty minutes with the
 3DS in your hands.
 
+**From nothing to a finished song in ten steps:** jump to
+[the walkthrough](#from-nothing-to-a-finished-song), or watch it happen in
+the [demo video](media/zero-to-song.mp4).
+
 **Contents:**
 [First sound](#1-your-first-sound) ·
 [The screens](#2-finding-your-way-around) ·
@@ -20,6 +24,53 @@ recipes to get you making things. It takes about twenty minutes with the
 [Looks](#13-themes-and-3d) ·
 [Recipes](#14-recipes) ·
 [Troubleshooting](#15-troubleshooting)
+
+---
+
+## From nothing to a finished song
+
+[![The ten steps, as played by the story build](media/zero-to-song.gif)](media/zero-to-song.mp4)
+
+*(Click for the full video with sound. It's the app playing itself: `make
+STORY=1` runs exactly these steps through the real touchscreen code.)*
+
+The whole journey, in the order you'd do it. Each step links to the part of
+this tutorial that explains it in depth.
+
+1. **Drums.** SOUND → SONGS → **NEW** (hold) for an empty song, then go to
+   **SEQ**. Tap kicks on the first drum lane, under the thin accent row
+   (steps 1, 5, 9, 11, 13), snares on the next one down (5 and 13), and
+   **drag along the third (hats)** to fill all 16.
+   Press **START**. ([The SEQ page](#5-the-seq-page-making-beats))
+2. **Bass.** **SYNTH** → part **1** → the **SQUELCH** tile. Back on SEQ,
+   tap **ROLL** and draw a bass line in the low rows: tap to place a note,
+   keep dragging right to make it longer. ([Piano roll](#the-piano-roll))
+3. **Chords.** In the roll's header tap part **2**; on SYNTH pick **JUNO**.
+   Draw three notes stacked on the same step and stretch them across 4–8
+   steps: that's a chord. ([Parts](#6-parts-three-instruments-at-once))
+4. **Lead.** Part **3** (BELL by default): a few high notes on top.
+5. **Mix.** **MIX** page: drag the drums' **CRSH** knob up a little, the
+   bass's **DRV** up, the chords' **PAN** a bit to one side and their fader
+   down a touch. ([MIX](#9-the-mix-page-balancing-the-parts))
+6. **A variation.** On SEQ, **hold B** to copy pattern A into it (B is now
+   playing), then change it: an extra kick, a snare fill at the end.
+7. **Movement.** Turn on **●** (record) on SEQ, go to **FX**, pick
+   **SWEEP** and drag across the pad for a bar: the filter sweep is now
+   part of pattern B. Turn ● off. ([Recording FX moves](#recording-fx-moves-automation))
+8. **Arrange.** **Hold SONG**. Tap **+**, pick **A**, tap it again for ×2
+   and drop the drums with **D** (an intro); then A×2, B×4, A×2, B×2. Leave
+   the end on **STOP**. ([The SONG sheet](#the-song-sheet-arranging))
+9. **Save.** SOUND → SONGS → **SAVE AS**, and give it a name.
+   ([Songs](#12-songs-saving-your-work))
+10. **Mix it down.** MIX → **MIXDOWN**. The song plays from the top and is
+    recorded, as you hear it, to `sdmc:/3ds/vibe-machine/mixes/<NAME>.wav`.
+    It stops by itself at the end. Copy the file off the SD card: done.
+    ([MIXDOWN](#mixdown-your-song-as-a-wav))
+
+**Going further:** record your voice or grab a bar from the tape into the
+[sampler](#8-the-sampler-mic) and **CHOP** it into slices; layer
+performances on the [tape](#11-the-tape-page-recording-tracks); play the FX
+live during the mixdown. Hold ✕ on SEQ to **undo** a clear or a dice roll.
 
 ---
 

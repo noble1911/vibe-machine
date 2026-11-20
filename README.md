@@ -13,6 +13,16 @@ play.
 
 ![Vibe Machine: the sequencer, the song browser, the DX7 patch dots and the PLUCK creature pad, in four of its nine themes](docs/images/hero.png)
 
+## From nothing to a finished song
+
+[![Vibe Machine making a song from nothing: drums, bass, chords, lead, mix, variation, a recorded filter sweep, arrangement, save and mixdown](docs/media/zero-to-song.gif)](docs/media/zero-to-song.mp4)
+
+**[▶ Watch the full video, with sound](docs/media/zero-to-song.mp4)** (2½
+minutes). That's the app playing itself: the story build (`make STORY=1`)
+taps and drags through the real touchscreen code, and ends with the song
+mixed down to a WAV. The ten steps are written out in the
+[tutorial](docs/TUTORIAL.md#from-nothing-to-a-finished-song).
+
 > **New here? Read the [tutorial](docs/TUTORIAL.md).** It walks through
 > every screen and has recipes for your first beat, your first tape track
 > and sampling your own voice.
@@ -25,8 +35,10 @@ play.
 | ![SEQ page](docs/images/seq.png) | **SEQ**: a 16-step sequencer with a synth row, accents and eight drum lanes, plus a **piano roll** for melodies, chords and long notes. Eight pattern slots (A–H) chain into a song. Swing, live recording, and a dice that rolls new grooves. |
 | ![SYNTH creature pad](docs/images/synth-creature.png) | **SYNTH**: ten sounds, each with a googly-eyed mascot. Drag the mascot around the pad to play its two macros. |
 | ![SYNTH patch dots](docs/images/synth-bank.png) | The **Juno-6** and **DX7** banks: 128 patches each, as dots to tap or slide across. |
-| | **MIX**: a channel strip for each part and the drums: fader, LED meter, DRIVE, CRUSH, TONE and PAN knobs, MUTE and SOLO. |
+| ![SONG sheet](docs/images/song-sheet.png) | **SONG sheet**: arrange patterns into a song: rows of slots, repeated ×1–8, with parts dropped out for intros and breakdowns, and an ending. |
+| ![MIX page](docs/images/mix.png) | **MIX**: a channel strip for each part and the drums: fader, LED meter, DRIVE, CRUSH, TONE and PAN knobs, MUTE and SOLO. **MIXDOWN** records the finished song to a stereo WAV. |
 | ![FX page, STUTTER](docs/images/fx-stutter.png) | **FX**: CRUSH, SWEEP, STUTTER and TAPE STOP, played on an XY pad. HOLD lets them stack. |
+| ![FX automation playing a recorded sweep](docs/images/fx-auto.png) | Record your FX moves into a pattern and it plays them back: the strip along the pad shows which steps have one. |
 | ![FX page, CRUSH with the top screen pixelating](docs/images/fx-crush.png) | The top screen reacts to the effects: it pixelates, freezes, glitches and slows down with the tape. |
 | ![TAPE page](docs/images/tape.png) | **TAPE**: four 60-second tracks that record everything, or one part or the drums at a time (which then mute live, so you hear them once). Scratch the tape, play it in reverse, vary its speed. |
 | ![SONGS page](docs/images/songs.png) | **SONGS**: save, load and manage named songs, with tapes and MIC takes included. |
@@ -84,7 +96,13 @@ git clone --recursive https://github.com/noble1911/vibe-machine.git
 cd vibe-machine
 make            # -> vibe-machine.3dsx
 make DEMO=1     # a silent attract mode that tours every page (for screenshots)
+make STORY=1    # plays the zero-to-song story by itself (an end-to-end UI test)
 ```
+
+The demo video is the story recording itself: `make STORY=1 RECORD=1`, run
+it in Azahar until `sdmc:/3ds/vibe-machine-story/record/done` appears, then
+`sh tools/make-video.sh <that folder> docs/media`. `tests/build/inspect_song`
+prints what a saved song holds (`make -C tests build/inspect_song`).
 
 ### Tests
 
@@ -121,6 +139,8 @@ probe on each push ([workflow](.github/workflows/build.yml)). Pushing a
 | `source/songs.c`, `storage.c`, `wav.c` | Named songs, the save format, WAV files |
 | `source/dice.c` | Weighted random grooves |
 | `source/ui*.c`, `shapes.c`, `motif.c`, `theme.c` | Both screens, the Memphis drawing kit, the nine themes |
+| `source/main.c` (`VM_STORY`) | The scripted story: fake stylus and buttons through the real handlers |
+| `tools/` | `make-video.sh` (story recording to MP4), `record-window.swift` (one-window screen recorder) |
 | `tests/` | Host probes (above) |
 | `third_party/amy` | [AMY](https://github.com/shorepine/amy), pinned as a git submodule |
 
