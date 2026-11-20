@@ -10,14 +10,15 @@ recipes to get you making things. It takes about twenty minutes with the
 [Playing](#3-playing-keys-chords-and-drums) ·
 [SOUND](#4-the-sound-page) ·
 [SEQ](#5-the-seq-page-making-beats) ·
-[SYNTH](#6-the-synth-page-choosing-and-shaping-sounds) ·
-[MIC](#7-sampling-your-voice-with-mic) ·
-[FX](#8-the-fx-page-performance-effects) ·
-[TAPE](#9-the-tape-page-recording-tracks) ·
-[SONGS](#10-songs-saving-your-work) ·
-[Looks](#11-themes-and-3d) ·
-[Recipes](#12-recipes) ·
-[Troubleshooting](#13-troubleshooting)
+[Parts](#6-parts-three-instruments-at-once) ·
+[SYNTH](#7-the-synth-page-choosing-and-shaping-sounds) ·
+[MIC](#8-sampling-your-voice-with-mic) ·
+[FX](#9-the-fx-page-performance-effects) ·
+[TAPE](#10-the-tape-page-recording-tracks) ·
+[SONGS](#11-songs-saving-your-work) ·
+[Looks](#12-themes-and-3d) ·
+[Recipes](#13-recipes) ·
+[Troubleshooting](#14-troubleshooting)
 
 ---
 
@@ -82,9 +83,9 @@ glide from note to note.
   - **VERB**: how much reverb.
   - **VOL**: master volume.
 - **THEME**: tap to cycle the nine colour themes (more in
-  [section 11](#11-themes-and-3d)).
+  [section 12](#12-themes-and-3d)).
 - **SONGS** (the floppy disk): the song browser
-  ([section 10](#10-songs-saving-your-work)).
+  ([section 11](#11-songs-saving-your-work)).
 
 ## 5. The SEQ page: making beats
 
@@ -167,7 +168,29 @@ and 4, hats fill in, accents fall on the beat, and the synth line plays a
 short motif in a pentatonic scale. Roll until something grabs you, then
 edit it.
 
-## 6. The SYNTH page: choosing and shaping sounds
+## 6. Parts: three instruments at once
+
+Vibe Machine has **three instrument parts** plus the drums. Each part has
+its **own sound** (with its own patch and macros) and its **own notes** in
+every pattern, so you can have, say, a SQUELCH bass on part 1, JUNO chords
+on part 2 and a BELL lead on part 3, all playing together. They start as
+**JUNO**, **PLUCK** and **BELL**.
+
+- **Picking a part:** on SYNTH, tap one of the three part stickers along
+  the top ("1 JUNO", "2 PLUK", "3 BELL"). On SEQ, tap the numbered chip at
+  the left of the synth row (it cycles), or the 1 / 2 / 3 pickers in the
+  piano roll's header.
+- **Whatever part is picked** is the one the keys play, the SYNTH page
+  shapes, the grid's synth row and the piano roll edit, and live recording
+  records into. The top screen's patch card says which part you're on.
+- In the piano roll, the **other parts' notes show faintly**, so you can
+  write a bass line under your chords.
+- **Muting:** hold a part sticker on the SYNTH page for about ⅔ of a second
+  and it's struck through and silent. Hold again to unmute.
+- **The SEQ dice** rolls new drums and new notes for the current part only;
+  the other parts keep theirs.
+
+## 7. The SYNTH page: choosing and shaping sounds
 
 ![SYNTH page with the PLUCK creature](images/synth-creature.png)
 
@@ -202,7 +225,7 @@ or **slide across** them to audition. The patch name appears on the top
 screen. The **circle pad ← →** steps through patches, and the **dice** picks
 a random one.
 
-## 7. Sampling your voice with MIC
+## 8. Sampling your voice with MIC
 
 1. On **SYNTH**, tap the **MIC** tile.
 2. **Hold REC** (top of the pad) and sing, beatbox or tap something into the
@@ -219,7 +242,7 @@ a random one.
 The take is saved with your song. Until you record one, MIC plays a
 cartoon "boing".
 
-## 8. The FX page: performance effects
+## 9. The FX page: performance effects
 
 ![FX page with STUTTER](images/fx-stutter.png)
 
@@ -241,7 +264,7 @@ the axes do.
 
 ![CRUSH pixelating the top screen](images/fx-crush.png)
 
-## 9. The TAPE page: recording tracks
+## 10. The TAPE page: recording tracks
 
 ![TAPE page](images/tape.png)
 
@@ -275,7 +298,7 @@ recording).
   while you hold.
 - **SEQ LINK** off: the tape and sequencer start and stop independently.
 
-## 10. Songs: saving your work
+## 11. Songs: saving your work
 
 ![SONGS page](images/songs.png)
 
@@ -297,7 +320,7 @@ The top screen shows the song's name, with `*` while there are unsaved
 changes. Separately, whatever you're doing is autosaved as you go, so
 you'll find it again next time you start, even without saving.
 
-## 11. Themes and 3D
+## 12. Themes and 3D
 
 Tap **THEME** on the SOUND page to cycle through nine looks: **Prism**,
 **Graph Paper**, **Midnight**, **Teal Pop**, **Lime Rave**, **Grape Soda**,
@@ -308,7 +331,15 @@ Push up the **3D slider**: the back layers of triangles sink into the
 screen, the waveform floats in the middle, and the bursts from your notes
 fly out at you.
 
-## 12. Recipes
+## 13. Recipes
+
+**Bass, chords and lead**
+1. SYNTH → part **1** → SQUELCH. SEQ → ROLL: draw a bass line in the low
+   rows.
+2. Part **2** → JUNO: draw long chords (stretch them across 4 steps). The
+   bass shows faintly underneath.
+3. Part **3** → BELL: a few high notes on top. Mute parts by holding their
+   stickers to hear each layer alone.
 
 **A beat in two minutes**
 1. SEQ → tap the dice until you like the drums.
@@ -338,7 +369,7 @@ fly out at you.
    (wobble): the whole mix drops like a dying cassette.
 2. Tap TAPE again to let it spin back up.
 
-## 13. Troubleshooting
+## 14. Troubleshooting
 
 - **"NO AUDIO: DSP firmware missing"**: the 3DS needs `dspfirm.cdc` in
   `sdmc:/3ds/`. Run the DSP1 homebrew once. In Azahar, run

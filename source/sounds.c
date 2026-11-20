@@ -70,51 +70,51 @@ void sound_set_sample_frames(int frames) { s_sample_frames = frames > 0 ? frames
 static float lin(float t, float lo, float hi) { return lo + (hi - lo) * t; }
 static float expo(float t, float lo, float hi) { return lo * powf(hi / lo, t); }
 
-bool sound_macro_wire(int index, int m, float t, char *out, size_t len) {
+bool sound_macro_wire(int index, int m, float t, int synth, char *out, size_t len) {
     if (t < 0.0f) t = 0.0f;
     if (t > 1.0f) t = 1.0f;
     switch (index * SOUND_MACROS + m) {
         // PLUCK: string feedback, pluck position (near the end = brighter).
-        case S_PLUCK * 2 + 0: snprintf(out, len, "i1v0b%.4f", lin(t, 0.95f, 0.9995f)); return true;
-        case S_PLUCK * 2 + 1: snprintf(out, len, "i1v0d%.3f", lin(t, 0.05f, 0.5f)); return true;
+        case S_PLUCK * 2 + 0: snprintf(out, len, "i%dv0b%.4f", synth, lin(t, 0.95f, 0.9995f)); return true;
+        case S_PLUCK * 2 + 1: snprintf(out, len, "i%dv0d%.3f", synth, lin(t, 0.05f, 0.5f)); return true;
         // SQUELCH: filter cutoff and resonance.
-        case S_SQUELCH * 2 + 0: snprintf(out, len, "i1v0F%.1f", expo(t, 60.0f, 4000.0f)); return true;
-        case S_SQUELCH * 2 + 1: snprintf(out, len, "i1v0R%.2f", expo(t, 0.7f, 12.0f)); return true;
+        case S_SQUELCH * 2 + 0: snprintf(out, len, "i%dv0F%.1f", synth, expo(t, 60.0f, 4000.0f)); return true;
+        case S_SQUELCH * 2 + 1: snprintf(out, len, "i%dv0R%.2f", synth, expo(t, 0.7f, 12.0f)); return true;
         // BELL: modulator:carrier ratio (stepped through bell-ish ratios) and
         // modulation depth (the modulator's peak amplitude, "beta").
         case S_BELL * 2 + 0: {
             static const float ratios[] = {0.5f, 1.0f, 1.41f, 2.0f, 2.76f, 3.5f, 4.0f, 5.19f, 7.0f};
-            snprintf(out, len, "i1v2I%.2f", ratios[(int)(t * 8.99f)]);
+            snprintf(out, len, "i%dv2I%.2f", synth, ratios[(int)(t * 8.99f)]);
             return true;
         }
-        case S_BELL * 2 + 1: snprintf(out, len, "i1v2a%.2f", lin(t, 0.0f, 4.0f)); return true;
+        case S_BELL * 2 + 1: snprintf(out, len, "i%dv2a%.2f", synth, lin(t, 0.0f, 4.0f)); return true;
         // BREEZE: band-pass resonance, filter offset from the played note.
-        case S_BREEZE * 2 + 0: snprintf(out, len, "i1v0R%.2f", expo(t, 1.0f, 16.0f)); return true;
-        case S_BREEZE * 2 + 1: snprintf(out, len, "i1v0F%.1f", expo(t, 110.0f, 1760.0f)); return true;
+        case S_BREEZE * 2 + 0: snprintf(out, len, "i%dv0R%.2f", synth, expo(t, 1.0f, 16.0f)); return true;
+        case S_BREEZE * 2 + 1: snprintf(out, len, "i%dv0F%.1f", synth, expo(t, 110.0f, 1760.0f)); return true;
         // SUPERSAW: detune spread (kept centred) and cutoff.
         case S_SUPERSAW * 2 + 0: {
             float sp = lin(t, 0.0f, 0.03f);
-            snprintf(out, len, "i1v0C5,%.4f,%.4f,0.85", sp, -2.0f * sp);
+            snprintf(out, len, "i%dv0C5,%.4f,%.4f,0.85", synth, sp, -2.0f * sp);
             return true;
         }
-        case S_SUPERSAW * 2 + 1: snprintf(out, len, "i1v0F%.1f", expo(t, 200.0f, 9000.0f)); return true;
+        case S_SUPERSAW * 2 + 1: snprintf(out, len, "i%dv0F%.1f", synth, expo(t, 200.0f, 9000.0f)); return true;
         // FOLD: wavefold drive, then the bitcrusher (off at the bottom).
-        case S_FOLD * 2 + 0: snprintf(out, len, "i1v0GD%.2f", expo(t, 1.0f, 12.0f)); return true;
+        case S_FOLD * 2 + 0: snprintf(out, len, "i%dv0GD%.2f", synth, expo(t, 1.0f, 12.0f)); return true;
         case S_FOLD * 2 + 1:
             if (t < 0.05f)
-                snprintf(out, len, "i1v0GH0");
+                snprintf(out, len, "i%dv0GH0", synth);
             else
-                snprintf(out, len, "i1v0GH%d,%d", 14 - (int)(t * 11.0f), 1 + (int)(t * 6.0f));
+                snprintf(out, len, "i%dv0GH%d,%d", synth, 14 - (int)(t * 11.0f), 1 + (int)(t * 6.0f));
             return true;
         // WAVY: position within the table, which of the five tables.
-        case S_WAVY * 2 + 0: snprintf(out, len, "i1v0d%.3f", t); return true;
-        case S_WAVY * 2 + 1: snprintf(out, len, "i1v0p%d", 11 + (int)(t * 4.99f)); return true;
+        case S_WAVY * 2 + 0: snprintf(out, len, "i%dv0d%.3f", synth, t); return true;
+        case S_WAVY * 2 + 1: snprintf(out, len, "i%dv0p%d", synth, 11 + (int)(t * 4.99f)); return true;
         // MIC: where in the take each note starts, and a low-pass tone.
         // AMY's PCM phase is an absolute position: start_frame / 2^23.
         case S_MIC * 2 + 0:
-            snprintf(out, len, "i1v0P%.7f", lin(t, 0.0f, 0.8f) * (float)s_sample_frames / 8388608.0f);
+            snprintf(out, len, "i%dv0P%.7f", synth, lin(t, 0.0f, 0.8f) * (float)s_sample_frames / 8388608.0f);
             return true;
-        case S_MIC * 2 + 1: snprintf(out, len, "i1v0F%.0f", expo(t, 300.0f, 12000.0f)); return true;
+        case S_MIC * 2 + 1: snprintf(out, len, "i%dv0F%.0f", synth, expo(t, 300.0f, 12000.0f)); return true;
         default: return false;
     }
 }

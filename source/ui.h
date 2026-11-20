@@ -93,6 +93,14 @@
 #define ROLL_Y0 38
 #define ROLL_ROW_H 8
 #define ROLL_ROWS 13
+#define ROLL_PART_X0 28   // part pickers in the roll's header
+#define ROLL_PART_W 16
+#define ROLL_PART_PITCH 18
+
+// SYNTH page: part stickers in the tab row (tap: pick, hold: mute).
+#define PART_TAB_X0 136
+#define PART_TAB_W 58
+#define PART_TAB_PITCH 60
 
 // SYNTH page: a 2x5 grid of sound tiles, and the pad (an XY creature pad
 // for CUSTOM sounds, a 16x8 patch-dot grid for BANK sounds).
@@ -250,6 +258,9 @@ bool ui_hit_seq_cell(int x, int y, int *step, int *row);
 int ui_hit_seq_slot(int x, int y);  // 0..7, SEQ_HIT_SONG, SEQ_HIT_SWING or -1
 float ui_swing_at(int x);           // swing strip position -> 0..SEQ_SWING_MAX
 bool ui_hit_roll_toggle(int x, int y);
+int ui_hit_roll_part(int x, int y);     // part 0..PARTS-1, or -1
+int ui_hit_part_tab(int x, int y);      // SYNTH page part sticker, or -1
+bool ui_hit_seq_part_chip(int x, int y);  // the grid's synth-row chip
 bool ui_hit_roll_keys(int x, int y);
 // Roll cell under (x, y): step 0..15 and row 0..ROLL_ROWS-1 counted up from
 // the bottom. The clamped form always answers (for drags off the edge).

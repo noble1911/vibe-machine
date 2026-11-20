@@ -263,6 +263,21 @@ bool ui_hit_roll_toggle(int x, int y) {
     return in_box(x, y, ROLL_TOGGLE_X - 2, ROLL_TOGGLE_Y - 2, ROLL_TOGGLE_W + 3, ROLL_TOGGLE_H + 2);
 }
 
+int ui_hit_roll_part(int x, int y) {
+    for (int k = 0; k < PARTS; k++)
+        if (in_box(x, y, ROLL_PART_X0 + k * ROLL_PART_PITCH - 1, ROLL_TOGGLE_Y - 2, ROLL_PART_W + 2, ROLL_TOGGLE_H + 3)) return k;
+    return -1;
+}
+
+int ui_hit_part_tab(int x, int y) {
+    if (y > TAB_Y + TAB_H + 3) return -1;
+    for (int k = 0; k < PARTS; k++)
+        if (in_box(x, y, PART_TAB_X0 + k * PART_TAB_PITCH - 1, 0, PART_TAB_W + 2, TAB_Y + TAB_H + 3)) return k;
+    return -1;
+}
+
+bool ui_hit_seq_part_chip(int x, int y) { return in_box(x, y, 2, SEQ_SYNTH_Y - 2, 19, SEQ_SYNTH_H + 3); }
+
 bool ui_hit_roll_keys(int x, int y) {
     return in_box(x, y, ROLL_KEYS_X - 3, ROLL_Y0, ROLL_KEYS_W + 4, ROLL_ROWS * ROLL_ROW_H);
 }

@@ -15,7 +15,18 @@
 // PAGE_COUNT pages have tabs; SONGS opens from the SOUND page.
 typedef enum { PAGE_SOUND, PAGE_SEQ, PAGE_SYNTH, PAGE_FX, PAGE_TAPE, PAGE_COUNT, PAGE_SONGS = PAGE_COUNT } Page;
 
+// Each instrument part keeps its own sound; AppState.sound / patch / macro
+// below are a working copy of the current part's.
 typedef struct {
+    int sound, patch;
+    float macro[SOUND_MACROS];
+} PartState;
+
+typedef struct {
+    int part;                   // part being played / edited (0..PARTS-1)
+    int part_hold;              // SYNTH part sticker being held (to mute), or -1
+    float part_hold_t;
+    PartState parts[PARTS];
     int sound;                  // index into sounds.c
     int patch;                  // AMY patch number (BANK sounds), PATCH_FIRST..PATCH_LAST
     float macro[SOUND_MACROS];  // CUSTOM sound macros, 0..1

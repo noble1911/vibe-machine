@@ -21,14 +21,19 @@ int main(void) {
     SaveState a;
     memset(&a, 0, sizeof(a));
     a.theme = 6;
-    a.sound = 4;
-    a.patch = 77;
-    a.macro[0] = 0.25f;
-    a.macro[1] = 0.75f;
+    for (int k = 0; k < PARTS; k++) {  // three parts, three sounds
+        a.parts[k].sound = 2 + k;
+        a.parts[k].patch = 70 + k;
+        a.parts[k].macro[0] = 0.25f + 0.1f * k;
+        a.parts[k].macro[1] = 0.75f - 0.1f * k;
+    }
+    a.part = 2;
+    a.muted = 0x2;
     for (int i = 0; i < PARAM_COUNT; i++) a.params[i] = 0.1f * (i + 1);
     a.octave = -2;
     a.bpm = 137;
     for (int i = 0; i < SEQ_SLOTS; i++) dice_groove(&a.slots[i], 12345u + i, 0);
+    for (int i = 0; i < a.slots[0].count; i++) a.slots[0].notes[i].part = (uint8_t)(i % PARTS);
     a.slot = 5;
     a.song = true;
     a.swing = 0.3f;
@@ -142,6 +147,8 @@ int main(void) {
             if (p->notes[i].step == 4 && p->notes[i].len == 1) chord_at_4++;
             if (p->notes[i].step == 9 && p->notes[i].pitch == 62) d_at_9++;
         }
+        check(loaded && old.parts[0].sound == 3 && old.parts[1].sound == -1 && old.part == 0,
+              "an older song keeps its sound on part 1; the other parts get defaults");
         check(loaded && old.bpm == 99 && strcmp(old.name, "OLD SONG") == 0 && p->count == 4 && chord_at_4 == 3 &&
                   d_at_9 == 1 && p->accents == 0x0101 && p->drums[0] == 1,
               "a song saved before the piano roll loads with its notes");

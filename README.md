@@ -2,8 +2,9 @@
 
 **A loud, 90s-Memphis pocket synth and groovebox for the Nintendo 3DS** (homebrew).
 
-Eight original synth engines plus the Juno-6 and DX7 banks, a microphone
-sampler, a 16-step sequencer with 8 pattern slots and song mode, four
+Three instrument parts plus drums, eight original synth engines plus the
+Juno-6 and DX7 banks, a microphone sampler, a 16-step sequencer and piano
+roll with 8 pattern slots and song mode, four
 performance effects you play with the stylus, and a 4-track tape recorder,
 all on an original 3DS, with stereoscopic 3D visuals that dance to what you
 play.

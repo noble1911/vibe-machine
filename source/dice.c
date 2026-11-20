@@ -49,6 +49,6 @@ void dice_groove(SeqPattern *out, uint32_t seed, int octave) {
         int n = music_key_notes(key, chord ? PLAY_CHORD : PLAY_NOTE, octave, notes);
         int len = rng_int(&rng, 100) < 25 ? 2 : 1;  // now and then a longer note
         for (int i = 0; i < n && out->count < SEQ_NOTES; i++)
-            out->notes[out->count++] = (SeqRollNote){(uint8_t)s, (uint8_t)notes[i], (uint8_t)len, (uint8_t)(SEQ_VEL_SYNTH * 255)};
+            out->notes[out->count++] = (SeqRollNote){(uint8_t)s, (uint8_t)notes[i], (uint8_t)len, (uint8_t)(SEQ_VEL_SYNTH * 255), 0};
     }
 }

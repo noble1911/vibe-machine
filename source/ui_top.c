@@ -309,7 +309,7 @@ static void draw_steps(const AppState *app) {
     for (int s = 0; s < SEQ_STEPS; s++) {
         const bool head = st->playing && s == st->step;
         int dummy[1];
-        const bool full = app->pattern.drums[s] || seq_notes_at(&app->pattern, s, dummy, 1) > 0;
+        const bool full = app->pattern.drums[s] || seq_notes_at(&app->pattern, -1, s, dummy, 1) > 0;
         float x = 52 + s * 21.5f, lift = head ? -5.0f : 0.0f;
         uint32_t f = head ? t->pal[0] : full ? t->pal[1 + (s / 4) % 4] : t->card;
         sh_card(x, y + lift, 18, 14, rgba(f, full || head ? 0xFF : 0xC0), ink, head ? 3 : 1.5f);
@@ -370,10 +370,11 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     const Sound *snd = sound_get(app->sound);
     const uint32_t bar = ink_on(t, t->pal[0]), text = ink_on(t, t->card);
     if (snd->kind == SOUND_BANK) {
-        ui_text(wx + 6, wy + 1, 0.4f, rgba(bar, 0xFF), 0, "%s_%03d.PAT", snd->name, app->patch - snd->bank_first);
+        ui_text(wx + 6, wy + 1, 0.4f, rgba(bar, 0xFF), 0, "PART %d  %s_%03d.PAT", app->part + 1, snd->name,
+                app->patch - snd->bank_first);
         ui_text(wx + 8, wy + 16, 0.58f, rgba(text, 0xFF), 0, "%s", patch_names[app->patch - PATCH_FIRST]);
     } else {
-        ui_text(wx + 6, wy + 1, 0.4f, rgba(bar, 0xFF), 0, "%s.SYN", snd->name);
+        ui_text(wx + 6, wy + 1, 0.4f, rgba(bar, 0xFF), 0, "PART %d  %s.SYN", app->part + 1, snd->name);
         ui_text(wx + 8, wy + 16, 0.58f, rgba(text, 0xFF), 0, "%s  %s %d  %s %d", snd->name, snd->macro_name[0],
                 (int)(app->macro[0] * 100 + 0.5f), snd->macro_name[1], (int)(app->macro[1] * 100 + 0.5f));
     }

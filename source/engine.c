@@ -47,7 +47,7 @@ void engine_init(void) {
     e.echo_feedback = 0.45f;
     send_locked(&e);
 
-    engine_set_patch(0);
+    // Each part's sound is loaded by main.c (engine_load_sound) at startup.
 
     // The MIC sound's placeholder until something is recorded.
     static int16_t boing[SAMPLER_RATE];
@@ -77,15 +77,6 @@ void engine_note_off(int synth, int note) {
     send_locked(&e);
 }
 
-void engine_set_patch(int patch) {
-    // Loading a patch rebuilds the synth's voices, which also silences any
-    // notes still sounding on it.
-    amy_event e = amy_default_event();
-    e.synth = SYNTH_LEAD;
-    e.num_voices = LEAD_VOICES;
-    e.patch_number = (uint16_t)patch;
-    send_locked(&e);
-}
 
 static void wire_locked(const char *msg) {
     char buf[512];  // amy_add_message wants a mutable string
@@ -95,29 +86,32 @@ static void wire_locked(const char *msg) {
     LightLock_Unlock(&s_lock);
 }
 
-void engine_load_sound(int sound, int patch) {
+void engine_load_sound(int part, int sound, int patch) {
     const Sound *s = sound_get(sound);
+    const int synth = part_synth(part);
     char msg[512];
     if (s->kind == SOUND_BANK) {
         amy_event e = amy_default_event();
-        e.synth = SYNTH_LEAD;
+        e.synth = (uint8_t)synth;
         e.num_voices = (uint16_t)s->voices;
         e.patch_number = (uint16_t)patch;
         send_locked(&e);
     } else {
-        snprintf(msg, sizeof(msg), "i%div%du%s", SYNTH_LEAD, s->voices, s->patch);
+        snprintf(msg, sizeof(msg), "i%div%du%s", synth, s->voices, s->patch);
         wire_locked(msg);
     }
-    snprintf(msg, sizeof(msg), "i%diV%.2f", SYNTH_LEAD, s->level);
+    snprintf(msg, sizeof(msg), "i%diV%.2f", synth, s->level);
     wire_locked(msg);
 }
 
 bool engine_load_sample(const int16_t *data, int frames, int rate) {
     if (frames <= 0) return false;
-    amy_event off = amy_default_event();
-    off.synth = SYNTH_LEAD;
-    off.velocity = 0.0f;  // note-off for every voice of the synth
-    send_locked(&off);
+    for (int part = 0; part < PARTS; part++) {  // any part may be playing the MIC take
+        amy_event off = amy_default_event();
+        off.synth = (uint8_t)part_synth(part);
+        off.velocity = 0.0f;  // note-off for every voice of the synth
+        send_locked(&off);
+    }
     LightLock_Lock(&s_lock);
     // midinote 60: the C key plays the take at its recorded pitch.
     int16_t *ram = pcm_load(SAMPLER_PRESET, (uint32_t)frames, (uint32_t)rate, 1, 60.0f, 0, 0);
@@ -127,9 +121,9 @@ bool engine_load_sample(const int16_t *data, int frames, int rate) {
     return ram != NULL;
 }
 
-void engine_set_macro(int sound, int m, float value) {
+void engine_set_macro(int part, int sound, int m, float value) {
     char msg[128];
-    if (sound_macro_wire(sound, m, value, msg, sizeof(msg))) wire_locked(msg);
+    if (sound_macro_wire(sound, m, value, part_synth(part), msg, sizeof(msg))) wire_locked(msg);
 }
 
 void engine_set_param(EngineParam param, float v) {

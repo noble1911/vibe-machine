@@ -8,6 +8,7 @@
 //           eight drum lanes. Cells under the playhead pop up off the card.
 
 #include <math.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "motif.h"
@@ -80,6 +81,9 @@ static uint32_t colourful(const Theme *t, int i) {
     }
     return n ? picks[i % n] : t->pal[i % THEME_PALETTE];
 }
+
+// Each part has a colour, used wherever it appears.
+static uint32_t part_rgb(const Theme *t, int part) { return t->pal[(part * 2 + 1) % THEME_PALETTE]; }
 
 // A sticker button: card + centred label, raised unless `down`.
 static void sticker(float x, float y, float w, float h, uint32_t face, bool down, const char *label) {
@@ -294,9 +298,9 @@ static void draw_transport(const AppState *app) {
 }
 
 // Is a note that started before `step` still held through it?
-static bool synth_held(const SeqPattern *p, int step) {
+static bool synth_held(const SeqPattern *p, int part, int step) {
     for (int i = 0; i < p->count; i++)
-        if (p->notes[i].step < step && p->notes[i].step + p->notes[i].len > step) return true;
+        if (p->notes[i].part == part && p->notes[i].step < step && p->notes[i].step + p->notes[i].len > step) return true;
     return false;
 }
 
@@ -317,8 +321,11 @@ static void draw_grid(const AppState *app) {
     }
 
     // Row chips on the left: a squiggle for the synth, key motifs for drums.
-    sh_card(5, SEQ_SYNTH_Y, 15, SEQ_SYNTH_H, rgba(t->pal[1], 0xFF), ink, 0);
-    sh_squiggle(12.5f, SEQ_SYNTH_Y + SEQ_SYNTH_H / 2.0f, 9, 2, 0, 1.6f, 0, rgba(ink_on(t, t->pal[1]), 0xFF));
+    // The synth row belongs to the current part: its chip shows which (tap
+    // to cycle).
+    const uint32_t pc = part_rgb(t, app->part);
+    sh_card(5, SEQ_SYNTH_Y, 15, SEQ_SYNTH_H, rgba(pc, 0xFF), ink, 1.5f);
+    ui_text(12.5f, SEQ_SYNTH_Y - 0.5f, 0.42f, rgba(ink_on(t, pc), 0xFF), C2D_AlignCenter, "%d", app->part + 1);
     for (int lane = 0; lane < SEQ_LANES; lane++) {
         uint32_t face = t->pal[lane % THEME_PALETTE];
         float y = SEQ_DRUM_Y + lane * SEQ_DRUM_PITCH;
@@ -345,7 +352,7 @@ static void draw_grid(const AppState *app) {
             sh_rect(x + SEQ_CELL_W / 2.0f - 3, SEQ_ACC_Y + SEQ_ACC_H / 2.0f, 6, 1, rgba(t->ink, 0x30));
 
         int pitches[8];
-        int count = seq_notes_at(p, s, pitches, 8);
+        int count = seq_notes_at(p, app->part, s, pitches, 8);
         if (count) {
             int low = pitches[0];
             for (int i = 1; i < count && i < 8; i++) low = pitches[i] < low ? pitches[i] : low;
@@ -354,7 +361,7 @@ static void draw_grid(const AppState *app) {
             ui_text(x + SEQ_CELL_W / 2.0f + pop, SEQ_SYNTH_Y + 1.5f + pop, 0.34f, rgba(ink_on(t, face), 0xFF),
                     C2D_AlignCenter, "%s", kNoteNames[low % 12]);
             if (count > 1) sh_circle(x + SEQ_CELL_W - 4 + pop, SEQ_SYNTH_Y + 3 + pop, 1.6f, ink);
-        } else if (synth_held(p, s)) {  // a longer note started earlier is still sounding here
+        } else if (synth_held(p, app->part, s)) {  // a longer note started earlier is still sounding here
             sh_rect(x, SEQ_SYNTH_Y + SEQ_SYNTH_H / 2.0f - 1.5f, SEQ_CELL_W, 3, rgba(colourful(t, 1), 0xFF));
         } else {
             sh_rect(x + 2, SEQ_SYNTH_Y + 2, SEQ_CELL_W - 4, SEQ_SYNTH_H - 4, rgba(t->ink, 0x18));
@@ -416,8 +423,16 @@ static void draw_roll(const AppState *app) {
     sh_card(ROLL_TOGGLE_X, ROLL_TOGGLE_Y, ROLL_TOGGLE_W, ROLL_TOGGLE_H, rgba(tf, 0xFF), ink, 0);
     ui_text(ROLL_TOGGLE_X + ROLL_TOGGLE_W / 2.0f, ROLL_TOGGLE_Y - 1.5f, 0.34f, rgba(ink_on(t, tf), 0xFF), C2D_AlignCenter,
             chrom ? "#" : "C");
-    ui_text(gx + 2, ROLL_TOGGLE_Y - 1, 0.32f, rgba(ink_on(t, t->card), 0x90), 0, "%s  |  tap add/remove, drag to move or stretch",
-            chrom ? "CHROMATIC" : "C MAJOR");
+    for (int k = 0; k < PARTS; k++) {  // which part the roll edits
+        const bool on = app->part == k, muted = (st->muted >> k) & 1u;
+        const uint32_t f = on ? part_rgb(t, k) : t->card;
+        const float px = ROLL_PART_X0 + k * ROLL_PART_PITCH;
+        sh_card(px, ROLL_TOGGLE_Y, ROLL_PART_W, ROLL_TOGGLE_H, rgba(f, 0xFF), ink, on ? 1.5f : 0.0f);
+        ui_text(px + ROLL_PART_W / 2.0f, ROLL_TOGGLE_Y - 1.5f, 0.34f, rgba(ink_on(t, f), muted ? 0x60 : 0xFF), C2D_AlignCenter,
+                "%d", k + 1);
+    }
+    ui_text(ROLL_PART_X0 + PARTS * ROLL_PART_PITCH + 4, ROLL_TOGGLE_Y - 1, 0.32f, rgba(ink_on(t, t->card), 0x90), 0,
+            "%s  |  tap add/remove, drag move/stretch", chrom ? "CHROMATIC" : "C MAJOR");
 
     // Rows: shading, and the keyboard strip with C labels.
     for (int r = 0; r < ROLL_ROWS; r++) {
@@ -440,9 +455,21 @@ static void draw_roll(const AppState *app) {
         sh_rect(x, gy, 1, gh, rgba(t->ink, s2 % 4 == 0 ? 0x40 : 0x14));
         if (st->playing && s2 == st->step) sh_rect(x, gy, ROLL_CELL_W, gh, rgba(t->pal[0], 0x40));
     }
-    // Notes.
+    // Other parts' notes, faintly, to write against.
     for (int i = 0; i < p->count; i++) {
         const SeqRollNote *n = &p->notes[i];
+        if (n->part == app->part) continue;
+        int r = music_roll_row(n->pitch, chrom) - app->roll_scroll;
+        if (r < 0 || r >= ROLL_ROWS) continue;
+        float x = gx + n->step * ROLL_CELL_W + 1, y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
+        float w = n->len * ROLL_CELL_W - 2;
+        if (x + w > gx + gw) w = gx + gw - x;
+        sh_rect(x, y + 2, w, ROLL_ROW_H - 5, rgba(part_rgb(t, n->part), 0x55));
+    }
+    // This part's notes.
+    for (int i = 0; i < p->count; i++) {
+        const SeqRollNote *n = &p->notes[i];
+        if (n->part != app->part) continue;
         int r = music_roll_row(n->pitch, chrom) - app->roll_scroll;
         if (r < 0 || r >= ROLL_ROWS) continue;
         float x = gx + n->step * ROLL_CELL_W + 1, y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
@@ -577,9 +604,30 @@ static void draw_creature_pad(const AppState *app, const Sound *s) {
     (void)ink;
 }
 
+// Part stickers in the tab row: tap to pick, hold to mute.
+static void draw_part_tabs(const AppState *app) {
+    const Theme *t = ui_theme();
+    for (int k = 0; k < PARTS; k++) {
+        const bool on = app->part == k, muted = (app->seq.muted >> k) & 1u;
+        const int sound = on ? app->sound : app->parts[k].sound;
+        const uint32_t face = on ? part_rgb(t, k) : t->card;
+        const float x = PART_TAB_X0 + k * PART_TAB_PITCH;
+        char label[16];
+        snprintf(label, sizeof(label), "%d %s", k + 1, sound_get(sound)->tag);
+        sticker(x, TAB_Y, PART_TAB_W, TAB_H, face, !on, label);
+        if (muted) {  // muted: struck through
+            float o = on ? 0.0f : 2.0f;
+            sh_rect(x + 4 + o, TAB_Y + TAB_H / 2.0f + o, PART_TAB_W - 8, 2, rgba(t->pal[0], 0xFF));
+        }
+        if (app->part_hold == k && app->part_hold_t > 0.0f)
+            sh_rect(x + 2, TAB_Y + TAB_H - 4, (PART_TAB_W - 4) * app->part_hold_t, 2.5f, rgba(ink_on(t, face), 0xFF));
+    }
+}
+
 static void draw_synth_page(const AppState *app) {
     const Theme *t = ui_theme();
     const Sound *s = sound_get(app->sound);
+    draw_part_tabs(app);
     draw_sound_tiles(app);
     sh_card(SYN_PAD_X, SYN_PAD_Y, SYN_PAD_W, SYN_PAD_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 3);
     if (s->kind == SOUND_BANK)

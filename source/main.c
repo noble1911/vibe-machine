@@ -48,6 +48,7 @@ static const u32 kKeyButtons[MUSIC_KEYS] = {
 typedef struct {
     int key;  // -1 when idle
     int synth;
+    int part;  // the part it was played on (for live recording)
     int count;
     int notes[MUSIC_MAX_NOTES];
 } Held;
@@ -72,7 +73,10 @@ typedef enum {
     TOUCH_SONG_HOLD,
     TOUCH_ROLL_NOTE,
     TOUCH_ROLL_KEYS,
+    TOUCH_PART_HOLD,
 } TouchMode;
+
+#define PART_MUTE_FRAMES 40  // hold a SYNTH part sticker this long to (un)mute it
 
 #define SONG_HOLD_FRAMES 45  // hold DELETE / NEW (and LOAD over unsaved work)
 
@@ -112,10 +116,10 @@ static void source_release(int src) {
     Held *h = &s_held[src];
     if (h->key < 0) return;
     for (int i = 0; i < h->count; i++) engine_note_off(h->synth, h->notes[i]);
-    if (h->synth == SYNTH_LEAD) {  // a live-recorded note is as long as you held it
+    if (h->synth != SYNTH_DRUMS) {  // a live-recorded note is as long as you held it
         SeqNote n = {(int8_t)h->key, (uint8_t)h->count, {0}};
         for (int i = 0; i < h->count && i < MUSIC_MAX_NOTES; i++) n.notes[i] = (uint8_t)h->notes[i];
-        seq_record_release(&n);
+        seq_record_release(h->part, &n);
     }
     h->key = -1;
     h->count = 0;
@@ -125,7 +129,8 @@ static void source_press(int src, int key) {
     source_release(src);
     Held *h = &s_held[src];
     h->key = key;
-    h->synth = s_app.mode == PLAY_DRUM ? SYNTH_DRUMS : SYNTH_LEAD;
+    h->synth = s_app.mode == PLAY_DRUM ? SYNTH_DRUMS : part_synth(s_app.part);
+    h->part = s_app.part;
     h->count = music_key_notes(key, s_app.mode, s_app.octave, h->notes);
     float velocity = s_app.mode == PLAY_DRUM ? 1.0f : 0.8f;
     for (int i = 0; i < h->count; i++) engine_note_on(h->synth, h->notes[i], velocity);
@@ -138,7 +143,7 @@ static void source_press(int src, int key) {
         SeqNote n = {(int8_t)key, (uint8_t)h->count, {0}};
         for (int i = 0; i < h->count; i++) n.notes[i] = (uint8_t)h->notes[i];
         s_last_note = n;
-        seq_record_synth(&n);
+        seq_record_synth(s_app.part, &n);
     }
 }
 
@@ -155,7 +160,7 @@ static void reapply_params(void) {
 static void set_macro(int m, float v) {
     if (fabsf(v - s_app.macro[m]) < 0.01f) return;
     s_app.macro[m] = v;
-    engine_set_macro(s_app.sound, m, v);
+    engine_set_macro(s_app.part, s_app.sound, m, v);
 }
 
 static void select_sound(int index) {
@@ -165,10 +170,10 @@ static void select_sound(int index) {
     release_all();
     s_app.sound = index;
     if (snd->kind == SOUND_BANK) s_app.patch = snd->bank_first;
-    engine_load_sound(index, s_app.patch);
+    engine_load_sound(s_app.part, index, s_app.patch);
     for (int m = 0; m < SOUND_MACROS; m++) {
         s_app.macro[m] = snd->macro_default[m];
-        engine_set_macro(index, m, s_app.macro[m]);
+        engine_set_macro(s_app.part, index, m, s_app.macro[m]);
     }
     reapply_params();
 }
@@ -181,8 +186,55 @@ static void change_patch(int patch) {
     patch = first + (((patch - first) % n) + n) % n;
     release_all();
     s_app.patch = patch;
-    engine_load_sound(s_app.sound, patch);
+    engine_load_sound(s_app.part, s_app.sound, patch);
     reapply_params();
+}
+
+// ---------------------------------------------------------------- parts ----
+
+// Part 1 JUNO, part 2 PLUCK, part 3 BELL: three different voices to start.
+static const int kPartDefault[PARTS] = {0, 2, 4};
+
+static void sync_part_out(void) {  // working copy -> the part's table
+    PartState *ps = &s_app.parts[s_app.part];
+    ps->sound = s_app.sound;
+    ps->patch = s_app.patch;
+    memcpy(ps->macro, s_app.macro, sizeof(ps->macro));
+}
+
+// Make `part` the one the keys, roll and SYNTH page work on. Each part's
+// synth keeps its own sound, so nothing reloads.
+static void switch_part(int part) {
+    if (part < 0 || part >= PARTS) return;
+    sync_part_out();
+    release_all();
+    s_app.part = part;
+    const PartState *ps = &s_app.parts[part];
+    s_app.sound = ps->sound;
+    s_app.patch = ps->patch;
+    memcpy(s_app.macro, ps->macro, sizeof(s_app.macro));
+}
+
+// Load a sound (patch and macros optional) onto a part.
+static void load_part(int part, int sound, int patch, const float *macro) {
+    switch_part(part);
+    select_sound(sound);
+    const Sound *snd = sound_get(s_app.sound);
+    if (snd->kind == SOUND_BANK && patch >= snd->bank_first && patch < snd->bank_first + snd->bank_count)
+        change_patch(patch);
+    if (macro)
+        for (int m = 0; m < SOUND_MACROS; m++) {
+            s_app.macro[m] = macro[m];
+            engine_set_macro(s_app.part, s_app.sound, m, macro[m]);
+        }
+    sync_part_out();
+}
+
+static void default_parts(void) {
+    for (int k = PARTS - 1; k >= 0; k--) {
+        load_part(k, kPartDefault[k], -1, NULL);
+        seq_set_part_mute(k, false);
+    }
 }
 
 // --------------------------------------------------------------- TAPE ----
@@ -291,7 +343,7 @@ static void finish_recording(void) {
         wav_write(STORAGE_DIR "/mic.wav", take, frames, SAMPLER_RATE);
 #endif
         set_macro(0, 0.0f);  // play the new take from its start
-        engine_set_macro(s_app.sound, 0, 0.0f);
+        engine_set_macro(s_app.part, s_app.sound, 0, 0.0f);
         ui_key_struck(0, PLAY_NOTE);
     } else {
         s_app.mic_secs = s_take_secs;  // silent or too short: keep the old take
@@ -324,9 +376,14 @@ static void capture(SaveState *st) {
     const SeqStatus seq = seq_status();  // live, not last frame's copy
     memcpy(st->name, s_app.song_name, sizeof(st->name));
     st->theme = s_theme;
-    st->sound = s_app.sound;
-    st->patch = s_app.patch;
-    memcpy(st->macro, s_app.macro, sizeof(st->macro));
+    sync_part_out();
+    for (int k = 0; k < PARTS; k++) {
+        st->parts[k].sound = s_app.parts[k].sound;
+        st->parts[k].patch = s_app.parts[k].patch;
+        memcpy(st->parts[k].macro, s_app.parts[k].macro, sizeof(st->parts[k].macro));
+    }
+    st->part = s_app.part;
+    st->muted = seq.muted;
     memcpy(st->params, s_app.params, sizeof(st->params));
     st->octave = s_app.octave;
     st->bpm = seq.bpm;
@@ -345,14 +402,14 @@ static void restore(const SaveState *st) {
     s_theme = ((st->theme % ui_theme_count()) + ui_theme_count()) % ui_theme_count();
     ui_set_theme(s_theme);
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = st->params[i];
-    select_sound(st->sound);
-    const Sound *snd = sound_get(s_app.sound);
-    if (snd->kind == SOUND_BANK && st->patch >= snd->bank_first && st->patch < snd->bank_first + snd->bank_count)
-        change_patch(st->patch);
-    for (int m = 0; m < SOUND_MACROS; m++) {
-        s_app.macro[m] = st->macro[m];
-        engine_set_macro(s_app.sound, m, st->macro[m]);
+    for (int k = PARTS - 1; k >= 0; k--) {
+        if (st->parts[k].sound >= 0)
+            load_part(k, st->parts[k].sound, st->parts[k].patch, st->parts[k].macro);
+        else  // an older song: this part gets its default sound
+            load_part(k, kPartDefault[k], -1, NULL);
+        seq_set_part_mute(k, (st->muted >> k) & 1u);
     }
+    switch_part(st->part);
     s_app.octave = st->octave < MUSIC_OCTAVE_MIN || st->octave > MUSIC_OCTAVE_MAX ? 0 : st->octave;
     seq_set_bpm(st->bpm);
     for (int i = 0; i < SEQ_SLOTS; i++) seq_put_slot(i, &st->slots[i]);
@@ -563,7 +620,7 @@ static void new_song(void) {
     save_tape();
     const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
-    select_sound(0);
+    default_parts();
     s_app.octave = 0;
     for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
     s_app.song_name[0] = '\0';
@@ -755,23 +812,25 @@ static void seq_out(int synth, int note, float velocity) {
 }
 
 static unsigned s_slot_frames;
+static unsigned s_part_hold_frames;
 
 // --------------------------------------------------------------- roll ----
 
 #define AUDITION_FRAMES 14
-static int s_audition_pitch = -1, s_audition_frames;
+static int s_audition_pitch = -1, s_audition_frames, s_audition_synth = SYNTH_LEAD;
 
 // Play a pitch briefly so you hear what you're placing.
 static void audition(int pitch) {
-    if (s_audition_pitch >= 0) engine_note_off(SYNTH_LEAD, s_audition_pitch);
-    engine_note_on(SYNTH_LEAD, pitch, 0.7f);
+    if (s_audition_pitch >= 0) engine_note_off(s_audition_synth, s_audition_pitch);
+    s_audition_synth = part_synth(s_app.part);
+    engine_note_on(s_audition_synth, pitch, 0.7f);
     s_audition_pitch = pitch;
     s_audition_frames = AUDITION_FRAMES;
 }
 
 static void audition_tick(void) {
     if (s_audition_pitch >= 0 && --s_audition_frames <= 0) {
-        engine_note_off(SYNTH_LEAD, s_audition_pitch);
+        engine_note_off(s_audition_synth, s_audition_pitch);
         s_audition_pitch = -1;
     }
 }
@@ -793,6 +852,12 @@ static void roll_scroll_by(int rows) {
 }
 
 static void roll_begin(int x, int y) {
+    int part = ui_hit_roll_part(x, y);
+    if (part >= 0) {
+        switch_part(part);
+        s_touch = TOUCH_IGNORE;
+        return;
+    }
     if (ui_hit_roll_toggle(x, y)) {
         // Keep the same pitch at the bottom when switching scale / chromatic.
         int bottom = roll_pitch(0);
@@ -816,10 +881,10 @@ static void roll_begin(int x, int y) {
         return;
     }
     const int pitch = roll_pitch(row);
-    int idx = seq_roll_find(step, pitch);
+    int idx = seq_roll_find(s_app.part, step, pitch);
     s_roll_moved = s_roll_created = false;
     if (idx < 0) {  // empty: a new note, which a drag to the right stretches
-        idx = seq_roll_add(step, pitch, s_roll_len, (int)(SEQ_VEL_SYNTH * 255));
+        idx = seq_roll_add(s_app.part, step, pitch, s_roll_len, (int)(SEQ_VEL_SYNTH * 255));
         if (idx < 0) {
             s_touch = TOUCH_IGNORE;  // pattern full
             return;
@@ -877,14 +942,14 @@ static void roll_end(void) {
 
 static bool cell_on(int step, int row) {
     int tmp[4];
-    if (row == 0) return seq_notes_at(&s_app.pattern, step, tmp, 4) > 0;
+    if (row == 0) return seq_notes_at(&s_app.pattern, s_app.part, step, tmp, 4) > 0;
     if (row == SEQ_ROW_ACCENT) return (s_app.pattern.accents >> step) & 1u;
     return (s_app.pattern.drums[step] >> (row - 1)) & 1u;
 }
 
 static void paint_cell(int step, int row) {
     if (row == 0)
-        seq_set_synth(step, s_paint_on ? &s_last_note : NULL);
+        seq_set_synth(s_app.part, step, s_paint_on ? &s_last_note : NULL);
     else if (row == SEQ_ROW_ACCENT)
         seq_set_accent(step, s_paint_on);
     else
@@ -902,7 +967,7 @@ static void press_button(SeqButton b) {
         case SEQ_BTN_DICE: {
             SeqPattern p;
             dice_groove(&p, (uint32_t)svcGetSystemTick() ^ (s_app.frame * 2654435761u), s_app.octave);
-            seq_set_pattern(&p);
+            seq_set_part_pattern(s_app.part, &p);  // new drums, and new notes for this part only
             for (int k = 0; k < MUSIC_KEYS; k += 2) ui_seq_struck(k, k & 2);  // celebrate the roll
             break;
         }
@@ -922,12 +987,16 @@ static void follow_sequencer(void) {
             s_flash[lane] = FLASH_FRAMES;
         }
     int pitches[8];
-    int n = seq_notes_at(&s_app.pattern, step, pitches, 8);
-    for (int i = 0; i < n && i < 8; i++) {
-        int key = music_key_of_pitch(pitches[i]);
-        if (key < 0) continue;
-        ui_seq_struck(key, false);
-        s_flash[key] = FLASH_FRAMES;
+    // Every part's notes fire bursts; only the current part lights the keys.
+    for (int part = 0; part < PARTS; part++) {
+        if ((s_app.seq.muted >> part) & 1u) continue;
+        int n = seq_notes_at(&s_app.pattern, part, step, pitches, 8);
+        for (int i = 0; i < n && i < 8; i++) {
+            int key = music_key_of_pitch(pitches[i]);
+            if (key < 0) continue;
+            ui_seq_struck(key, false);
+            if (part == s_app.part) s_flash[key] = FLASH_FRAMES;
+        }
     }
 }
 
@@ -975,6 +1044,15 @@ static void touch_begin(int x, int y) {
         }
         s_touch = TOUCH_REC;
         return;
+    }
+    if (s_app.page == PAGE_SYNTH) {
+        int part = ui_hit_part_tab(x, y);
+        if (part >= 0) {  // tap: pick this part; hold: mute it
+            s_app.part_hold = part;
+            s_part_hold_frames = 0;
+            s_touch = TOUCH_PART_HOLD;
+            return;
+        }
     }
     if (s_app.page == PAGE_SYNTH && ui_hit_synth_dice(x, y)) {
         roll_sound();
@@ -1059,6 +1137,11 @@ static void touch_begin(int x, int y) {
         roll_begin(x, y);
         return;
     }
+    if (ui_hit_seq_part_chip(x, y)) {  // the synth row's chip: next part
+        switch_part((s_app.part + 1) % PARTS);
+        s_touch = TOUCH_IGNORE;
+        return;
+    }
     int step, row;
     if (ui_hit_seq_cell(x, y, &step, &row)) {
         // The first cell decides: paint "on" over empty cells, "off" over
@@ -1076,6 +1159,9 @@ static void handle_touch(u32 down, u32 held, u32 up) {
     if (up & KEY_TOUCH) {
         if (s_touch == TOUCH_FX_PAD) fx_pad_release();
         if (s_touch == TOUCH_ROLL_NOTE) roll_end();
+        if (s_touch == TOUCH_PART_HOLD && s_part_hold_frames < PART_MUTE_FRAMES) switch_part(s_app.part_hold);
+        s_app.part_hold = -1;
+        s_app.part_hold_t = 0.0f;
         if (s_touch == TOUCH_REC && s_app.mic_rec) finish_recording();
         if (s_touch == TOUCH_TAPE_SCRUB) tape_scrub(false, 0.0f);
         if (s_touch == TOUCH_TAPE_TRACK && s_tape_hold_frames < TAPE_WIPE_FRAMES) tape_select(s_app.tape_hold_track);
@@ -1083,6 +1169,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         s_app.tape_hold = 0.0f;
         if (s_touch == TOUCH_SLOT && s_slot_frames < SLOT_COPY_FRAMES) seq_select_slot(s_app.slot_hold);
         s_app.slot_hold = -1;
+    s_app.part_hold = -1;
     s_app.roll_active = -1;
     s_app.roll_scroll = music_roll_row(57, false);  // A3 at the bottom: middle C sits low on the roll
         s_app.slot_hold_t = 0.0f;
@@ -1160,6 +1247,13 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         }
         case TOUCH_SWING: seq_set_swing(ui_swing_at(tp.px)); break;
         case TOUCH_ROLL_NOTE: roll_drag(tp.px, tp.py); break;
+        case TOUCH_PART_HOLD:
+            if (s_part_hold_frames < PART_MUTE_FRAMES && ++s_part_hold_frames == PART_MUTE_FRAMES) {
+                int k = s_app.part_hold;
+                seq_set_part_mute(k, !((s_app.seq.muted >> k) & 1u));
+            }
+            s_app.part_hold_t = (float)s_part_hold_frames / PART_MUTE_FRAMES;
+            break;
         case TOUCH_ROLL_KEYS: {
             // Drag the keyboard: it moves with your finger, a row at a time.
             int dy = tp.py - s_keys_last_y;
@@ -1256,11 +1350,12 @@ int main(void) {
     engine_init();
     seq_init(seq_out);
     s_app.slot_hold = -1;
+    s_app.part_hold = -1;
     s_app.roll_active = -1;
     s_app.roll_scroll = music_roll_row(57, false);  // A3 at the bottom: middle C sits low on the roll
     const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
-    select_sound(0);
+    default_parts();
     mkdir("sdmc:/3ds", 0777);
     mkdir(STORAGE_DIR, 0777);
     {
@@ -1327,6 +1422,7 @@ int main(void) {
             for (int i = 1; i < 4; i++) {  // a little song: A, then three rolled variations
                 SeqPattern pat;
                 dice_groove(&pat, 777u * i, 0);
+                for (int k = 0; k < pat.count; k++) pat.notes[k].part = (uint8_t)(k % PARTS);  // all three parts play
                 seq_put_slot(i, &pat);
             }
             seq_set_song(true);
@@ -1345,6 +1441,7 @@ int main(void) {
         }
         if (s_app.page == PAGE_SONGS && s_app.frame % 120 == 0) refresh_songs();
         s_app.roll_view = (s_app.frame / 720) & 1;  // every other SEQ visit shows the piano roll
+        if (s_app.frame % 720 == 0) switch_part((int)((s_app.frame / 720) % PARTS));
         update_song_dirty();
         if (s_app.page == PAGE_SYNTH && s_app.frame % 120 == 0) select_sound(s_app.sound + 1);
         {   // wander a pretend stylus around the pads

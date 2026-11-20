@@ -143,11 +143,11 @@ int main(void) {
     seq_set_swing(0.0f);
     SeqPattern roll;
     memset(&roll, 0, sizeof(roll));
-    roll.notes[roll.count++] = (SeqRollNote){0, 60, 4, 200};   // a long C
-    roll.notes[roll.count++] = (SeqRollNote){8, 64, 1, 200};   // a chord: E G B
-    roll.notes[roll.count++] = (SeqRollNote){8, 67, 1, 200};
-    roll.notes[roll.count++] = (SeqRollNote){8, 71, 1, 200};
-    roll.notes[roll.count++] = (SeqRollNote){15, 72, 3, 200};  // runs over the bar line
+    roll.notes[roll.count++] = (SeqRollNote){0, 60, 4, 200, 0};   // a long C
+    roll.notes[roll.count++] = (SeqRollNote){8, 64, 1, 200, 0};   // a chord: E G B
+    roll.notes[roll.count++] = (SeqRollNote){8, 67, 1, 200, 0};
+    roll.notes[roll.count++] = (SeqRollNote){8, 71, 1, 200, 0};
+    roll.notes[roll.count++] = (SeqRollNote){15, 72, 3, 200, 0};  // runs over the bar line
     seq_put_slot(6, &roll);
     seq_select_slot(6);
     s_nhits = s_noffs = 0;
@@ -178,8 +178,8 @@ int main(void) {
     // go before the second starts, and its old release must not cut the
     // second short.
     memset(&roll, 0, sizeof(roll));
-    roll.notes[roll.count++] = (SeqRollNote){0, 60, 6, 200};
-    roll.notes[roll.count++] = (SeqRollNote){2, 60, 1, 200};
+    roll.notes[roll.count++] = (SeqRollNote){0, 60, 6, 200, 0};
+    roll.notes[roll.count++] = (SeqRollNote){2, 60, 1, 200, 0};
     seq_put_slot(6, &roll);
     s_nhits = s_noffs = 0;
     s_clock = 0;
@@ -205,9 +205,9 @@ int main(void) {
     seq_toggle_play();
     run(step * 2.1 / RATE);  // just after step 2 starts
     SeqNote held = {2, 1, {64}};
-    seq_record_synth(&held);
+    seq_record_synth(0, &held);
     run(step * 3.0 / RATE);
-    seq_record_release(&held);
+    seq_record_release(0, &held);
     seq_toggle_play();
     seq_set_recording(false);
     SeqPattern got;
@@ -215,6 +215,36 @@ int main(void) {
     printf("  recorded: %d note(s), step %d, length %d\n", got.count, got.count ? got.notes[0].step : -1,
            got.count ? got.notes[0].len : -1);
     check(got.count == 1 && got.notes[0].step == 2 && got.notes[0].len == 3, "a live note is recorded as long as it was held");
+
+    // --- parts ----------------------------------------------------------------
+    memset(&roll, 0, sizeof(roll));
+    roll.notes[roll.count++] = (SeqRollNote){0, 48, 1, 200, 0};  // bass on part 1
+    roll.notes[roll.count++] = (SeqRollNote){0, 72, 1, 200, 1};  // lead on part 2
+    roll.notes[roll.count++] = (SeqRollNote){0, 72, 1, 200, 2};  // same pitch on part 3
+    seq_put_slot(4, &roll);
+    seq_select_slot(4);
+    s_nhits = 0;
+    seq_toggle_play();
+    run(0.05);
+    seq_toggle_play();
+    run(0.05);
+    int on_synth[4] = {0};
+    for (int i = 0; i < s_nhits; i++)
+        if (s_hits[i].synth >= 1 && s_hits[i].synth <= 3) on_synth[s_hits[i].synth]++;
+    check(on_synth[1] == 1 && on_synth[2] == 1 && on_synth[3] == 1, "each part's notes go to its own synth, same pitch too");
+    seq_set_part_mute(1, true);
+    s_nhits = 0;
+    seq_toggle_play();
+    run(0.05);
+    seq_toggle_play();
+    run(0.05);
+    int muted_hits = 0, others = 0;
+    for (int i = 0; i < s_nhits; i++) {
+        if (s_hits[i].synth == 2) muted_hits++;
+        if (s_hits[i].synth == 1 || s_hits[i].synth == 3) others++;
+    }
+    seq_set_part_mute(1, false);
+    check(muted_hits == 0 && others == 2, "a muted part is silent while the others play");
 
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);
     return fails ? 1 : 0;

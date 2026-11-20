@@ -68,7 +68,7 @@ static void load(int i) {
     wire(lvl);
     for (int m = 0; m < SOUND_MACROS; m++) {
         char msg[128];
-        if (sound_macro_wire(i, m, s->macro_default[m], msg, sizeof(msg))) wire(msg);
+        if (sound_macro_wire(i, m, s->macro_default[m], 1, msg, sizeof(msg))) wire(msg);
     }
     render(0.05);
 }
@@ -108,13 +108,13 @@ int main(void) {
         failures += silent;
         for (int k = 0; k < SOUND_MACROS && s->kind == SOUND_CUSTOM; k++) {
             char msg[128];
-            sound_macro_wire(i, k, 0.05f, msg, sizeof(msg));
+            sound_macro_wire(i, k, 0.05f, 1, msg, sizeof(msg));
             wire(msg);
             Measure lo = play(0.4);
-            sound_macro_wire(i, k, 0.95f, msg, sizeof(msg));
+            sound_macro_wire(i, k, 0.95f, 1, msg, sizeof(msg));
             wire(msg);
             Measure hi = play(0.4);
-            sound_macro_wire(i, k, s->macro_default[k], msg, sizeof(msg));
+            sound_macro_wire(i, k, s->macro_default[k], 1, msg, sizeof(msg));
             wire(msg);
             double drms = fabs(hi.rms - lo.rms) / fmax(fmax(hi.rms, lo.rms), 1e-6);
             double dbr = fabs(hi.bright - lo.bright) / fmax(fmax(hi.bright, lo.bright), 1e-6);
@@ -124,6 +124,25 @@ int main(void) {
             failures += dead;
         }
         printf("\n");
+    }
+    // Parts: a sound on synth 2 plays independently of synth 1.
+    {
+        char buf[512];
+        const Sound *pl = sound_get(2);  // PLUCK
+        snprintf(buf, sizeof(buf), "i2iv%du%s", pl->voices, pl->patch);
+        amy_add_message(buf);
+        snprintf(buf, sizeof(buf), "i2iV%.2f", pl->level);
+        amy_add_message(buf);
+        render(0.05);
+        amy_event e = amy_default_event();
+        e.synth = 2;
+        e.midi_note = 57;
+        e.velocity = 0.8f;
+        amy_add_event(&e);
+        Measure m2 = render(0.5);
+        bool ok = m2.rms > 0.01;
+        printf("part 2 (PLUCK on synth 2): rms %.4f %s\n", m2.rms, ok ? "" : "SILENT!");
+        failures += !ok;
     }
     amy_stop();
     printf(failures ? "\n%d problem(s)\n" : "\nall sounds OK\n", failures);

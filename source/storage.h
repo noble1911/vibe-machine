@@ -20,9 +20,13 @@ typedef struct {
     uint8_t tape_changed;  // bit t: tape track t changed since the song was loaded/saved
     bool mic_changed;      // the MIC take changed since then
     int theme;
-    int sound;
-    int patch;
-    float macro[SOUND_MACROS];
+    struct {
+        int sound;   // -1 = not set (older files): use the part's default
+        int patch;
+        float macro[SOUND_MACROS];
+    } parts[PARTS];
+    int part;        // part being played / edited
+    uint8_t muted;   // bit n = part n muted
     float params[PARAM_COUNT];
     int octave;
     int bpm;

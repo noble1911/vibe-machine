@@ -42,6 +42,7 @@ typedef struct {
     uint8_t pitch;  // MIDI note
     uint8_t len;    // 1..16 steps (may run past the end of the bar)
     uint8_t vel;    // 1..255 (velocity = vel / 255)
+    uint8_t part;   // which instrument part plays it (0..PARTS-1)
 } SeqRollNote;
 
 typedef struct {
@@ -62,9 +63,10 @@ typedef struct {
     bool song;       // chain the non-empty slots in order
     float swing;     // 0..SEQ_SWING_MAX
     uint8_t used;    // bit n = slot n has something in it
+    uint8_t muted;   // bit n = part n is muted
 } SeqStatus;
 
-// velocity 0 means note-off.
+// velocity 0 means note-off. `synth` is SYNTH_DRUMS or part_synth(part).
 typedef void (*SeqNoteFn)(int synth, int note, float velocity);
 
 void seq_init(SeqNoteFn out);
@@ -80,6 +82,7 @@ void seq_set_recording(bool on);
 void seq_set_bpm(int bpm);
 void seq_set_swing(float swing);
 void seq_set_song(bool on);
+void seq_set_part_mute(int part, bool muted);
 void seq_clear(void);                       // the current slot
 void seq_reset(void);  // a new song: empty slots, starter groove in A, no swing / song
 void seq_set_pattern(const SeqPattern *p);  // the current slot
@@ -91,25 +94,28 @@ void seq_copy_to_slot(int slot);
 
 void seq_set_drum(int step, int lane, bool on);
 void seq_set_accent(int step, bool on);
-// The grid's synth row: replace whatever starts on `step` with `note` (one
-// step long), or clear it (note NULL or count 0).
-void seq_set_synth(int step, const SeqNote *note);
+// The grid's synth row for one part: replace whatever that part starts on
+// `step` with `note` (one step long), or clear it (note NULL or count 0).
+void seq_set_synth(int part, int step, const SeqNote *note);
 
 // Piano roll (current slot). Indices are positions in SeqPattern.notes and
 // stay valid until a note is removed.
-int seq_roll_add(int step, int pitch, int len, int vel);  // index, or -1 if full
+int seq_roll_add(int part, int step, int pitch, int len, int vel);  // index, or -1 if full
 void seq_roll_set(int index, int step, int pitch, int len);
 void seq_roll_remove(int index);
-// The note covering (step, pitch), i.e. starting at or before step and
-// still sounding there; -1 if none.
-int seq_roll_find(int step, int pitch);
+// The part's note covering (step, pitch), i.e. starting at or before step
+// and still sounding there; -1 if none.
+int seq_roll_find(int part, int step, int pitch);
+// Replace one part's notes in the current slot with those in `p` (whose
+// notes are taken as that part's); drums and accents come from `p` too.
+void seq_set_part_pattern(int part, const SeqPattern *p);
 
 // Live recording (only acts while playing and recording): the hit lands on
 // the nearest step. Synth notes are as long as you hold them: call
 // seq_record_release() with the same note when the key comes up.
 void seq_record_drum(int lane);
-void seq_record_synth(const SeqNote *note);
-void seq_record_release(const SeqNote *note);
+void seq_record_synth(int part, const SeqNote *note);
+void seq_record_release(int part, const SeqNote *note);
 
 SeqStatus seq_status(void);
 void seq_snapshot(SeqPattern *out);  // the current slot
@@ -118,5 +124,5 @@ void seq_snapshot(SeqPattern *out);  // the current slot
 void seq_get_slot(int slot, SeqPattern *out);
 void seq_put_slot(int slot, const SeqPattern *p);
 
-// Notes in `p` that start on `step` (for the grid row and visuals).
-int seq_notes_at(const SeqPattern *p, int step, int *pitches, int max);
+// Notes of `part` (or any part, if -1) in `p` that start on `step`.
+int seq_notes_at(const SeqPattern *p, int part, int step, int *pitches, int max);

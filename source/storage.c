@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 6  // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: piano roll
+#define VERSION 7  // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts
 #define MAX_PAYLOAD 4096
 
 typedef struct {
@@ -55,8 +55,8 @@ static void put_pattern(Writer *w, const SeqPattern *p) {
     put(w, &p->count, 1);
     for (int i = 0; i < p->count; i++) {
         const SeqRollNote *n = &p->notes[i];
-        uint8_t b[4] = {n->step, n->pitch, n->len, n->vel};
-        put(w, b, 4);
+        uint8_t b[5] = {n->step, n->pitch, n->len, n->vel, n->part};
+        put(w, b, 5);
     }
 }
 
@@ -73,11 +73,12 @@ static void get_pattern(Reader *r, SeqPattern *p, int version) {
             r->ok = false;
             return;
         }
+        const int bytes = version >= 7 ? 5 : 4;  // 7 adds the part
         for (int i = 0; i < p->count; i++) {
-            uint8_t b[4];
-            get(r, b, 4);
-            p->notes[i] = (SeqRollNote){b[0], b[1], b[2], b[3]};
-            if (b[0] >= SEQ_STEPS || b[2] < 1 || b[2] > SEQ_STEPS || b[1] > 127) r->ok = false;
+            uint8_t b[5] = {0, 0, 0, 0, 0};
+            get(r, b, (size_t)bytes);
+            p->notes[i] = (SeqRollNote){b[0], b[1], b[2], b[3], b[4]};
+            if (b[0] >= SEQ_STEPS || b[2] < 1 || b[2] > SEQ_STEPS || b[1] > 127 || b[4] >= PARTS) r->ok = false;
         }
         return;
     }
@@ -88,15 +89,16 @@ static void get_pattern(Reader *r, SeqPattern *p, int version) {
         get(r, notes, MUSIC_MAX_NOTES);
         if (count > MUSIC_MAX_NOTES) r->ok = false;
         for (int i = 0; i < count && i < MUSIC_MAX_NOTES && p->count < SEQ_NOTES; i++)
-            p->notes[p->count++] = (SeqRollNote){(uint8_t)s, notes[i], 1, (uint8_t)(SEQ_VEL_SYNTH * 255)};
+            p->notes[p->count++] = (SeqRollNote){(uint8_t)s, notes[i], 1, (uint8_t)(SEQ_VEL_SYNTH * 255), 0};
     }
     if (version >= 2) get(r, &p->accents, sizeof(p->accents));
 }
 
 static void encode(Writer *w, const SaveState *st) {
-    int32_t ints[] = {st->theme, st->sound, st->patch, st->octave, st->bpm};
+    // Part 1 sits where older versions kept their single sound.
+    int32_t ints[] = {st->theme, st->parts[0].sound, st->parts[0].patch, st->octave, st->bpm};
     put(w, ints, sizeof(ints));
-    put(w, st->macro, sizeof(st->macro));
+    put(w, st->parts[0].macro, sizeof(st->parts[0].macro));
     put(w, st->params, sizeof(st->params));
     put(w, st->fx_x, sizeof(st->fx_x));
     put(w, st->fx_y, sizeof(st->fx_y));
@@ -111,6 +113,14 @@ static void encode(Writer *w, const SaveState *st) {
     put(w, &unsaved, 1);
     put(w, &st->tape_changed, 1);
     put(w, &mic, 1);
+    uint8_t part = (uint8_t)st->part;
+    put(w, &part, 1);
+    put(w, &st->muted, 1);
+    for (int k = 1; k < PARTS; k++) {
+        int32_t sp[2] = {st->parts[k].sound, st->parts[k].patch};
+        put(w, sp, sizeof(sp));
+        put(w, st->parts[k].macro, sizeof(st->parts[k].macro));
+    }
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -118,11 +128,14 @@ static void decode(Reader *r, SaveState *st, int version) {
     int32_t ints[5];
     get(r, ints, sizeof(ints));
     st->theme = ints[0];
-    st->sound = ints[1];
-    st->patch = ints[2];
+    st->parts[0].sound = ints[1];
+    st->parts[0].patch = ints[2];
     st->octave = ints[3];
     st->bpm = ints[4];
-    get(r, st->macro, sizeof(st->macro));
+    get(r, st->parts[0].macro, sizeof(st->parts[0].macro));
+    for (int k = 1; k < PARTS; k++) st->parts[k].sound = -1;  // older files: defaults
+    st->part = 0;
+    st->muted = 0;
     get(r, st->params, sizeof(st->params));
     get(r, st->fx_x, sizeof(st->fx_x));
     get(r, st->fx_y, sizeof(st->fx_y));
@@ -156,6 +169,19 @@ static void decode(Reader *r, SaveState *st, int version) {
         get(r, &st->tape_changed, 1);
         get(r, &mic, 1);
         st->mic_changed = mic != 0;
+    }
+    if (version >= 7) {
+        uint8_t part;
+        get(r, &part, 1);
+        get(r, &st->muted, 1);
+        st->part = part < PARTS ? part : 0;
+        for (int k = 1; k < PARTS; k++) {
+            int32_t sp[2];
+            get(r, sp, sizeof(sp));
+            st->parts[k].sound = sp[0];
+            st->parts[k].patch = sp[1];
+            get(r, st->parts[k].macro, sizeof(st->parts[k].macro));
+        }
     }
 }
 

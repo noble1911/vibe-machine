@@ -8,10 +8,12 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-// AMY's synth numbers. Synth 1 is the playable instrument; synth 10 is
-// AMY's built-in General MIDI drum kit.
-#define SYNTH_LEAD 1
+// AMY's synth numbers. Parts 0..PARTS-1 are synths 1..PARTS (each with its
+// own sound); synth 10 is AMY's built-in General MIDI drum kit.
+#define PARTS 3
+#define SYNTH_LEAD 1  // part 0
 #define SYNTH_DRUMS 10
+static inline int part_synth(int part) { return 1 + part; }
 
 #define LEAD_VOICES 6
 
@@ -29,12 +31,11 @@ void engine_exit(void);
 // --- main thread ---------------------------------------------------------
 void engine_note_on(int synth, int note, float velocity);
 void engine_note_off(int synth, int note);
-void engine_set_patch(int patch);
-// Load a sound from sounds.c onto the lead synth. For a BANK sound, `patch`
+// Load a sound from sounds.c onto a part's synth. For a BANK sound, `patch`
 // is the AMY patch number to use; CUSTOM sounds ignore it.
-void engine_load_sound(int sound, int patch);
-// Set macro m (0..1) of the CUSTOM sound currently loaded.
-void engine_set_macro(int sound, int m, float value);
+void engine_load_sound(int part, int sound, int patch);
+// Set macro m (0..1) of the CUSTOM sound a part is playing.
+void engine_set_macro(int part, int sound, int m, float value);
 // Replace the MIC sound's sample (mono, `rate` Hz). Silences the lead
 // synth first so no voice is playing the old buffer.
 bool engine_load_sample(const int16_t *data, int frames, int rate);
