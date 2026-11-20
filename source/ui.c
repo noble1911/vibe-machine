@@ -253,6 +253,8 @@ int ui_hit_arr(int x, int y) {
     return ARR_HIT_CELL + r * ARR_COLS + c;
 }
 
+bool ui_hit_mixdown(int x, int y) { return in_box(x, y, MIXDOWN_X - 2, 0, MIXDOWN_W + 4, TAB_Y + TAB_H + 3); }
+
 int ui_hit_mix(int x, int y, int *strip) {
     if (x < MIX_X0 - 2) return MIX_HIT_NONE;
     const int k = (x - MIX_X0 + 2) / MIX_PITCH;

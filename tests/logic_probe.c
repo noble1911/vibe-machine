@@ -194,6 +194,20 @@ int main(void) {
     }
 
     // --- WAV ------------------------------------------------------------------
+    {   // A streamed stereo WAV (the mixdown): blocks in, sizes patched on close.
+        WavStream ws;
+        bool ok = wav_stream_open(&ws, "build/stream.wav", 44100, 2);
+        static int16_t blk[256 * 2];
+        for (int b = 0; b < 10 && ok; b++) {
+            for (int i = 0; i < 256; i++) blk[2 * i] = blk[2 * i + 1] = (int16_t)(b * 256 + i);
+            ok = wav_stream_write(&ws, blk, 256);
+        }
+        ok &= wav_stream_close(&ws);
+        static int16_t back[4000];
+        int srate = 0, sn = wav_read("build/stream.wav", back, 4000, &srate);
+        check(ok && sn == 2560 && srate == 44100 && back[0] == 0 && back[2559] == 2559,
+              "a streamed stereo WAV reads back whole, with the right length");
+    }
     static int16_t wav_in[4000], wav_out[4000];
     for (int i = 0; i < 4000; i++) wav_in[i] = (int16_t)((i * 37) % 30000 - 15000);
     int rate = 0;

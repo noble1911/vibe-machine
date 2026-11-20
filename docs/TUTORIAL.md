@@ -343,6 +343,23 @@ Good to know:
   after the strips. The FX page's effects come after that, on everything.
 - The mixer is saved with the song.
 
+### MIXDOWN: your song as a WAV
+
+**MIXDOWN** (top right of the MIX page) records the finished song to a
+stereo WAV file, at full quality:
+
+1. Tap **MIXDOWN**. The song starts from the top (with the tape, if SEQ
+   LINK is on) and everything you hear is recorded: the parts, the mixer,
+   the tape, and anything you play or do on the FX page while it runs. The
+   sticker and the top screen show **MIXDOWN 0:12** as it goes.
+2. With a **STOP** arrangement (the [SONG sheet](#the-song-sheet-arranging)),
+   it ends by itself when the song does, plus three seconds so the echo
+   and reverb ring out (**TAIL**). Otherwise press **START** or tap the
+   sticker to stop; tap again during TAIL to finish at once.
+3. The file is `sdmc:/3ds/vibe-machine/mixes/<SONG NAME>.wav` (or
+   `UNTITLED.wav`), replaced each time you mix that song. Copy it off the SD
+   card and share it.
+
 ## 10. The FX page: performance effects
 
 ![FX page with STUTTER](images/fx-stutter.png)

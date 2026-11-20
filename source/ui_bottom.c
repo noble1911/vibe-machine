@@ -223,6 +223,22 @@ static void draw_fader(const AppState *app, int k, float x, uint32_t col) {
 
 static void draw_mix_page(const AppState *app) {
     const Theme *t = ui_theme();
+    {   // MIXDOWN: record the whole song to a WAV
+        const bool on = app->mixdown != 0;
+        const uint32_t f = on ? (((s_frame / 15) & 1) ? t->pal[0] : t->card) : colourful(t, 0);
+        sticker(MIXDOWN_X, TAB_Y, MIXDOWN_W, TAB_H, f, on, 0);
+        const float o = on ? 2.0f : 0.0f;
+        const u32 c = rgba(ink_on(t, f), 0xFF);
+        if (on) {
+            const int s = (int)app->mixdown_secs;
+            sh_rect(MIXDOWN_X + 7 + o, TAB_Y + 5 + o, 8, 8, c);  // stop square
+            ui_text(MIXDOWN_X + 54 + o, TAB_Y + 1 + o, 0.42f, c, C2D_AlignCenter, "%s %d:%02d",
+                    app->mixdown == 2 ? "TAIL" : "REC", s / 60, s % 60);
+        } else {
+            sh_circle(MIXDOWN_X + 11, TAB_Y + 9, 4.5f, rgba(t->pal[0] == f ? t->ink : t->pal[0], 0xFF));
+            ui_text(MIXDOWN_X + 54, TAB_Y + 1, 0.42f, c, C2D_AlignCenter, "MIXDOWN");
+        }
+    }
     for (int k = 0; k < MIX_STRIPS; k++) {
         const float x = MIX_X0 + k * MIX_PITCH;
         const uint32_t col = strip_rgb(t, k);

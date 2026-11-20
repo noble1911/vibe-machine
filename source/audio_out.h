@@ -22,3 +22,11 @@ void audio_out_exit(void);
 AudioStats audio_out_stats(void);
 // Copies the most recent output (mono, SCOPE_POINTS samples) for drawing.
 void audio_out_scope(int16_t out[SCOPE_POINTS]);
+
+// The mixdown: while capturing, every block that goes to the speakers is
+// also copied into a ring (about 3 s); the main thread drains it into a WAV.
+// If the ring fills (the SD card too slow), blocks are dropped and counted,
+// never waited for.
+void audio_out_capture(bool on);
+int audio_out_capture_read(int16_t *out, int max_frames);  // interleaved stereo; returns frames
+uint32_t audio_out_capture_dropped(void);  // frames dropped since capture started

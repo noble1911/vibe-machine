@@ -339,6 +339,14 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     draw_title();
     draw_song_name(app);
     draw_steps(app);
+    if (app->mixdown) {  // recording the mixdown: say so, under the CPU meter
+        const int secs = (int)app->mixdown_secs;
+        const uint32_t f = ((s_frame / 15) & 1) ? t->pal[0] : t->card;
+        sh_card(288, 24, 106, 17, rgba(f, 0xFF), rgba(t->ink, 0xFF), 2);
+        sh_circle(297, 32.5f, 4, rgba(f == t->pal[0] ? t->ink : t->pal[0], 0xFF));
+        ui_text(346, 24.5f, 0.42f, rgba(ink_on(t, f), 0xFF), C2D_AlignCenter, "%s %d:%02d",
+                app->mixdown == 2 ? "TAIL" : "MIXDOWN", secs / 60, secs % 60);
+    }
 
     static const char *const mode_names[] = {"NOTE", "CHORD", "DRUMS"};
     uint32_t mode_face = t->pal[app->mode == PLAY_NOTE ? 1 : app->mode == PLAY_CHORD ? 4 : 0];

@@ -18,26 +18,61 @@ static void put16(uint8_t *p, uint16_t v) {
 static uint32_t get32(const uint8_t *p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
 static uint16_t get16(const uint8_t *p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 
-bool wav_write(const char *path, const int16_t *data, int frames, int rate) {
-    FILE *f = fopen(path, "wb");
-    if (!f) return false;
-    uint8_t h[44];
-    uint32_t bytes = (uint32_t)frames * 2;
+static void header(uint8_t h[44], uint32_t frames, int rate, int channels) {
+    const uint32_t bytes = frames * 2u * (uint32_t)channels;
     memcpy(h, "RIFF", 4);
     put32(h + 4, 36 + bytes);
     memcpy(h + 8, "WAVEfmt ", 8);
     put32(h + 16, 16);
     put16(h + 20, 1);  // PCM
-    put16(h + 22, 1);  // mono
+    put16(h + 22, (uint16_t)channels);
     put32(h + 24, (uint32_t)rate);
-    put32(h + 28, (uint32_t)rate * 2);
-    put16(h + 32, 2);
+    put32(h + 28, (uint32_t)rate * 2u * (uint32_t)channels);
+    put16(h + 32, (uint16_t)(2 * channels));
     put16(h + 34, 16);
     memcpy(h + 36, "data", 4);
     put32(h + 40, bytes);
+}
+
+bool wav_write(const char *path, const int16_t *data, int frames, int rate) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return false;
+    uint8_t h[44];
+    header(h, (uint32_t)frames, rate, 1);
     // Samples are little-endian on the 3DS and every build machine.
     bool ok = fwrite(h, 1, 44, f) == 44 && fwrite(data, 2, (size_t)frames, f) == (size_t)frames;
     return fclose(f) == 0 && ok;
+}
+
+bool wav_stream_open(WavStream *w, const char *path, int rate, int channels) {
+    memset(w, 0, sizeof(*w));
+    w->f = fopen(path, "wb");
+    if (!w->f) return false;
+    setvbuf(w->f, NULL, _IOFBF, 32 * 1024);  // fewer, bigger SD writes
+    w->rate = rate;
+    w->channels = channels;
+    uint8_t h[44];
+    header(h, 0, rate, channels);  // sizes patched on close
+    w->ok = fwrite(h, 1, 44, w->f) == 44;
+    return w->ok;
+}
+
+bool wav_stream_write(WavStream *w, const int16_t *data, int frames) {
+    if (!w->f || frames <= 0) return w->ok;
+    const size_t n = (size_t)frames * (size_t)w->channels;
+    w->ok &= fwrite(data, 2, n, w->f) == n;
+    w->frames += (uint32_t)frames;
+    return w->ok;
+}
+
+bool wav_stream_close(WavStream *w) {
+    if (!w->f) return false;
+    uint8_t h[44];
+    header(h, w->frames, w->rate, w->channels);
+    w->ok &= fseek(w->f, 0, SEEK_SET) == 0 && fwrite(h, 1, 44, w->f) == 44;
+    w->ok &= fclose(w->f) == 0;
+    w->f = NULL;
+    return w->ok;
 }
 
 int wav_read(const char *path, int16_t *data, int max_frames, int *rate) {

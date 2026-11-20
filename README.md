@@ -66,6 +66,10 @@ The [tutorial](docs/TUTORIAL.md) explains every page in detail.
   the mixer, sliders, theme, FX) plus `tape1.wav`…`tape4.wav` and `mic.wav`.
 - **Autosave:** whatever you're working on is also saved as you go, and is
   there again next time you start.
+- **Mixdowns** (MIX → MIXDOWN) go in `sdmc:/3ds/vibe-machine/mixes/`:
+  the whole song, stereo, 44.1 kHz, as you heard it.
+- **Samples** live in `sdmc:/3ds/vibe-machine/samples/`; copy your own WAVs
+  in there too.
 - The WAVs are ordinary files: copy them off the SD card into any audio
   editor.
 

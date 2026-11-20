@@ -8,6 +8,7 @@
 #include "audio_out.h"
 
 #include <3ds.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "engine.h"
@@ -36,6 +37,54 @@ static LightLock s_stats_lock;
 static AudioStats s_stats;
 static int16_t s_scope[SCOPE_POINTS];
 static uint64_t s_peak_window_start;
+
+// Mixdown capture ring: the audio thread writes, the main thread reads.
+#define CAP_FRAMES (44100 * 3)
+static int16_t *s_cap;
+static uint32_t s_cap_w, s_cap_r;  // frames written / read, ever (wrap is fine: unsigned)
+static volatile bool s_capturing;
+static volatile uint32_t s_cap_dropped;
+
+void audio_out_capture(bool on) {
+    if (on && !s_cap) s_cap = (int16_t *)malloc(CAP_FRAMES * 2 * sizeof(int16_t));
+    if (on && !s_cap) return;
+    if (on) {
+        __atomic_store_n(&s_cap_r, __atomic_load_n(&s_cap_w, __ATOMIC_ACQUIRE), __ATOMIC_RELEASE);
+        s_cap_dropped = 0;
+    }
+    s_capturing = on;
+}
+
+static void capture_block(const int16_t *block, int frames) {
+    if (!s_capturing || !s_cap) return;
+    const uint32_t w = __atomic_load_n(&s_cap_w, __ATOMIC_RELAXED), r = __atomic_load_n(&s_cap_r, __ATOMIC_ACQUIRE);
+    if (CAP_FRAMES - (w - r) < (uint32_t)frames) {
+        s_cap_dropped += (uint32_t)frames;
+        return;
+    }
+    for (int i = 0; i < frames; i++) {
+        const uint32_t k = (w + (uint32_t)i) % CAP_FRAMES;
+        s_cap[2 * k] = block[2 * i];
+        s_cap[2 * k + 1] = block[2 * i + 1];
+    }
+    __atomic_store_n(&s_cap_w, w + (uint32_t)frames, __ATOMIC_RELEASE);
+}
+
+int audio_out_capture_read(int16_t *out, int max_frames) {
+    if (!s_cap) return 0;
+    const uint32_t r = __atomic_load_n(&s_cap_r, __ATOMIC_RELAXED), w = __atomic_load_n(&s_cap_w, __ATOMIC_ACQUIRE);
+    uint32_t n = w - r;
+    if (n > (uint32_t)max_frames) n = (uint32_t)max_frames;
+    for (uint32_t i = 0; i < n; i++) {
+        const uint32_t k = (r + i) % CAP_FRAMES;
+        out[2 * i] = s_cap[2 * k];
+        out[2 * i + 1] = s_cap[2 * k + 1];
+    }
+    __atomic_store_n(&s_cap_r, r + n, __ATOMIC_RELEASE);
+    return (int)n;
+}
+
+uint32_t audio_out_capture_dropped(void) { return s_cap_dropped; }
 
 static void ndsp_callback(void *arg) {
     (void)arg;
@@ -90,6 +139,7 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
         const float *strips[TAPE_SOURCES];  // (each MIX strip on its own, for tracks that record one)
         for (int k = 0; k < TAPE_SOURCES; k++) strips[k] = mixer_strip_block(k);
         tape_record_block(dst, strips, frames);              // ...and the armed track records
+        capture_block(dst, frames);                          // the mixdown, if one is running
         record_block(dst, frames, t1 - t0);
 #ifdef VM_DEMO
         memset(dst, 0, (size_t)frames * 2 * sizeof(int16_t));  // attract mode: scope moves, speakers stay quiet

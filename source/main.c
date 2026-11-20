@@ -644,6 +644,78 @@ static void notice(const char *msg) {
     s_app.notice_frames = 150;
 }
 
+// --------------------------------------------------------- MIXDOWN ----
+// The whole song, as it plays, into a stereo WAV: whatever you hear (live
+// playing, tape, FX moves) goes in. It starts the song from the top and
+// stops a few seconds after the sequencer does (a STOP arrangement ending,
+// START, or tapping MIXDOWN), so echoes and reverb ring out.
+
+#define MIXES_ROOT STORAGE_DIR "/mixes"
+#define MIXDOWN_TAIL_FRAMES 180  // 3 s of tail
+static WavStream s_mixdown;
+static unsigned s_mixdown_tail_end;
+
+static void mixdown_drain(void) {
+    static int16_t buf[4096 * 2];
+    int n;
+    while ((n = audio_out_capture_read(buf, 4096)) > 0) wav_stream_write(&s_mixdown, buf, n);
+    s_app.mixdown_secs = s_mixdown.frames / (float)engine_sample_rate();
+}
+
+static void mixdown_finish(void) {
+    audio_out_capture(false);
+    mixdown_drain();
+    const uint32_t dropped = audio_out_capture_dropped();
+    const bool ok = wav_stream_close(&s_mixdown);
+    s_app.mixdown = 0;
+    char msg[sizeof(s_app.notice)];
+    const int s = (int)s_app.mixdown_secs;
+    if (!ok)
+        snprintf(msg, sizeof(msg), "MIXDOWN FAILED (SD CARD?)");
+    else if (dropped)
+        snprintf(msg, sizeof(msg), "MIX SAVED %d:%02d, WITH GAPS", s / 60, s % 60);
+    else
+        snprintf(msg, sizeof(msg), "MIX SAVED: %d:%02d IN MIXES", s / 60, s % 60);
+    notice(msg);
+}
+
+static void stop_transports(void);
+
+static void mixdown_start(void) {
+    char path[160];
+    mkdir(MIXES_ROOT, 0777);
+    snprintf(path, sizeof(path), "%s/%s.wav", MIXES_ROOT, s_app.song_name[0] ? s_app.song_name : "UNTITLED");
+    stop_transports();
+    if (!wav_stream_open(&s_mixdown, path, engine_sample_rate(), 2)) {
+        notice("CAN'T WRITE THE MIX");
+        return;
+    }
+    audio_out_capture(true);
+    start_pressed();  // the song from the top (and a linked tape with it)
+    s_app.mixdown = 1;
+    s_app.mixdown_secs = 0.0f;
+}
+
+static void mixdown_button(void) {
+    if (s_app.mixdown == 0)
+        mixdown_start();
+    else if (s_app.mixdown == 1)
+        stop_transports();  // the tail follows
+    else
+        mixdown_finish();
+}
+
+// Once a frame.
+static void mixdown_tick(void) {
+    if (!s_app.mixdown) return;
+    mixdown_drain();
+    if (s_app.mixdown == 1 && !seq_status().playing) {  // the song is over: let it ring out
+        s_app.mixdown = 2;
+        s_mixdown_tail_end = s_app.frame + MIXDOWN_TAIL_FRAMES;
+    }
+    if (s_app.mixdown == 2 && (int)(s_app.frame - s_mixdown_tail_end) >= 0) mixdown_finish();
+}
+
 // ------------------------------------------------------- SONG sheet ----
 
 static void arr_assign(int slot) {
@@ -1513,6 +1585,11 @@ static void touch_begin(int x, int y) {
         return;
     }
     if (s_app.page == PAGE_MIX) {
+        if (ui_hit_mixdown(x, y)) {
+            mixdown_button();
+            s_touch = TOUCH_IGNORE;
+            return;
+        }
         mix_begin(x, y);
         return;
     }
@@ -2081,6 +2158,7 @@ int main(void) {
         update_lit_keys();
         mix_update();
         if (s_app.smp_flash_frames > 0) s_app.smp_flash_frames--;
+        mixdown_tick();
 
         AudioStats stats = audio_out_stats();
         audio_out_scope(scope);
@@ -2105,6 +2183,7 @@ int main(void) {
         s_app.frame++;
     }
 
+    if (s_app.mixdown) mixdown_finish();  // quitting mid-mixdown: keep what was recorded
 #ifndef VM_DEMO
     update_song_dirty();
     autosave(true);

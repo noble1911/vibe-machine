@@ -244,6 +244,8 @@ typedef enum {
 #define MIX_SOLO_DX 39
 #define MIX_BTN_W 33
 #define MIX_KNOB_DRAG 90.0f  // pixels of drag for the whole knob range
+#define MIXDOWN_X 222        // MIXDOWN sticker, in the tab row of the MIX page
+#define MIXDOWN_W 94
 typedef enum {
     MIX_HIT_NONE = -1,
     MIX_HIT_HEAD,
@@ -367,6 +369,7 @@ bool ui_in_fx_pad(int x, int y);
 bool ui_hit_songs_button(int x, int y);  // on the SOUND page
 // MIX page: a MixHit (knobs offset by MixKnob), and the strip it is on.
 int ui_hit_mix(int x, int y, int *strip);
+bool ui_hit_mixdown(int x, int y);
 int ui_hit_songs(int x, int y, bool confirming);  // a SongHit (rows offset by index)
 int ui_hit_tape(int x, int y);  // a TapeHit (tracks / mutes offset by index)
 float ui_tape_speed_at(int x);  // speed strip position -> -2..2 (snaps to -1, 0, 1)

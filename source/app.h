@@ -62,6 +62,8 @@ typedef struct {
     float mix_meter[MIX_STRIPS];  // 0..1, with a fall-back, for the meters
     int mix_strip;              // strip being dragged, or -1
     int mix_grab;               // MixGrab: its fader, or MIX_GRAB_KNOB + knob
+    int mixdown;                // 0, 1 recording the song, 2 letting the echoes ring out
+    float mixdown_secs;         // length written so far
 
     // FX page
     FxState fx;                 // what the audio thread is doing (read back each frame)
