@@ -16,6 +16,8 @@ striped shapes with hard drop shadows, and a burst of them on every note.
 Tap **THEME** on the touchscreen to switch. Turn up the **3D slider**: the
 back layers sink into the screen and the note bursts fly out of it.
 
+![The nine themes running in the Azahar emulator](docs/themes.png)
+
 Sound comes from [AMY](https://github.com/shorepine/amy), a fixed-point
 synthesis library (MIT) that also runs on the ESP32 and RP2040.
 
