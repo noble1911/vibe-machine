@@ -140,8 +140,6 @@ Along the bottom:
 
 ### The piano roll
 
-![The piano roll](images/roll.png)
-
 Tap **ROLL** (bottom row) to swap the grid for a **piano roll** of the same
 pattern: pitches up the side, steps across. Drums stay on the grid; this is
 where melodies, chords and long notes live.
