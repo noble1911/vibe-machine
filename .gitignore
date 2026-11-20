@@ -5,3 +5,4 @@ build/
 *.cia
 .DS_Store
 LICENSE-AMY.txt
+tests/build/
