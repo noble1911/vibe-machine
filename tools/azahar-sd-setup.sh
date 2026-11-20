@@ -1,5 +1,5 @@
 #!/bin/sh
-# Prepare Azahar's virtual SD card so Clamshell has sound in the emulator.
+# Prepare Azahar's virtual SD card so Vibe Machine has sound in the emulator.
 #
 # libctru's ndsp loads the DSP firmware from sdmc:/3ds/dspfirm.cdc before it
 # starts. Azahar's default HLE audio emulates the DSP and ignores the file's

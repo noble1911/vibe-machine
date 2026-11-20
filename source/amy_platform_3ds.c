@@ -1,7 +1,7 @@
 // Platform hooks AMY expects from its audio layer.
 //
 // On desktop these come from libminiaudio-audio.c and on microcontrollers
-// from i2s.c. Clamshell owns audio output itself (see audio_out.c), so AMY
+// from i2s.c. Vibe Machine owns audio output itself (see audio_out.c), so AMY
 // only needs to render blocks on request; every hook here is a no-op or a
 // thin pass-through.
 
@@ -21,7 +21,7 @@ size_t amy_i2s_write(const uint8_t *buffer, size_t nbytes) {
 }
 
 // amy_midi.c only defines these for platforms with a MIDI device layer.
-// Clamshell sends notes to AMY directly, so there is no MIDI port to run.
+// Vibe Machine sends notes to AMY directly, so there is no MIDI port to run.
 void run_midi(void) {}
 
 void stop_midi(void) {}

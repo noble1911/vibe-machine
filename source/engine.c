@@ -22,7 +22,7 @@ void engine_init(void) {
     LightLock_Init(&s_lock);
 
     amy_config_t c = amy_default_config();
-    // Clamshell drives AMY by hand: no AMY-owned audio device, MIDI port,
+    // Vibe Machine drives AMY by hand: no AMY-owned audio device, MIDI port,
     // threads or second core. default_synths gives us the GM drum kit on
     // synth 10 for free.
     c.audio = AMY_AUDIO_IS_NONE;

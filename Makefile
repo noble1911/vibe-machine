@@ -31,7 +31,7 @@ include $(DEVKITARM)/3ds_rules
 #     - icon.png
 #     - <libctru folder>/default_icon.png
 #---------------------------------------------------------------------------------
-TARGET		:=	clamshell
+TARGET		:=	vibe-machine
 BUILD		:=	build
 SOURCES		:=	source
 DATA		:=	data
@@ -41,7 +41,7 @@ GFXBUILD	:=	$(BUILD)
 #ROMFS		:=	romfs
 #GFXBUILD	:=	$(ROMFS)/gfx
 
-APP_TITLE	:=	Clamshell
+APP_TITLE	:=	Vibe Machine
 APP_DESCRIPTION	:=	Pocket synth & tape groovebox
 APP_AUTHOR	:=	noble1911
 

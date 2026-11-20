@@ -2,7 +2,7 @@
 """Generate source/patch_names.h from AMY's patch table comments.
 
 AMY's src/patches.h labels each built-in patch with a comment such as
-`/* 0: Juno A11 Brass Set 1 */`. Clamshell shows those names on screen, so
+`/* 0: Juno A11 Brass Set 1 */`. Vibe Machine shows those names on screen, so
 this script copies them into a small C table. Re-run it after bumping the
 AMY submodule:
 
@@ -15,7 +15,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = ROOT / "third_party" / "amy" / "src" / "patches.h"
 DST = ROOT / "source" / "patch_names.h"
 
-# Clamshell browses the Juno-6 (0-127) and DX7 (128-255) banks.
+# Vibe Machine browses the Juno-6 (0-127) and DX7 (128-255) banks.
 FIRST, LAST = 0, 255
 
 pattern = re.compile(r"/\*\s*(\d+):\s*(.*?)\s*\*/")

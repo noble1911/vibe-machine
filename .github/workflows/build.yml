@@ -33,10 +33,10 @@ jobs:
       - name: Upload build
         uses: actions/upload-artifact@v7
         with:
-          name: clamshell-${{ github.sha }}
+          name: vibe-machine-${{ github.sha }}
           path: |
-            clamshell.3dsx
-            clamshell.smdh
+            vibe-machine.3dsx
+            vibe-machine.smdh
             LICENSE
             LICENSE-AMY.txt
           if-no-files-found: error
@@ -46,7 +46,7 @@ jobs:
         uses: softprops/action-gh-release@v3
         with:
           files: |
-            clamshell.3dsx
+            vibe-machine.3dsx
             LICENSE
             LICENSE-AMY.txt
           generate_release_notes: true

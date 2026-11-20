@@ -1,4 +1,4 @@
-# Clamshell: notes for contributors and agents
+# Vibe Machine: notes for contributors and agents
 
 A 3DS homebrew synth / groovebox. C11, devkitARM + libctru + citro2d, with
 the AMY synth library as a pinned git submodule.
@@ -6,14 +6,14 @@ the AMY synth library as a pinned git submodule.
 ## Build and run
 
 ```sh
-make                       # -> clamshell.3dsx (needs devkitPro 3ds-dev)
+make                       # -> vibe-machine.3dsx (needs devkitPro 3ds-dev)
 make clean
 sh tools/azahar-sd-setup.sh   # once: emulator-only DSP placeholder
-open -a /path/to/Azahar.app clamshell.3dsx
+open -a /path/to/Azahar.app vibe-machine.3dsx
 ```
 
 CI: `.github/workflows/build.yml` builds in `devkitpro/devkitarm` and
-uploads `clamshell.3dsx` as an artifact; `v*` tags publish a release.
+uploads `vibe-machine.3dsx` as an artifact; `v*` tags publish a release.
 
 ## Target hardware: original 3DS
 
@@ -44,9 +44,13 @@ uploads `clamshell.3dsx` as an artifact; `v*` tags publish a release.
   but needs an upstream change to AMY (`AMY_SAMPLE_RATE` cannot currently be
   overridden).
 - LOAD numbers from Azahar are not real-hardware numbers.
-- Visual style is 90s vaporwave: palette and helpers live in
-  `source/ui_style.h`. The top screen is stereoscopic; give every new layer
-  a depth constant in `ui_top.c` (positive = behind the screen).
+- Visual style is loud 90s Memphis with switchable themes (`theme.c`).
+  Draw with `shapes.c` / `motif.c` and theme colours, never hard-coded
+  ones (the Vapor Sunset scene is the one exception). The top screen is
+  stereoscopic; give every new layer a depth in `ui_top.c` (positive =
+  behind the screen).
+- `make DEMO=1` builds a silent attract mode that cycles themes, handy for
+  screenshots in Azahar. Never ship it.
 - Avoid citro2d's ellipse/circle primitive for large shapes: it fails to
   draw at large radii in Azahar. Build big round shapes as triangle fans.
 - Original visual design only: no copying another product's graphics,
