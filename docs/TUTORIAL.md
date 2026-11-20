@@ -350,11 +350,15 @@ recording a sound to play on the keys, use the **MIC** sound:
 Each track has a **source**, the chip next to its number. Pick the track,
 then tap its chip to change the source:
 
-- **ALL**: everything you hear, effects included, so a stutter or tape-stop
-  performance goes onto tape exactly as you played it.
+- **ALL**: everything you hear: what you're playing live, the other tape
+  tracks, and the FX page on top, so a stutter or tape-stop performance goes
+  onto tape exactly as you heard it. Recording ALL while other tracks play
+  **bounces** them together onto this one (mute the ones you bounced
+  afterwards, or you'll hear them twice).
 - **DRUMS**, **PART 1**, **PART 2**, **PART 3**: just that strip of the
-  [MIX page](#9-the-mix-page-balancing-the-parts), with its level, pan and
-  strip effects, but without the master echo, reverb or the FX page.
+  [MIX page](#9-the-mix-page-balancing-the-parts), with its level and strip
+  effects, but without the master echo, reverb or the FX page. Tape tracks
+  are mono, so pan isn't kept.
 
 ### Recording a track
 
@@ -364,7 +368,8 @@ then tap its chip to change the source:
 3. Tap **▶**. With **SEQ LINK** on (the default), the sequencer starts at
    the same moment, so your take lines up with the beat.
 4. Play. The other tracks play back while you record, so you can layer.
-5. Tap **■** to stop. The tape is saved when it stops.
+5. Tap **■** to stop. The tape is saved when it stops. A take that reaches
+   the end of the tape (60 seconds) stops there by itself.
 
 If the source was one strip, that strip is **muted live** when the take
 ends, so you hear it once, from the tape, instead of twice. A notice says
@@ -384,7 +389,8 @@ recording).
    you're free to change the patterns, sounds or effects without losing
    what you recorded, or to scratch, reverse and slow the tape.
 4. Use **ALL** for a final pass with the FX page: a stutter or a tape stop
-   over the whole thing onto track 4.
+   over the whole thing (live and taped) onto track 4. Then mute tracks 1–3
+   and track 4 is your performance.
 
 ### Playing with the tape
 
@@ -397,7 +403,9 @@ recording).
 - **M** on a track mutes it.
 - **Hold a track sticker** for about a second to **wipe** it. A bar fills
   while you hold.
-- **SEQ LINK** off: the tape and sequencer start and stop independently.
+- **SEQ LINK** on: **START** plays the tape from the top along with the
+  beat (and stops it), so your taped layers always play along. Off: the
+  tape and sequencer start and stop independently.
 
 ## 12. Songs: saving your work
 

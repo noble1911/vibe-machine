@@ -23,6 +23,7 @@ static volatile float s_speed = 1.0f, s_scrub_speed;
 static volatile bool s_muted[TAPE_TRACKS];
 static volatile int s_source[TAPE_TRACKS] = {TAPE_SRC_ALL, TAPE_SRC_ALL, TAPE_SRC_ALL, TAPE_SRC_ALL};
 static volatile bool s_rewind;
+static volatile uint32_t s_ends;  // bumps when a recording reaches the end of the tape
 
 static double s_head;          // tape position in tape frames
 static float s_cur_speed;      // slewed speed actually applied
@@ -135,6 +136,7 @@ TapeStatus tape_status(void) {
         st.used[t] = s_used[t];
         st.source[t] = s_source[t];
     }
+    st.ends = s_ends;
     return st;
 }
 
@@ -163,8 +165,15 @@ static float soft(float v) {
     return v < 0 ? -k : k;
 }
 
-void tape_process(int16_t *io, const float *const *strips, int frames, int rate) {
-    if (!s_ok) return;
+// Per block: what the playback half decided, for the recording half.
+#define MAX_BLOCK 1024
+static int32_t s_wpos[MAX_BLOCK];  // tape frame each output frame lands on (recording)
+static bool s_block_rec;
+static int s_block_rt, s_block_frames, s_block_decim;
+
+void tape_play_block(int16_t *io, int frames, int rate) {
+    s_block_rec = false;
+    if (!s_ok || frames > MAX_BLOCK) return;
     if (s_rewind) {
         s_rewind = false;
         s_head = 0.0;
@@ -175,39 +184,21 @@ void tape_process(int16_t *io, const float *const *strips, int frames, int rate)
         for (int t = 0; t < TAPE_TRACKS; t++) s_level[t] *= 0.9f;
         return;
     }
-    const bool recording = s_playing && s_rec_armed && !s_scrubbing;
+    bool recording = s_playing && s_rec_armed && !s_scrubbing;
     const int rt = s_armed_track;
-    const int src = s_source[rt];
-    const float *strip = src >= 0 && strips ? strips[src] : NULL;  // NULL: record everything
     float target = s_scrubbing ? s_scrub_speed : !s_playing ? 0.0f : recording ? 1.0f : s_speed;
     const float step = (float)TAPE_RATE / (float)rate;  // tape frames per output frame at speed 1
-    const int decim = rate / TAPE_RATE > 0 ? rate / TAPE_RATE : 1;
     float lvl[TAPE_TRACKS] = {0};
+    s_block_rec = recording;
+    s_block_rt = rt;
+    s_block_frames = frames;
+    s_block_decim = rate / TAPE_RATE > 0 ? rate / TAPE_RATE : 1;
 
     for (int n = 0; n < frames; n++) {
         // Speed eases towards its target: starts and stops sound like a
         // motor spinning up rather than a click.
         s_cur_speed += (target - s_cur_speed) * (s_scrubbing ? 0.02f : 0.004f);
-
-        float live = strip ? strip[n] : (io[2 * n] + io[2 * n + 1]) * 0.5f / 32768.0f;
-        if (recording) {
-            s_rec_acc += live;
-            if (++s_rec_n >= decim) {
-                int32_t w = (int32_t)s_head % TAPE_FRAMES;
-                float v = s_rec_acc / s_rec_n;
-                s_track[rt][w] = (int16_t)(soft(v) * 32767.0f);
-                int b = w / TAPE_PEAK_BLOCK;
-                // Square-root scale, so quiet takes still read on screen.
-                uint8_t pk = (uint8_t)fminf(255.0f, sqrtf(fabsf(v)) * 255.0f);
-                if (w % TAPE_PEAK_BLOCK == 0) s_peaks[rt][b] = pk;  // first write of a block resets it
-                else if (pk > s_peaks[rt][b]) s_peaks[rt][b] = pk;
-                s_used[rt] = true;
-                s_dirty[rt] = true;
-                if (w + 1 > s_len[rt]) s_len[rt] = w + 1;
-                s_rec_acc = 0.0f;
-                s_rec_n = 0;
-            }
-        }
+        s_wpos[n] = recording ? (int32_t)s_head : -1;
 
         float mix = 0.0f;
         if (fabsf(s_cur_speed) > 0.001f) {
@@ -228,12 +219,52 @@ void tape_process(int16_t *io, const float *const *strips, int frames, int rate)
         }
 
         s_head += s_cur_speed * step;
-        if (s_head >= TAPE_FRAMES) s_head -= TAPE_FRAMES;
+        if (s_head >= TAPE_FRAMES) {
+            if (recording) {  // a take never wraps over its own start: the tape stops
+                s_head = TAPE_FRAMES - 1;
+                s_playing = false;
+                s_rec_armed = false;
+                s_cur_speed = 0.0f;
+                target = 0.0f;
+                recording = false;
+                s_ends++;
+            } else {
+                s_head -= TAPE_FRAMES;
+            }
+        }
         if (s_head < 0.0) s_head += TAPE_FRAMES;
     }
     for (int t = 0; t < TAPE_TRACKS; t++) s_level[t] = lvl[t] > s_level[t] ? lvl[t] : s_level[t] * 0.9f;
-    if (recording) {
-        s_gen++;
-        s_track_gen[rt]++;
+}
+
+void tape_record_block(const int16_t *io, const float *const *strips, int frames) {
+    if (!s_block_rec || frames != s_block_frames) return;
+    const int rt = s_block_rt, src = s_source[rt], decim = s_block_decim;
+    const float *strip = src >= 0 && strips ? strips[src] : NULL;  // NULL: record everything
+    for (int n = 0; n < frames; n++) {
+        if (s_wpos[n] < 0) continue;
+        s_rec_acc += strip ? strip[n] : (io[2 * n] + io[2 * n + 1]) * 0.5f / 32768.0f;
+        if (++s_rec_n >= decim) {
+            int32_t w = s_wpos[n] % TAPE_FRAMES;
+            float v = s_rec_acc / s_rec_n;
+            s_track[rt][w] = (int16_t)(soft(v) * 32767.0f);
+            int b = w / TAPE_PEAK_BLOCK;
+            // Square-root scale, so quiet takes still read on screen.
+            uint8_t pk = (uint8_t)fminf(255.0f, sqrtf(fabsf(v)) * 255.0f);
+            if (w % TAPE_PEAK_BLOCK == 0) s_peaks[rt][b] = pk;  // first write of a block resets it
+            else if (pk > s_peaks[rt][b]) s_peaks[rt][b] = pk;
+            s_used[rt] = true;
+            s_dirty[rt] = true;
+            if (w + 1 > s_len[rt]) s_len[rt] = w + 1;
+            s_rec_acc = 0.0f;
+            s_rec_n = 0;
+        }
     }
+    s_gen++;
+    s_track_gen[rt]++;
+}
+
+void tape_process(int16_t *io, const float *const *strips, int frames, int rate) {
+    tape_play_block(io, frames, rate);
+    tape_record_block(io, strips, frames);
 }

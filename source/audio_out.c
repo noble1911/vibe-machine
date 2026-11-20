@@ -85,10 +85,11 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
         const int16_t *block = engine_render_block();
         uint64_t t1 = svcGetSystemTick();
         memcpy(dst, block, (size_t)frames * 2 * sizeof(int16_t));
-        fx_process(dst, frames);                         // performance FX on the live sound
-        const float *strips[TAPE_SOURCES];  // each MIX strip on its own, for tracks that record one
+        tape_play_block(dst, frames, engine_sample_rate());  // the tape plays along...
+        fx_process(dst, frames);                             // ...the performance FX go over everything...
+        const float *strips[TAPE_SOURCES];  // (each MIX strip on its own, for tracks that record one)
         for (int k = 0; k < TAPE_SOURCES; k++) strips[k] = mixer_strip_block(k);
-        tape_process(dst, strips, frames, engine_sample_rate());  // record it / add the tape
+        tape_record_block(dst, strips, frames);              // ...and the armed track records
         record_block(dst, frames, t1 - t0);
 #ifdef VM_DEMO
         memset(dst, 0, (size_t)frames * 2 * sizeof(int16_t));  // attract mode: scope moves, speakers stay quiet

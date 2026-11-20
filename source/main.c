@@ -376,6 +376,20 @@ static void restart_sequencer(void) {
     seq_toggle_play();  // starts again from step 1
 }
 
+// START. With SEQ LINK on, the tape rolls with the beat (from the top, as
+// the sequencer does), so taped layers play along.
+static void start_pressed(void) {
+    const bool play = !seq_status().playing;
+    seq_toggle_play();
+    if (!s_app.tape_link) return;
+    if (play) {
+        tape_rewind();
+        tape_play(true);
+    } else {
+        tape_play(false);
+    }
+}
+
 static void tape_button(int hit) {
     switch (hit) {
         case TAPE_HIT_REW:
@@ -1751,7 +1765,7 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
 
     // START: tap to play/stop; holding it quits (checked in the main loop).
     if (down & KEY_START) s_start_down = s_app.frame;
-    if ((up & KEY_START) && s_app.frame - s_start_down < PLAY_TAP_FRAMES) seq_toggle_play();
+    if ((up & KEY_START) && s_app.frame - s_start_down < PLAY_TAP_FRAMES) start_pressed();
 }
 
 static void update_lit_keys(void) {
@@ -1862,6 +1876,18 @@ int main(void) {
         fx_set_tempo((float)s_app.seq.bpm);
         s_app.fx = fx_state();
         s_app.tape = tape_status();
+        {   // a take ran to the end of the tape: it stopped there
+            static uint32_t ends;
+            if (s_app.tape.ends != ends) {
+                if (ends != 0 || s_app.frame > 1) {
+                    s_tape_armed = false;
+                    tape_record(false);
+                    if (seq_status().playing && s_app.tape_link) seq_toggle_play();
+                    notice("END OF THE TAPE: TAKE STOPPED");
+                }
+                ends = s_app.tape.ends;
+            }
+        }
         watch_takes();
         ui_tape_ui_state(s_tape_armed, s_tape_speed);
 

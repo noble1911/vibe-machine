@@ -134,6 +134,66 @@ int main(void) {
         check(tape_status().source[1] == TAPE_SRC_ALL, "a bad source falls back to ALL");
     }
 
+    // FX go over the tape: playback is added to the block before the caller's
+    // processing, and ALL records the block as it finally sounds (a bounce
+    // of live + the other tracks).
+    {
+        tape_clear(0);
+        tape_clear(1);
+        tape_clear(2);
+        tape_set_source(1, TAPE_SRC_ALL);
+        tape_mute(0, false);
+        // Track 0: a tone. Then bounce track 0 (plus silence live) onto track 2.
+        tape_select(0);
+        tape_rewind();
+        tape_record(true);
+        tape_play(true);
+        run(1.0, 1, NULL);
+        tape_play(false);
+        tape_record(false);
+        run(0.3, 0, NULL);
+        tape_select(2);
+        tape_rewind();
+        tape_record(true);
+        tape_play(true);
+        int16_t b[BLOCK * 2];
+        for (int done = 0; done < RATE / 2; done += BLOCK) {
+            memset(b, 0, sizeof(b));
+            tape_play_block(b, BLOCK, RATE);
+            for (int i = 0; i < BLOCK * 2; i++) b[i] = (int16_t)(b[i] / 2);  // "FX": halve it
+            tape_record_block(b, NULL, BLOCK);
+        }
+        tape_play(false);
+        tape_record(false);
+        run(0.3, 0, NULL);
+        int len0 = 0, len2 = 0;
+        const int16_t *t0 = tape_track_data(0, &len0), *t2 = tape_track_data(2, &len2);
+        double e0 = 0, e2 = 0;
+        for (int i = TAPE_RATE / 10; i < TAPE_RATE * 4 / 10; i++) {
+            e0 += (double)t0[i] * t0[i];
+            e2 += (double)t2[i] * t2[i];
+        }
+        double ratio = sqrt(e2 / (e0 + 1));
+        printf("  bounce: track 3 is %.2f x track 1\n", ratio);
+        check(ratio > 0.3 && ratio < 0.5, "ALL records the other tracks too, after the FX (a bounce)");
+
+        // A take that reaches the end of the tape stops there.
+        TapeStatus before = tape_status();
+        tape_select(3);
+        tape_rewind();
+        tape_record(true);
+        tape_play(true);
+        run(TAPE_SECONDS + 1.0, 1, NULL);
+        TapeStatus after = tape_status();
+        int len3 = 0;
+        tape_track_data(3, &len3);
+        check(after.ends == before.ends + 1 && !after.playing && !after.recording && len3 >= TAPE_FRAMES - 2,
+              "a take stops at the end of the tape instead of wrapping");
+        int16_t first = tape_track_data(3, &len3)[TAPE_RATE / 2];
+        check(first != 0, "...so the start of the take is still there");
+        tape_clear(3);
+    }
+
     tape_exit();
     printf(fails ? "\n%d tape problem(s)\n" : "\nall tape OK\n", fails);
     return fails ? 1 : 0;
