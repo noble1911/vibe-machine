@@ -11,6 +11,17 @@ permissions:
   contents: write  # only used by the release step on version tags
 
 jobs:
+  # Host-side checks: every synth engine makes sound and its macros work;
+  # every FX behaves (bypass, filter, crush, stutter timing, tape stop).
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+      - name: Sound and FX probes
+        run: make -C tests
+
   build:
     runs-on: ubuntu-latest
     container: devkitpro/devkitarm:latest
