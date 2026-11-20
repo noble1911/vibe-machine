@@ -1,0 +1,62 @@
+// mixer.h -- the MIX page's channel strips: three parts and the drums, each
+// with its own level, pan, mute and effects (DRIVE, CRUSH, TONE).
+//
+// Each strip is an AMY bus: part k plays on bus k, the drums on bus
+// MIX_DRUMS. AMY runs the strip's TONE (its bus EQ); then mixer_hook()
+// (AMY's per-bus post-process hook) runs DRIVE and CRUSH, applies the level
+// and pan, and adds the strip into the master bus, which carries the SOUND
+// page's tone, echo, reverb and volume. So echo and reverb still run once,
+// for everything, however many strips there are.
+//
+// No 3DS code here: tests/ builds this file against AMY on the host.
+#pragma once
+
+#include <stdbool.h>
+#include <stdint.h>
+
+#include "engine.h"
+
+#define MIX_STRIPS (PARTS + 1)          // parts 0..PARTS-1, then the drums
+#define MIX_DRUMS PARTS                 // strip (and bus) of the drums
+#define MIX_MASTER_BUS MIX_STRIPS       // where every strip ends up
+#define MIX_BUSES (MIX_STRIPS + 1)
+#define MIX_LEVEL_UNITY 0.75f           // fader position for 0 dB
+// Synths feed their bus this much quieter (the hook makes it back up), so a
+// part sits well inside the +-1.0 that DRIVE's clipper and CRUSH's steps are
+// scaled to.
+#define MIX_HEADROOM 0.2f
+
+typedef enum { MIX_DRIVE, MIX_CRUSH, MIX_TONE, MIX_PAN, MIX_KNOBS } MixKnob;
+
+typedef struct MixStrip {
+    float level;            // fader, 0..1 (MIX_LEVEL_UNITY = unchanged)
+    float knob[MIX_KNOBS];  // 0..1; TONE and PAN are centred at 0.5
+} MixStrip;
+
+static inline void mixer_strip_default(MixStrip *s) {
+    s->level = MIX_LEVEL_UNITY;
+    s->knob[MIX_DRIVE] = 0.0f;
+    s->knob[MIX_CRUSH] = 0.0f;
+    s->knob[MIX_TONE] = 0.5f;
+    s->knob[MIX_PAN] = 0.5f;
+}
+// What a sound's own level (AMY's iV) becomes on its way into a strip.
+static inline float mixer_synth_level(float level) { return level * MIX_HEADROOM; }
+static inline int mixer_strip_synth(int strip) { return strip == MIX_DRUMS ? SYNTH_DRUMS : part_synth(strip); }
+const char *mixer_knob_name(MixKnob k);
+
+// The AMY event (start from amy_default_event()) that sets a strip's TONE on
+// its bus. Call from the engine, under its lock.
+struct amy_event;
+void mixer_fill_event(int strip, const MixStrip *s, struct amy_event *e);
+
+// Level, pan, DRIVE, CRUSH and whether the strip can be heard (mute / solo).
+// Takes effect on the next block.
+void mixer_set_gain(int strip, const MixStrip *s, bool audible);
+
+// AMY's bus post-process hook (amy_config.amy_external_bus_postprocess_hook).
+void mixer_hook(uint16_t bus, int32_t *buf, uint16_t len);
+
+// Loudest sample (0..1, after level and pan) a strip has sent since the last
+// call. For the meters.
+float mixer_peak(int strip);

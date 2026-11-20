@@ -63,7 +63,7 @@ typedef struct {
     bool song;       // chain the non-empty slots in order
     float swing;     // 0..SEQ_SWING_MAX
     uint8_t used;    // bit n = slot n has something in it
-    uint8_t muted;   // bit n = part n is muted
+    uint8_t muted;   // bit n = part n is muted; bit PARTS = the drums
 } SeqStatus;
 
 // velocity 0 means note-off. `synth` is SYNTH_DRUMS or part_synth(part).
@@ -82,7 +82,7 @@ void seq_set_recording(bool on);
 void seq_set_bpm(int bpm);
 void seq_set_swing(float swing);
 void seq_set_song(bool on);
-void seq_set_part_mute(int part, bool muted);
+void seq_set_part_mute(int part, bool muted);  // part PARTS = the drums
 void seq_clear(void);                       // the current slot
 void seq_reset(void);  // a new song: empty slots, starter groove in A, no swing / song
 void seq_set_pattern(const SeqPattern *p);  // the current slot

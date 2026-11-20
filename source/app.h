@@ -5,6 +5,7 @@
 
 #include "engine.h"
 #include "fx.h"
+#include "mixer.h"
 #include "sampler.h"
 #include "music.h"
 #include "seq.h"
@@ -13,7 +14,10 @@
 #include "tape.h"
 
 // PAGE_COUNT pages have tabs; SONGS opens from the SOUND page.
-typedef enum { PAGE_SOUND, PAGE_SEQ, PAGE_SYNTH, PAGE_FX, PAGE_TAPE, PAGE_COUNT, PAGE_SONGS = PAGE_COUNT } Page;
+typedef enum { PAGE_SOUND, PAGE_SEQ, PAGE_SYNTH, PAGE_MIX, PAGE_FX, PAGE_TAPE, PAGE_COUNT, PAGE_SONGS = PAGE_COUNT } Page;
+
+// What a touch on the MIX page grabbed (MIX_GRAB_KNOB + knob for a knob).
+typedef enum { MIX_GRAB_NONE = -1, MIX_GRAB_FADER, MIX_GRAB_KNOB } MixGrab;
 
 // Each instrument part keeps its own sound; AppState.sound / patch / macro
 // below are a working copy of the current part's.
@@ -47,6 +51,13 @@ typedef struct {
     uint8_t live_pitch[16];     // bit p = MIDI note p is being played live (shown on the roll)
     int slot_hold;              // slot sticker being held (to copy into), or -1
     float slot_hold_t;          // 0..1 progress of that hold
+
+    // MIX page
+    MixStrip mix[MIX_STRIPS];   // parts 0..PARTS-1, then the drums
+    uint8_t mix_solo;           // bit n = strip n soloed (mutes live in seq.muted)
+    float mix_meter[MIX_STRIPS];  // 0..1, with a fall-back, for the meters
+    int mix_strip;              // strip being dragged, or -1
+    int mix_grab;               // MixGrab: its fader, or MIX_GRAB_KNOB + knob
 
     // FX page
     FxState fx;                 // what the audio thread is doing (read back each frame)

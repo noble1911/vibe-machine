@@ -28,7 +28,12 @@ int main(void) {
         a.parts[k].macro[1] = 0.75f - 0.1f * k;
     }
     a.part = 2;
-    a.muted = 0x2;
+    a.muted = 0x2 | (1u << PARTS);  // part 2 and the drums
+    for (int k = 0; k < MIX_STRIPS; k++) {  // a mixer with everything moved
+        a.mix[k].level = 0.2f + 0.2f * k;
+        for (int i = 0; i < MIX_KNOBS; i++) a.mix[k].knob[i] = 0.1f * (k + 1) + 0.05f * i;
+    }
+    a.solo = 0x4;
     for (int i = 0; i < PARAM_COUNT; i++) a.params[i] = 0.1f * (i + 1);
     a.octave = -2;
     a.bpm = 137;
@@ -149,6 +154,8 @@ int main(void) {
         }
         check(loaded && old.parts[0].sound == 3 && old.parts[1].sound == -1 && old.part == 0,
               "an older song keeps its sound on part 1; the other parts get defaults");
+        check(loaded && old.mix[MIX_DRUMS].level == MIX_LEVEL_UNITY && old.mix[0].knob[MIX_PAN] == 0.5f && old.solo == 0,
+              "an older song gets a flat mixer");
         check(loaded && old.bpm == 99 && strcmp(old.name, "OLD SONG") == 0 && p->count == 4 && chord_at_4 == 3 &&
                   d_at_9 == 1 && p->accents == 0x0101 && p->drums[0] == 1,
               "a song saved before the piano roll loads with its notes");

@@ -43,7 +43,7 @@ static SeqPattern s_pats[SEQ_SLOTS];
 static int s_cur, s_queued = -1;
 static bool s_song;
 static float s_swing;
-static uint8_t s_muted;  // bit n = part n muted
+static uint8_t s_muted;  // bit n = part n muted; bit PARTS = the drums
 
 // Hits recorded slightly early (into the coming step) already sounded live;
 // skip them once when that step fires so they are not heard twice.
@@ -159,6 +159,7 @@ static int fire_step(int step, Event *ev, int n) {
     const bool accent = (p->accents >> step) & 1u;
     uint8_t hits = p->drums[step] & (uint8_t)~s_skip_drums[step];
     s_skip_drums[step] = 0;
+    if ((s_muted >> PARTS) & 1u) hits = 0;
     for (int lane = 0; lane < SEQ_LANES; lane++)
         if ((hits & (1u << lane)) && n < MAX_EVENTS)
             ev[n++] = (Event){SYNTH_DRUMS, drum_note(lane), accent ? SEQ_VEL_DRUM_ACCENT : SEQ_VEL_DRUM};
@@ -278,7 +279,7 @@ void seq_set_song(bool on) {
 }
 
 void seq_set_part_mute(int part, bool muted) {
-    if (part < 0 || part >= PARTS) return;
+    if (part < 0 || part > PARTS) return;  // PARTS = the drums
     LOCK(&s_lock);
     if (muted)
         s_muted |= (uint8_t)(1u << part);

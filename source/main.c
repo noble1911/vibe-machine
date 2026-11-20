@@ -74,6 +74,7 @@ typedef enum {
     TOUCH_ROLL_NOTE,
     TOUCH_ROLL_KEYS,
     TOUCH_PART_HOLD,
+    TOUCH_MIX,
 } TouchMode;
 
 #define PART_MUTE_FRAMES 40  // hold a SYNTH part sticker this long to (un)mute it
@@ -246,6 +247,120 @@ static void default_parts(void) {
     }
 }
 
+// ---------------------------------------------------------------- MIX ----
+// Mutes live in the sequencer (so a muted part's notes aren't even sent);
+// solos and the strips' settings live here. Both reach the engine through
+// mix_apply().
+
+#define MIX_DOUBLE_TAP_FRAMES 20  // tap a knob or fader twice to reset it
+
+static uint8_t s_mix_audible = 0xFF;  // what the engine was last told
+static int s_mix_start_y;
+static float s_mix_start_v;
+static int s_mix_last_tap = -1;  // strip * 8 + what, for double taps
+static unsigned s_mix_last_tap_frame;
+
+static bool mix_audible(int k) {
+    if ((seq_status().muted >> k) & 1u) return false;
+    return s_app.mix_solo == 0 || ((s_app.mix_solo >> k) & 1u);
+}
+
+static void mix_apply(int k) { engine_set_strip(k, &s_app.mix[k], mix_audible(k)); }
+
+static void mix_apply_all(void) {
+    s_mix_audible = 0;
+    for (int k = 0; k < MIX_STRIPS; k++) {
+        mix_apply(k);
+        if (mix_audible(k)) s_mix_audible |= (uint8_t)(1u << k);
+    }
+}
+
+static void mix_default(void) {
+    for (int k = 0; k < MIX_STRIPS; k++) mixer_strip_default(&s_app.mix[k]);
+    s_app.mix_solo = 0;
+    seq_set_part_mute(MIX_DRUMS, false);
+    mix_apply_all();
+}
+
+// Once a frame: mutes change from several places (here, the SYNTH page's
+// part stickers, loading a song), so notice and pass them on; and run the
+// meters.
+static void mix_update(void) {
+    uint8_t mask = 0;
+    for (int k = 0; k < MIX_STRIPS; k++)
+        if (mix_audible(k)) mask |= (uint8_t)(1u << k);
+    if (mask != s_mix_audible) mix_apply_all();
+    for (int k = 0; k < MIX_STRIPS; k++) {
+        float m = sqrtf(mixer_peak(k) / 10.0f);  // ~10 is full scale at the default volume
+        if (m > 1.0f) m = 1.0f;
+        float fall = s_app.mix_meter[k] * 0.88f;
+        s_app.mix_meter[k] = m > fall ? m : fall;
+    }
+}
+
+static float mix_default_value(int grab) {
+    MixStrip d;
+    mixer_strip_default(&d);
+    return grab == MIX_GRAB_FADER ? d.level : d.knob[grab - MIX_GRAB_KNOB];
+}
+
+static float *mix_value(int k, int grab) {
+    return grab == MIX_GRAB_FADER ? &s_app.mix[k].level : &s_app.mix[k].knob[grab - MIX_GRAB_KNOB];
+}
+
+static void mix_begin(int x, int y) {
+    int k = -1;
+    const int hit = ui_hit_mix(x, y, &k);
+    s_touch = TOUCH_IGNORE;
+    if (hit == MIX_HIT_NONE) return;
+    if (hit == MIX_HIT_HEAD) {
+        if (k < PARTS) switch_part(k);  // play this part from the keys
+        return;
+    }
+    if (hit == MIX_HIT_MUTE) {
+        seq_set_part_mute(k, !((seq_status().muted >> k) & 1u));
+        return;
+    }
+    if (hit == MIX_HIT_SOLO) {
+        s_app.mix_solo ^= (uint8_t)(1u << k);
+        return;
+    }
+    const int grab = hit == MIX_HIT_FADER ? MIX_GRAB_FADER : MIX_GRAB_KNOB + (hit - MIX_HIT_KNOB);
+    const int tap = k * 8 + grab + 1;
+    if (tap == s_mix_last_tap && s_app.frame - s_mix_last_tap_frame < MIX_DOUBLE_TAP_FRAMES) {
+        *mix_value(k, grab) = mix_default_value(grab);  // double tap: back to the start
+        mix_apply(k);
+        s_mix_last_tap = -1;
+        return;
+    }
+    s_mix_last_tap = tap;
+    s_mix_last_tap_frame = s_app.frame;
+    s_app.mix_strip = k;
+    s_app.mix_grab = grab;
+    s_mix_start_y = y;
+    s_mix_start_v = *mix_value(k, grab);
+    s_touch = TOUCH_MIX;
+}
+
+static void mix_drag(int y) {
+    const int k = s_app.mix_strip, grab = s_app.mix_grab;
+    if (k < 0 || grab == MIX_GRAB_NONE) return;
+    float v;
+    if (grab == MIX_GRAB_FADER) {
+        // Relative, like the knobs: touching the cap doesn't make it jump.
+        v = s_mix_start_v + (s_mix_start_y - y) / (float)(MIX_FADER_H - 10);
+    } else {
+        v = s_mix_start_v + (s_mix_start_y - y) / MIX_KNOB_DRAG;
+        const int knob = grab - MIX_GRAB_KNOB;
+        if ((knob == MIX_TONE || knob == MIX_PAN) && fabsf(v - 0.5f) < 0.04f) v = 0.5f;  // a detent in the middle
+    }
+    v = v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+    if (v != *mix_value(k, grab)) {
+        *mix_value(k, grab) = v;
+        mix_apply(k);
+    }
+}
+
 // --------------------------------------------------------------- TAPE ----
 
 static bool s_tape_armed;
@@ -393,6 +508,8 @@ static void capture(SaveState *st) {
     }
     st->part = s_app.part;
     st->muted = seq.muted;
+    memcpy(st->mix, s_app.mix, sizeof(st->mix));
+    st->solo = s_app.mix_solo;
     memcpy(st->params, s_app.params, sizeof(st->params));
     st->octave = s_app.octave;
     st->bpm = seq.bpm;
@@ -419,6 +536,10 @@ static void restore(const SaveState *st) {
         seq_set_part_mute(k, (st->muted >> k) & 1u);
     }
     switch_part(st->part);
+    seq_set_part_mute(MIX_DRUMS, (st->muted >> MIX_DRUMS) & 1u);
+    memcpy(s_app.mix, st->mix, sizeof(s_app.mix));
+    s_app.mix_solo = st->solo;
+    mix_apply_all();
     s_app.octave = st->octave < MUSIC_OCTAVE_MIN || st->octave > MUSIC_OCTAVE_MAX ? 0 : st->octave;
     seq_set_bpm(st->bpm);
     for (int i = 0; i < SEQ_SLOTS; i++) seq_put_slot(i, &st->slots[i]);
@@ -630,6 +751,7 @@ static void new_song(void) {
     const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
     default_parts();
+    mix_default();
     s_app.octave = 0;
     for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
     s_app.song_name[0] = '\0';
@@ -1023,6 +1145,10 @@ static void touch_begin(int x, int y) {
         s_touch = TOUCH_KEYS;
         return;
     }
+    if (s_app.page == PAGE_MIX) {
+        mix_begin(x, y);
+        return;
+    }
     if (s_app.page == PAGE_TAPE) {
         int hit = ui_hit_tape(x, y);
         s_touch = TOUCH_IGNORE;
@@ -1179,6 +1305,8 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         if (s_touch == TOUCH_SLOT && s_slot_frames < SLOT_COPY_FRAMES) seq_select_slot(s_app.slot_hold);
         s_app.slot_hold = -1;
         s_app.roll_active = -1;
+        s_app.mix_strip = -1;
+        s_app.mix_grab = MIX_GRAB_NONE;
         s_app.slot_hold_t = 0.0f;
         s_app.song_hold = -1;
         s_app.song_hold_t = 0.0f;
@@ -1254,6 +1382,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         }
         case TOUCH_SWING: seq_set_swing(ui_swing_at(tp.px)); break;
         case TOUCH_ROLL_NOTE: roll_drag(tp.px, tp.py); break;
+        case TOUCH_MIX: mix_drag(tp.py); break;
         case TOUCH_PART_HOLD:
             if (s_part_hold_frames < PART_MUTE_FRAMES && ++s_part_hold_frames == PART_MUTE_FRAMES) {
                 int k = s_app.part_hold;
@@ -1372,6 +1501,9 @@ int main(void) {
     const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
     default_parts();
+    s_app.mix_strip = -1;
+    s_app.mix_grab = MIX_GRAB_NONE;
+    mix_default();
     mkdir("sdmc:/3ds", 0777);
     mkdir(STORAGE_DIR, 0777);
     {
@@ -1460,6 +1592,21 @@ int main(void) {
         if (s_app.frame % 720 == 0) switch_part((int)((s_app.frame / 720) % PARTS));
         update_song_dirty();
         if (s_app.page == PAGE_SYNTH && s_app.frame % 120 == 0) select_sound(s_app.sound + 1);
+        if (s_app.page == PAGE_MIX) {  // someone at the desk: knobs turning, a fader riding
+            const float ph = s_app.frame * 0.03f;
+            s_app.mix[1].knob[MIX_DRIVE] = 0.55f + 0.4f * sinf(ph);
+            s_app.mix[MIX_DRUMS].knob[MIX_CRUSH] = 0.35f;
+            s_app.mix[0].knob[MIX_PAN] = 0.5f + 0.35f * sinf(ph * 0.6f);
+            s_app.mix[2].knob[MIX_TONE] = 0.78f;
+            s_app.mix[2].level = 0.55f + 0.15f * sinf(ph * 0.8f);
+            s_app.mix_solo = 0;
+            s_app.mix_strip = 1;
+            s_app.mix_grab = MIX_GRAB_KNOB + MIX_DRIVE;  // shows its value
+            for (int k = 0; k < MIX_STRIPS; k++) mix_apply(k);
+        } else if (s_app.mix_strip >= 0) {
+            s_app.mix_strip = -1;
+            s_app.mix_grab = MIX_GRAB_NONE;
+        }
         {   // wander a pretend stylus around the pads
             float a = s_app.frame * 0.05f;
             float px = 0.5f + 0.38f * sinf(a), py = 0.5f + 0.38f * cosf(a * 1.3f);
@@ -1514,6 +1661,7 @@ int main(void) {
             if (!room) finish_recording();  // the take is full: stop by itself
         }
         update_lit_keys();
+        mix_update();
 
         AudioStats stats = audio_out_stats();
         audio_out_scope(scope);

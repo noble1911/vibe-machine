@@ -116,6 +116,13 @@ static void draw_tabs(const AppState *app) {
                 for (int b = 0; b < 4; b++) sh_rect(cx - 6 + (b & 1) * 7, cy - 6 + (b >> 1) * 7, 5, 5, ink);
                 break;
             case PAGE_SYNTH: sh_squiggle(cx, cy, 14, 3.5f, 0, 2.0f, s_frame * 0.1f, ink); break;
+            case PAGE_MIX:  // three faders at different heights
+                for (int b = 0; b < 3; b++) {
+                    const float lx = cx - 5 + b * 5, ky = cy - 4 + ((b * 7 + 2) % 9);
+                    sh_rect(lx - 0.75f, cy - 6, 1.5f, 12, ink);
+                    sh_rect(lx - 2, ky - 1.5f, 4, 3, ink);
+                }
+                break;
             case PAGE_FX: sh_bolt(cx, cy, 15, 0.25f, ink); break;
             default:  // TAPE: a little cassette
                 sh_rect(cx - 8, cy - 5, 16, 10, ink);
@@ -123,6 +130,122 @@ static void draw_tabs(const AppState *app) {
                 sh_circle(cx + 3.5f, cy - 0.5f, 2.2f, rgba(face, 0xFF));
                 break;
         }
+    }
+}
+
+// --------------------------------------------------------- MIX page ----
+
+#define PI_F 3.14159265f
+
+// A knob's value as an angle (screen coordinates, y down): 0 at the bottom
+// left, round over the top, 1 at the bottom right.
+static float knob_angle(float v) { return PI_F * 0.75f + v * PI_F * 1.5f; }
+
+// A thick arc between radii r0 and r1, from angle a0 to a1.
+static void arc(float cx, float cy, float r0, float r1, float a0, float a1, u32 c) {
+    if (a1 < a0) {
+        float s = a0;
+        a0 = a1;
+        a1 = s;
+    }
+    const int n = (int)((a1 - a0) / 0.2f) + 1;
+    for (int i = 0; i < n; i++) {
+        const float b0 = a0 + (a1 - a0) * i / n, b1 = a0 + (a1 - a0) * (i + 1) / n;
+        const float c0 = cosf(b0), s0 = sinf(b0), c1 = cosf(b1), s1 = sinf(b1);
+        sh_quad(cx + c0 * r0, cy + s0 * r0, cx + c0 * r1, cy + s0 * r1, cx + c1 * r1, cy + s1 * r1, cx + c1 * r0,
+                cy + s1 * r0, c);
+    }
+}
+
+static int mix_sound(const AppState *app, int k) { return k == app->part ? app->sound : app->parts[k].sound; }
+
+// The colour a strip goes by: the part's colour, and the next one for the drums.
+static uint32_t strip_rgb(const Theme *t, int k) { return part_rgb(t, k); }
+
+static bool strip_audible(const AppState *app, int k) {
+    if ((app->seq.muted >> k) & 1u) return false;
+    return app->mix_solo == 0 || ((app->mix_solo >> k) & 1u);
+}
+
+static const char *const kKnobShort[MIX_KNOBS] = {"DRV", "CRSH", "TONE", "PAN"};
+
+static void draw_knob(const AppState *app, int k, int i, float cx, float cy, uint32_t col) {
+    const Theme *t = ui_theme();
+    const float v = app->mix[k].knob[i];
+    const bool grabbed = app->mix_strip == k && app->mix_grab == MIX_GRAB_KNOB + i;
+    const float r = MIX_KNOB_R + (grabbed ? 1.5f : 0.0f);
+    const bool centred = i == MIX_TONE || i == MIX_PAN;
+    arc(cx, cy, r + 1.0f, r + 3.0f, knob_angle(0.0f), knob_angle(1.0f), rgba(t->ink, 0x28));  // the track
+    if (centred || v > 0.01f) arc(cx, cy, r + 1.0f, r + 3.0f, knob_angle(centred ? 0.5f : 0.0f), knob_angle(v), rgba(col, 0xFF));
+    sh_circle(cx + 1.5f, cy + 1.5f, r, rgba(t->ink, 0xFF));  // hard shadow
+    sh_circle(cx, cy, r, rgba(t->card, 0xFF));
+    sh_ring(cx, cy, r, 1.5f, rgba(t->ink, 0xFF));
+    const float a = knob_angle(v);
+    sh_bar(cx + cosf(a) * r * 0.45f, cy + sinf(a) * r * 0.45f, r * 0.9f, 2.5f, a, rgba(t->ink, 0xFF));
+    char text[16];
+    if (!grabbed)
+        snprintf(text, sizeof(text), "%s", kKnobShort[i]);
+    else if (i == MIX_TONE)
+        snprintf(text, sizeof(text), "%+d", (int)lroundf((v - 0.5f) * 100.0f));
+    else if (i == MIX_PAN) {
+        const int p = (int)lroundf((v - 0.5f) * 100.0f);
+        if (p == 0)
+            snprintf(text, sizeof(text), "C");
+        else
+            snprintf(text, sizeof(text), "%c%d", p < 0 ? 'L' : 'R', p < 0 ? -p : p);
+    } else
+        snprintf(text, sizeof(text), "%d", (int)lroundf(v * 100.0f));
+    ui_text(cx, cy + r + 1.5f, grabbed ? 0.36f : 0.3f, rgba(ink_on(t, t->bg_b), 0xFF), C2D_AlignCenter, "%s", text);
+}
+
+// The fader: an LED meter in the slot, a unity mark, and the cap.
+static void draw_fader(const AppState *app, int k, float x, uint32_t col) {
+    const Theme *t = ui_theme();
+    const u32 ink = rgba(t->ink, 0xFF);
+    const float fx = x + MIX_FADER_DX, w = MIX_FADER_W, y0 = MIX_FADER_Y, h = MIX_FADER_H;
+    sh_card(fx, y0, w, h, rgba(t->card, 0xFF), ink, 2);
+    const float top = y0 + 5, bottom = y0 + h - 5, span = bottom - top;
+    const int segs = 13;
+    const float seg = span / segs;
+    const int lit = (int)(app->mix_meter[k] * segs + 0.5f);
+    for (int s = 0; s < segs; s++) {
+        const uint32_t c = s >= segs - 2 ? t->pal[0] : col;  // the top two run hot
+        sh_rect(fx + w / 2.0f - 4, bottom - (s + 1) * seg + 1, 8, seg - 1.5f, rgba(s < lit ? c : t->ink, s < lit ? 0xFF : 0x14));
+    }
+    const float uy = bottom - MIX_LEVEL_UNITY * span;  // 0 dB
+    sh_rect(fx + 2, uy - 0.75f, 4, 1.5f, ink);
+    sh_rect(fx + w - 6, uy - 0.75f, 4, 1.5f, ink);
+    const bool grabbed = app->mix_strip == k && app->mix_grab == MIX_GRAB_FADER;
+    const float cy = bottom - app->mix[k].level * span, ch = grabbed ? 12.0f : 10.0f;
+    sh_card(fx - 2, cy - ch / 2, w + 4, ch, rgba(col, 0xFF), ink, grabbed ? 0.0f : 2.0f);
+    sh_rect(fx + 1, cy - 0.75f, w - 2, 1.5f, rgba(ink_on(t, col), 0xFF));
+}
+
+static void draw_mix_page(const AppState *app) {
+    const Theme *t = ui_theme();
+    for (int k = 0; k < MIX_STRIPS; k++) {
+        const float x = MIX_X0 + k * MIX_PITCH;
+        const uint32_t col = strip_rgb(t, k);
+        // Name sticker: the part and its sound (tap to play that part).
+        sticker(x, MIX_HEAD_Y, MIX_W, MIX_HEAD_H, col, false, 0);
+        const u32 on_col = rgba(ink_on(t, col), 0xFF);
+        if (k < PARTS) {
+            const bool cur = k == app->part;
+            if (cur) sh_tri(x + 6, MIX_HEAD_Y + MIX_HEAD_H / 2.0f, 4, 0, on_col);  // the part you're playing
+            ui_text(x + MIX_W / 2.0f + (cur ? 3 : 0), MIX_HEAD_Y + 1.5f, 0.36f, on_col, C2D_AlignCenter, "%d %s", k + 1,
+                    sound_get(mix_sound(app, k))->name);
+        } else {
+            ui_text(x + MIX_W / 2.0f, MIX_HEAD_Y + 1.5f, 0.36f, on_col, C2D_AlignCenter, "DRUMS");
+        }
+        draw_fader(app, k, x, col);
+        for (int i = 0; i < MIX_KNOBS; i++)
+            draw_knob(app, k, i, x + ((i & 1) ? MIX_KNOB_DX1 : MIX_KNOB_DX0), (i < 2) ? MIX_KNOB_Y0 : MIX_KNOB_Y1, col);
+        if (!strip_audible(app, k))  // silenced (muted, or someone else soloed): fade it back
+            sh_rect(x - 1, MIX_HEAD_Y + MIX_HEAD_H + 3, MIX_W + 2, MIX_BTN_Y - MIX_HEAD_Y - MIX_HEAD_H - 6,
+                    rgba(t->bg_a, 0x90));
+        const bool muted = (app->seq.muted >> k) & 1u, solo = (app->mix_solo >> k) & 1u;
+        sticker(x + MIX_MUTE_DX, MIX_BTN_Y, MIX_BTN_W, MIX_BTN_H, muted ? t->pal[0] : t->card, muted, "MUTE");
+        sticker(x + MIX_SOLO_DX, MIX_BTN_Y, MIX_BTN_W, MIX_BTN_H, solo ? colourful(t, 3) : t->card, solo, "SOLO");
     }
 }
 
@@ -917,6 +1040,7 @@ void ui_draw_bottom(const AppState *app) {
     switch (app->page) {
         case PAGE_SEQ: draw_seq_page(app); break;
         case PAGE_SYNTH: draw_synth_page(app); break;
+        case PAGE_MIX: draw_mix_page(app); break;
         case PAGE_FX: draw_fx_page(app); break;
         case PAGE_TAPE: draw_tape_page(app); break;
         case PAGE_SONGS: draw_songs_page(app); break;

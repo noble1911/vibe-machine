@@ -246,6 +246,22 @@ int main(void) {
     seq_set_part_mute(1, false);
     check(muted_hits == 0 && others == 2, "a muted part is silent while the others play");
 
+    roll.drums[0] = 0x3;  // kick and snare on step 1
+    seq_put_slot(4, &roll);
+    seq_set_part_mute(PARTS, true);  // the drums
+    s_nhits = 0;
+    seq_toggle_play();
+    run(0.05);
+    seq_toggle_play();
+    run(0.05);
+    int drum_hits = 0, part_hits = 0;
+    for (int i = 0; i < s_nhits; i++) {
+        if (s_hits[i].synth == SYNTH_DRUMS && s_hits[i].vel > 0) drum_hits++;
+        if (s_hits[i].synth >= 1 && s_hits[i].synth <= 3 && s_hits[i].vel > 0) part_hits++;
+    }
+    seq_set_part_mute(PARTS, false);
+    check(drum_hits == 0 && part_hits == 3, "muted drums are silent while the parts play");
+
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);
     return fails ? 1 : 0;
 }

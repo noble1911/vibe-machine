@@ -8,6 +8,7 @@
 
 #include "engine.h"
 #include "fx.h"
+#include "mixer.h"
 #include "seq.h"
 #include "sounds.h"
 
@@ -26,7 +27,9 @@ typedef struct {
         float macro[SOUND_MACROS];
     } parts[PARTS];
     int part;        // part being played / edited
-    uint8_t muted;   // bit n = part n muted
+    uint8_t muted;   // bit n = part n muted; bit PARTS = the drums
+    MixStrip mix[MIX_STRIPS];  // the MIX page (older files: defaults)
+    uint8_t solo;    // bit n = strip n soloed
     float params[PARAM_COUNT];
     int octave;
     int bpm;

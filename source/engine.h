@@ -40,7 +40,11 @@ void engine_set_macro(int part, int sound, int m, float value);
 // synth first so no voice is playing the old buffer.
 bool engine_load_sample(const int16_t *data, int frames, int rate);
 // value is normalised 0..1; the engine maps it to the real range.
-void engine_set_param(EngineParam param, float value);
+void engine_set_param(EngineParam param, float value);  // on the master bus
+// A MIX page strip (mixer.h): level, pan, DRIVE, CRUSH, TONE, and whether it
+// can be heard (mute / solo).
+struct MixStrip;
+void engine_set_strip(int strip, const struct MixStrip *s, bool audible);
 const char *engine_param_name(EngineParam param);
 
 // --- audio thread --------------------------------------------------------

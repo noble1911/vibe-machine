@@ -21,8 +21,8 @@
 #define TAB_Y 2
 #define TAB_H 18
 #define TAB_X0 2
-#define TAB_W 24
-#define TAB_PITCH 26
+#define TAB_W 20
+#define TAB_PITCH 22
 // ...and the eight-key strip at the bottom.
 #define KEYS_Y0 166
 #define KEYS_H 66
@@ -168,6 +168,38 @@
 #define TAPE_SPEED_Y 136
 #define TAPE_SPEED_H 22
 
+// MIX page: four channel strips (parts 1-3, drums). Each: a name sticker
+// (tap: play that part), a fader with its meter inside, four knobs in two
+// rows (DRIVE CRUSH / TONE PAN; drag up and down), then MUTE and SOLO.
+#define MIX_X0 4
+#define MIX_W 75
+#define MIX_PITCH 79
+#define MIX_HEAD_Y 25
+#define MIX_HEAD_H 17
+#define MIX_FADER_DX 3      // from the strip's left edge
+#define MIX_FADER_W 24
+#define MIX_FADER_Y 47
+#define MIX_FADER_H 90
+#define MIX_KNOB_DX0 42     // knob centres, from the strip's left edge
+#define MIX_KNOB_DX1 65
+#define MIX_KNOB_Y0 60
+#define MIX_KNOB_Y1 102
+#define MIX_KNOB_R 8
+#define MIX_BTN_Y 142
+#define MIX_BTN_H 19
+#define MIX_MUTE_DX 3
+#define MIX_SOLO_DX 39
+#define MIX_BTN_W 33
+#define MIX_KNOB_DRAG 90.0f  // pixels of drag for the whole knob range
+typedef enum {
+    MIX_HIT_NONE = -1,
+    MIX_HIT_HEAD,
+    MIX_HIT_FADER,
+    MIX_HIT_MUTE,
+    MIX_HIT_SOLO,
+    MIX_HIT_KNOB,  // + knob
+} MixHit;
+
 // SOUND page: SONGS button under THEME.
 #define SONGS_BTN_X THEME_X
 #define SONGS_BTN_Y 136
@@ -274,6 +306,8 @@ int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
 int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
 bool ui_in_fx_pad(int x, int y);
 bool ui_hit_songs_button(int x, int y);  // on the SOUND page
+// MIX page: a MixHit (knobs offset by MixKnob), and the strip it is on.
+int ui_hit_mix(int x, int y, int *strip);
 int ui_hit_songs(int x, int y, bool confirming);  // a SongHit (rows offset by index)
 int ui_hit_tape(int x, int y);  // a TapeHit (tracks / mutes offset by index)
 float ui_tape_speed_at(int x);  // speed strip position -> -2..2 (snaps to -1, 0, 1)

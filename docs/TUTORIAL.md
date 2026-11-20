@@ -13,12 +13,13 @@ recipes to get you making things. It takes about twenty minutes with the
 [Parts](#6-parts-three-instruments-at-once) ·
 [SYNTH](#7-the-synth-page-choosing-and-shaping-sounds) ·
 [MIC](#8-sampling-your-voice-with-mic) ·
-[FX](#9-the-fx-page-performance-effects) ·
-[TAPE](#10-the-tape-page-recording-tracks) ·
-[SONGS](#11-songs-saving-your-work) ·
-[Looks](#12-themes-and-3d) ·
-[Recipes](#13-recipes) ·
-[Troubleshooting](#14-troubleshooting)
+[MIX](#9-the-mix-page-balancing-the-parts) ·
+[FX](#10-the-fx-page-performance-effects) ·
+[TAPE](#11-the-tape-page-recording-tracks) ·
+[SONGS](#12-songs-saving-your-work) ·
+[Looks](#13-themes-and-3d) ·
+[Recipes](#14-recipes) ·
+[Troubleshooting](#15-troubleshooting)
 
 ---
 
@@ -50,8 +51,8 @@ In the Azahar emulator, the 3DS buttons are on your keyboard (see
 
 **Bottom screen** (touch):
 
-- Five **tabs** along the top: **SOUND** (sliders icon), **SEQ** (grid),
-  **SYNTH** (wave), **FX** (bolt), **TAPE** (cassette).
+- Six **tabs** along the top: **SOUND** (sliders icon), **SEQ** (grid),
+  **SYNTH** (wave), **MIX** (faders), **FX** (bolt), **TAPE** (cassette).
 - The page itself in the middle.
 - The **eight keys** along the bottom, on every page, so you can always play.
 
@@ -82,10 +83,12 @@ glide from note to note.
   - **ECHO**: how much echo.
   - **VERB**: how much reverb.
   - **VOL**: master volume.
+  These four work on the whole mix. To change one part, use its strip on
+  the [MIX page](#9-the-mix-page-balancing-the-parts).
 - **THEME**: tap to cycle the nine colour themes (more in
-  [section 12](#12-themes-and-3d)).
+  [section 13](#13-themes-and-3d)).
 - **SONGS** (the floppy disk): the song browser
-  ([section 11](#11-songs-saving-your-work)).
+  ([section 12](#12-songs-saving-your-work)).
 
 ## 5. The SEQ page: making beats
 
@@ -190,7 +193,9 @@ on part 2 and a BELL lead on part 3, all playing together. They start as
 - In the piano roll, the **other parts' notes show faintly**, so you can
   write a bass line under your chords.
 - **Muting:** hold a part sticker on the SYNTH page for about ⅔ of a second
-  and it's struck through and silent. Hold again to unmute.
+  and it's struck through and silent. Hold again to unmute. (Or use
+  **MUTE** on the [MIX page](#9-the-mix-page-balancing-the-parts), which
+  also has levels and effects for each part.)
 - **The SEQ dice** rolls new drums and new notes for the current part only;
   the other parts keep theirs.
 
@@ -246,7 +251,46 @@ a random one.
 The take is saved with your song. Until you record one, MIC plays a
 cartoon "boing".
 
-## 9. The FX page: performance effects
+## 9. The MIX page: balancing the parts
+
+The MIX page (the faders icon) has a **channel strip** for each part and
+one for the drums. Every part plays through its own strip, so you can turn
+the bass down, crush the drums or push the lead to one side without
+touching anything else.
+
+A strip, top to bottom:
+
+- **Name sticker**: the part and its sound ("2 PLUCK"), or DRUMS. Tap a
+  part's sticker and the keys play that part. A small triangle marks the
+  part you're on.
+- **Fader** (left): the strip's level. The little ticks are where it
+  starts; the top is about 5 dB louder. Drag the cap up or down. The
+  **meter** inside the fader lights up as the part plays, and the top two
+  segments run hot.
+- **Four knobs**. Drag up to turn one up, down to turn it down. Its value
+  shows underneath while you turn it.
+
+  | Knob | Does |
+  |---|---|
+  | **DRV** (drive) | Soft clipping: warm, then fuzzy. It's levelled, so it gets dirtier rather than much louder. |
+  | **CRSH** (crush) | Fewer bits and a lower sample rate: gritty, then a broken toy. |
+  | **TONE** | Dark ← middle → bright, like the SOUND page's TONE but for this strip only. |
+  | **PAN** | Left ← centre → right. Clearest on headphones. |
+
+  TONE and PAN click into the middle as you pass it.
+- **Double-tap** a knob or fader to put it back where it started.
+- **MUTE** silences the strip. **SOLO** silences every strip that isn't
+  soloed (solo several to hear just those). Silenced strips fade back.
+
+Good to know:
+
+- MUTE here and holding a part sticker on the SYNTH page are the same
+  switch: either one turns it on or off. The drums can only be muted here.
+- The SOUND page's TONE, ECHO, VERB and VOL work on the **whole mix**,
+  after the strips. The FX page's effects come after that, on everything.
+- The mixer is saved with the song.
+
+## 10. The FX page: performance effects
 
 ![FX page with STUTTER](images/fx-stutter.png)
 
@@ -268,7 +312,7 @@ the axes do.
 
 ![CRUSH pixelating the top screen](images/fx-crush.png)
 
-## 10. The TAPE page: recording tracks
+## 11. The TAPE page: recording tracks
 
 ![TAPE page](images/tape.png)
 
@@ -302,7 +346,7 @@ recording).
   while you hold.
 - **SEQ LINK** off: the tape and sequencer start and stop independently.
 
-## 11. Songs: saving your work
+## 12. Songs: saving your work
 
 ![SONGS page](images/songs.png)
 
@@ -317,14 +361,14 @@ Open it from **SONGS** (the floppy disk) on the SOUND page.
 - **DELETE** and **NEW** (a blank song) always need a hold.
 
 A song keeps **everything**: all eight patterns, song mode, swing, tempo,
-the sound and its macros, the sliders, the theme, the FX settings, **all
-four tape tracks and your MIC take**.
+each part's sound and macros, the mixer, the sliders, the theme, the FX
+settings, **all four tape tracks and your MIC take**.
 
 The top screen shows the song's name, with `*` while there are unsaved
 changes. Separately, whatever you're doing is autosaved as you go, so
 you'll find it again next time you start, even without saving.
 
-## 12. Themes and 3D
+## 13. Themes and 3D
 
 Tap **THEME** on the SOUND page to cycle through nine looks: **Prism**,
 **Graph Paper**, **Midnight**, **Teal Pop**, **Lime Rave**, **Grape Soda**,
@@ -335,7 +379,7 @@ Push up the **3D slider**: the back layers of triangles sink into the
 screen, the waveform floats in the middle, and the bursts from your notes
 fly out at you.
 
-## 13. Recipes
+## 14. Recipes
 
 **Bass, chords and lead**
 1. SYNTH → part **1** → SQUELCH. SEQ → ROLL: draw a bass line in the low
@@ -368,12 +412,20 @@ fly out at you.
 2. Hold L and play chords, a choir of you.
 3. Drag the mascot right to start each note mid-word for a stuttery feel.
 
+**Make room in the mix**
+1. MIX → pull the bass strip's fader down a little until the chords sit on
+   top of it.
+2. Turn the drums' **CRSH** up a third of the way for a dusty beat, and
+   the lead's **DRV** up for bite.
+3. Pan the chords a little left and the lead a little right. SOLO the
+   bass to check it on its own, then SOLO again to bring everything back.
+
 **Wobble on demand**
 1. FX → TAPE, HOLD on, touch the pad near the right ("slow stop") and high
    (wobble): the whole mix drops like a dying cassette.
 2. Tap TAPE again to let it spin back up.
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 - **"NO AUDIO: DSP firmware missing"**: the 3DS needs `dspfirm.cdc` in
   `sdmc:/3ds/`. Run the DSP1 homebrew once. In Azahar, run

@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 7  // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts
+#define VERSION 8  // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer
 #define MAX_PAYLOAD 4096
 
 typedef struct {
@@ -121,6 +121,11 @@ static void encode(Writer *w, const SaveState *st) {
         put(w, sp, sizeof(sp));
         put(w, st->parts[k].macro, sizeof(st->parts[k].macro));
     }
+    for (int k = 0; k < MIX_STRIPS; k++) {  // version 8
+        put(w, &st->mix[k].level, sizeof(float));
+        put(w, st->mix[k].knob, sizeof(st->mix[k].knob));
+    }
+    put(w, &st->solo, 1);
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -136,6 +141,8 @@ static void decode(Reader *r, SaveState *st, int version) {
     for (int k = 1; k < PARTS; k++) st->parts[k].sound = -1;  // older files: defaults
     st->part = 0;
     st->muted = 0;
+    for (int k = 0; k < MIX_STRIPS; k++) mixer_strip_default(&st->mix[k]);
+    st->solo = 0;
     get(r, st->params, sizeof(st->params));
     get(r, st->fx_x, sizeof(st->fx_x));
     get(r, st->fx_y, sizeof(st->fx_y));
@@ -182,6 +189,17 @@ static void decode(Reader *r, SaveState *st, int version) {
             st->parts[k].patch = sp[1];
             get(r, st->parts[k].macro, sizeof(st->parts[k].macro));
         }
+    }
+    if (version >= 8) {
+        for (int k = 0; k < MIX_STRIPS; k++) {
+            get(r, &st->mix[k].level, sizeof(float));
+            get(r, st->mix[k].knob, sizeof(st->mix[k].knob));
+            if (!(st->mix[k].level >= 0.0f && st->mix[k].level <= 1.0f)) r->ok = false;  // NaN fails too
+            for (int i = 0; i < MIX_KNOBS; i++)
+                if (!(st->mix[k].knob[i] >= 0.0f && st->mix[k].knob[i] <= 1.0f)) r->ok = false;
+        }
+        get(r, &st->solo, 1);
+        st->solo &= (uint8_t)((1u << MIX_STRIPS) - 1);
     }
 }
 

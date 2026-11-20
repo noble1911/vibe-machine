@@ -216,6 +216,22 @@ float ui_tape_speed_at(int x) {
     return s;
 }
 
+int ui_hit_mix(int x, int y, int *strip) {
+    if (x < MIX_X0 - 2) return MIX_HIT_NONE;
+    const int k = (x - MIX_X0 + 2) / MIX_PITCH;
+    if (k >= MIX_STRIPS) return MIX_HIT_NONE;
+    const int lx = x - (MIX_X0 + k * MIX_PITCH);
+    if (lx > MIX_W + 2) return MIX_HIT_NONE;
+    *strip = k;
+    if (y >= MIX_HEAD_Y - 3 && y < MIX_HEAD_Y + MIX_HEAD_H + 2) return MIX_HIT_HEAD;
+    if (y >= MIX_BTN_Y - 3 && y < MIX_BTN_Y + MIX_BTN_H + 3) return lx < MIX_SOLO_DX - 1 ? MIX_HIT_MUTE : MIX_HIT_SOLO;
+    if (y < MIX_HEAD_Y + MIX_HEAD_H + 2 || y >= MIX_BTN_Y - 3) return MIX_HIT_NONE;
+    if (lx < MIX_FADER_DX + MIX_FADER_W + 3) return MIX_HIT_FADER;
+    const int col = lx < (MIX_KNOB_DX0 + MIX_KNOB_DX1) / 2 ? 0 : 1;
+    const int row = y < (MIX_KNOB_Y0 + MIX_KNOB_Y1) / 2 ? 0 : 1;
+    return MIX_HIT_KNOB + row * 2 + col;  // DRIVE CRUSH / TONE PAN
+}
+
 bool ui_hit_songs_button(int x, int y) {
     return in_box(x, y, SONGS_BTN_X - 3, SONGS_BTN_Y - 2, SONGS_BTN_W + 6, SONGS_BTN_H + 4);
 }

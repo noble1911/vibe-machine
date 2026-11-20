@@ -5,6 +5,7 @@
 #include <3ds.h>
 
 #include "amy.h"
+#include "mixer.h"
 #include "sampler.h"
 #include "sounds.h"
 
@@ -16,6 +17,8 @@ static LightLock s_lock;
 static const char *const s_param_names[PARAM_COUNT] = {
     "TONE", "ECHO", "VERB", "VOL",
 };
+
+static void wire_locked(const char *msg);
 
 static void send_locked(amy_event *e) {
     LightLock_Lock(&s_lock);
@@ -37,10 +40,27 @@ void engine_init(void) {
     c.features.default_synths = 1;
     c.features.startup_bleep = 0;
     c.features.audio_in = 0;
+    // One bus per MIX strip plus the master; mixer_hook sums the strips into
+    // the master (see mixer.h).
+    c.max_buses = MIX_BUSES;
+    c.amy_external_bus_postprocess_hook = mixer_hook;
     amy_start(c);
 
-    // Echo character is fixed for now; the ECHO slider only sets the level.
+    // The drum kit plays through its own strip, with the same headroom as
+    // the parts (engine_load_sound).
+    amy_event d = amy_default_event();
+    d.synth = SYNTH_DRUMS;
+    d.bus = MIX_DRUMS;
+    send_locked(&d);
+    char lvl[32];
+    snprintf(lvl, sizeof(lvl), "i%diV%.3f", SYNTH_DRUMS, mixer_synth_level(1.0f));
+    wire_locked(lvl);
+
+    // The master bus. Echo character is fixed for now; the ECHO slider only
+    // sets the level.
     amy_event e = amy_default_event();
+    e.bus = MIX_MASTER_BUS;
+    e.volume = 1.0f;
     e.echo_level = 0.0f;
     e.echo_delay_ms = 375.0f;
     e.echo_max_delay_ms = 750.0f;
@@ -100,8 +120,22 @@ void engine_load_sound(int part, int sound, int patch) {
         snprintf(msg, sizeof(msg), "i%div%du%s", synth, s->voices, s->patch);
         wire_locked(msg);
     }
-    snprintf(msg, sizeof(msg), "i%diV%.2f", synth, s->level);
+    snprintf(msg, sizeof(msg), "i%diV%.3f", synth, mixer_synth_level(s->level));
     wire_locked(msg);
+    // Onto the part's MIX strip. (AMY keeps a synth's bus across reloads;
+    // saying it again costs nothing.)
+    amy_event b = amy_default_event();
+    b.synth = (uint8_t)synth;
+    b.bus = (uint16_t)part;
+    send_locked(&b);
+}
+
+void engine_set_strip(int strip, const struct MixStrip *s, bool audible) {
+    if (strip < 0 || strip >= MIX_STRIPS) return;
+    amy_event e = amy_default_event();
+    mixer_fill_event(strip, s, &e);
+    send_locked(&e);
+    mixer_set_gain(strip, s, audible);
 }
 
 bool engine_load_sample(const int16_t *data, int frames, int rate) {
@@ -130,6 +164,7 @@ void engine_set_param(EngineParam param, float v) {
     if (v < 0.0f) v = 0.0f;
     if (v > 1.0f) v = 1.0f;
     amy_event e = amy_default_event();
+    e.bus = MIX_MASTER_BUS;
     switch (param) {
         case PARAM_TONE:
             // Tilt EQ around the middle: 0 = dark, 0.5 = flat, 1 = bright (dB).
