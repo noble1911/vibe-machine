@@ -44,6 +44,7 @@ typedef struct {
     bool roll_chromatic;        // roll rows: every semitone, or only the scale
     int roll_scroll;            // roll row shown at the bottom
     int roll_active;            // roll note being dragged, or -1
+    uint8_t live_pitch[16];     // bit p = MIDI note p is being played live (shown on the roll)
     int slot_hold;              // slot sticker being held (to copy into), or -1
     float slot_hold_t;          // 0..1 progress of that hold
 

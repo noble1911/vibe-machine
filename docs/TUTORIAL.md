@@ -157,6 +157,10 @@ where melodies, chords and long notes live.
   key) and **chromatic** rows (every semitone). Notes outside the scale show
   a `#` in scale view.
 - New notes take the length of the last note you stretched.
+- **Notes you play light up.** Hold a key (or tap the keyboard strip) and
+  its row glows in the part's colour, with the key on the strip filled in.
+  If the note is off-screen, the roll scrolls to it, so changing octave
+  brings you to the right place.
 
 Notes you record live keep the length you held them for, and the grid's
 synth row shows them too (a bar runs through the steps a long note holds).

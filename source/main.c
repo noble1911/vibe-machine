@@ -112,6 +112,13 @@ static int next_theme(void) {
 
 // --------------------------------------------------------------- notes ----
 
+// Scroll the piano roll (if needed) so `pitch` is on screen.
+static void roll_show_pitch(int pitch) {
+    int row = music_roll_row(pitch, s_app.roll_chromatic);
+    if (row < s_app.roll_scroll) s_app.roll_scroll = row;
+    if (row >= s_app.roll_scroll + ROLL_ROWS) s_app.roll_scroll = row - ROLL_ROWS + 1;
+}
+
 static void source_release(int src) {
     Held *h = &s_held[src];
     if (h->key < 0) return;
@@ -134,6 +141,8 @@ static void source_press(int src, int key) {
     h->count = music_key_notes(key, s_app.mode, s_app.octave, h->notes);
     float velocity = s_app.mode == PLAY_DRUM ? 1.0f : 0.8f;
     for (int i = 0; i < h->count; i++) engine_note_on(h->synth, h->notes[i], velocity);
+    if (s_app.roll_view && s_app.page == PAGE_SEQ && h->synth != SYNTH_DRUMS && h->count > 0)
+        roll_show_pitch(h->notes[0]);  // bring what you play into view
     ui_key_struck(key, s_app.mode);
 
     // Remember it for painting into the grid, and record it if armed.
@@ -1169,9 +1178,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         s_app.tape_hold = 0.0f;
         if (s_touch == TOUCH_SLOT && s_slot_frames < SLOT_COPY_FRAMES) seq_select_slot(s_app.slot_hold);
         s_app.slot_hold = -1;
-    s_app.part_hold = -1;
-    s_app.roll_active = -1;
-    s_app.roll_scroll = music_roll_row(57, false);  // A3 at the bottom: middle C sits low on the roll
+        s_app.roll_active = -1;
         s_app.slot_hold_t = 0.0f;
         s_app.song_hold = -1;
         s_app.song_hold_t = 0.0f;
@@ -1319,8 +1326,17 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
 
 static void update_lit_keys(void) {
     memset(s_app.key_lit, 0, sizeof(s_app.key_lit));
-    for (int s = 0; s < NUM_SOURCES; s++)
-        if (s_held[s].key >= 0) s_app.key_lit[s_held[s].key] = true;
+    memset(s_app.live_pitch, 0, sizeof(s_app.live_pitch));
+    for (int s = 0; s < NUM_SOURCES; s++) {
+        const Held *h = &s_held[s];
+        if (h->key < 0) continue;
+        s_app.key_lit[h->key] = true;
+        if (h->synth == SYNTH_DRUMS) continue;
+        for (int i = 0; i < h->count; i++)  // what's sounding live, for the roll
+            if (h->notes[i] >= 0 && h->notes[i] < 128) s_app.live_pitch[h->notes[i] >> 3] |= (uint8_t)(1u << (h->notes[i] & 7));
+    }
+    if (s_audition_pitch >= 0 && s_audition_pitch < 128)
+        s_app.live_pitch[s_audition_pitch >> 3] |= (uint8_t)(1u << (s_audition_pitch & 7));
     for (int k = 0; k < MUSIC_KEYS; k++)
         if (s_flash[k] > 0) {
             s_app.key_lit[k] = true;

@@ -441,9 +441,12 @@ static void draw_roll(const AppState *app) {
         int pitch = music_roll_pitch(abs_row, chrom);
         float y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
         bool sharp = !music_in_scale(pitch);
+        bool live = (app->live_pitch[pitch >> 3] >> (pitch & 7)) & 1u;
         if (r & 1) sh_rect(gx, y, gw, ROLL_ROW_H, rgba(t->ink, 0x0C));
+        if (live) sh_rect(gx, y, gw, ROLL_ROW_H, rgba(part_rgb(t, app->part), 0x40));  // the row you're playing
         if (pitch % 12 == 0) sh_rect(gx, y + ROLL_ROW_H - 1, gw, 1, rgba(t->ink, 0x50));
-        sh_rect(ROLL_KEYS_X, y, ROLL_KEYS_W, ROLL_ROW_H - 1, rgba(sharp ? t->ink : 0xFFFFFF, 0xFF));
+        sh_rect(ROLL_KEYS_X, y, ROLL_KEYS_W, ROLL_ROW_H - 1,
+                live ? rgba(part_rgb(t, app->part), 0xFF) : rgba(sharp ? t->ink : 0xFFFFFF, 0xFF));
         sh_rect(ROLL_KEYS_X, y + ROLL_ROW_H - 1, ROLL_KEYS_W, 1, rgba(t->ink, 0x60));
         if (pitch % 12 == 0)
             ui_text(ROLL_KEYS_X + 1, y - 2, 0.28f, rgba(t->ink, 0xFF), 0, "%s", music_note_name(pitch));
