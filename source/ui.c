@@ -158,8 +158,9 @@ bool ui_hit_seq_cell(int x, int y, int *step, int *row) {
 }
 
 int ui_hit_sound_tile(int x, int y) {
-    for (int i = 0; i < sound_count() && i < 9; i++) {
-        int tx = SYN_TILE_X0 + (i % 3) * SYN_TILE_PITCH_X, ty = SYN_TILE_Y0 + (i / 3) * SYN_TILE_PITCH_Y;
+    for (int i = 0; i < sound_count(); i++) {
+        int tx = SYN_TILE_X0 + (i % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
+        int ty = SYN_TILE_Y0 + (i / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
         if (in_box(x, y, tx - 1, ty - 1, SYN_TILE_W + 2, SYN_TILE_H + 2)) return i;
     }
     return -1;
@@ -168,6 +169,8 @@ int ui_hit_sound_tile(int x, int y) {
 bool ui_hit_synth_dice(int x, int y) {
     return in_box(x, y, SYN_DICE_X - 3, SYN_DICE_Y - 3, SYN_DICE_W + 6, SYN_DICE_W + 4);
 }
+
+bool ui_hit_synth_rec(int x, int y) { return in_box(x, y, SYN_REC_X - 3, SYN_DICE_Y - 3, SYN_REC_W + 4, SYN_DICE_W + 4); }
 
 bool ui_in_synth_pad(int x, int y) { return in_box(x, y, SYN_PAD_X, SYN_PAD_Y, SYN_PAD_W, SYN_PAD_H); }
 

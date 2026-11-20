@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "amy.h"
+#include "sampler.h"
 #include "sounds.h"
 
 #define SECONDS_TO_BLOCKS(s) ((int)((s) * AMY_SAMPLE_RATE / AMY_BLOCK_SIZE))
@@ -88,6 +89,13 @@ int main(void) {
     c.platform.multithread = 0;
     c.features.default_synths = 1;
     amy_start(c);
+    {   // the MIC sound plays this memory preset (the app loads it at boot)
+        static int16_t boing[SAMPLER_RATE];
+        int n = sampler_boing(boing, SAMPLER_RATE);
+        int16_t *ram = pcm_load(SAMPLER_PRESET, (uint32_t)n, SAMPLER_RATE, 1, 60.0f, 0, 0);
+        memcpy(ram, boing, (size_t)n * sizeof(int16_t));
+        sound_set_sample_frames(n);
+    }
 
     int failures = 0;
     printf("%-9s %8s %8s   macro effects (lo -> hi: rms, brightness)\n", "sound", "rms", "bright");

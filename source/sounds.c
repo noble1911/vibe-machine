@@ -21,7 +21,7 @@
 enum { M_TRI = 0, M_TRI_OUTLINE, M_TRI_STRIPED, M_TRI_DOTTED, M_CIRCLE, M_RING, M_BAR,
        M_SQUIGGLE, M_ZIGZAG, M_BOLT, M_DOTS, M_CROSS, M_SPOT };
 
-enum { S_JUNO, S_DX7, S_PLUCK, S_SQUELCH, S_BELL, S_BREEZE, S_SUPERSAW, S_FOLD, S_WAVY, S_COUNT };
+enum { S_JUNO, S_DX7, S_PLUCK, S_SQUELCH, S_BELL, S_BREEZE, S_SUPERSAW, S_FOLD, S_WAVY, S_MIC, S_COUNT };
 
 static const Sound kSounds[S_COUNT] = {
     [S_JUNO] = {"JUNO", "JUNO", "128 vintage poly patches", M_TRI, SOUND_BANK, 0, 128, 6, 2.2f, 0, {0, 0}, {0, 0}},
@@ -49,6 +49,10 @@ static const Sound kSounds[S_COUNT] = {
     [S_WAVY] = {"WAVY", "WAVY", "morphing wavetables", M_TRI_DOTTED, SOUND_CUSTOM, 0, 0, 4, 1.6f,
                 "v1w0f0.25,0a1,,0,0Zv0w19p11L1d0.5,,,,,0.45A20,1,500,0.7,400,0",
                 {"MORPH", "TABLE"}, {0.5f, 0.0f}},
+    // Plays AMY memory PCM preset 200 (SAMPLER_PRESET): the microphone take.
+    [S_MIC] = {"MIC", "MIC", "your voice, on the keys", M_RING, SOUND_CUSTOM, 0, 0, 4, 2.0f,
+               "v0w7p200F9000,0.2G1R0.8A2,1,30,1,250,0",
+               {"START", "TONE"}, {0.0f, 0.85f}},
 };
 
 int sound_count(void) { return S_COUNT; }
@@ -58,6 +62,10 @@ const Sound *sound_get(int index) {
     if (index >= S_COUNT) index = S_COUNT - 1;
     return &kSounds[index];
 }
+
+static int s_sample_frames = 1;  // length of the MIC take, for START
+
+void sound_set_sample_frames(int frames) { s_sample_frames = frames > 0 ? frames : 1; }
 
 static float lin(float t, float lo, float hi) { return lo + (hi - lo) * t; }
 static float expo(float t, float lo, float hi) { return lo * powf(hi / lo, t); }
@@ -101,6 +109,14 @@ bool sound_macro_wire(int index, int m, float t, char *out, size_t len) {
         // WAVY: position within the table, which of the five tables.
         case S_WAVY * 2 + 0: snprintf(out, len, "i1v0d%.3f", t); return true;
         case S_WAVY * 2 + 1: snprintf(out, len, "i1v0p%d", 11 + (int)(t * 4.99f)); return true;
+        // MIC: where in the take each note starts, and a low-pass tone.
+        // AMY's PCM phase is an absolute position: start_frame / 2^23.
+        case S_MIC * 2 + 0:
+            snprintf(out, len, "i1v0P%.7f", lin(t, 0.0f, 0.8f) * (float)s_sample_frames / 8388608.0f);
+            return true;
+        case S_MIC * 2 + 1: snprintf(out, len, "i1v0F%.0f", expo(t, 300.0f, 12000.0f)); return true;
         default: return false;
     }
 }
+
+int sound_mic_index(void) { return S_MIC; }

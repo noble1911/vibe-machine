@@ -16,6 +16,8 @@
 #include "music.h"
 #include "patch_names.h"
 #include "dice.h"
+#include "mic.h"
+#include "sampler.h"
 #include "seq.h"
 #include "storage.h"
 #include "ui.h"
@@ -56,6 +58,7 @@ typedef enum {
     TOUCH_SYNTH_PAD,
     TOUCH_BANK,
     TOUCH_FX_PAD,
+    TOUCH_REC,
 } TouchMode;
 
 static Held s_held[NUM_SOURCES];
@@ -150,6 +153,30 @@ static void change_patch(int patch) {
     s_app.patch = patch;
     engine_load_sound(s_app.sound, patch);
     reapply_params();
+}
+
+// ---------------------------------------------------------------- MIC ----
+
+static float s_take_secs;  // length of the loaded take
+
+static void show_take(const int16_t *data, int frames) {
+    sampler_overview(data, frames, s_app.take_overview, SAMPLER_OVERVIEW);
+    s_take_secs = s_app.mic_secs = (float)frames / SAMPLER_RATE;
+}
+
+static void finish_recording(void) {
+    int frames = 0;
+    int16_t *take = mic_stop(&frames);
+    s_app.mic_rec = false;
+    frames = sampler_tidy(take, frames);
+    if (frames > SAMPLER_RATE / 20 && engine_load_sample(take, frames, SAMPLER_RATE)) {
+        show_take(take, frames);
+        set_macro(0, 0.0f);  // play the new take from its start
+        engine_set_macro(s_app.sound, 0, 0.0f);
+        ui_key_struck(0, PLAY_NOTE);
+    } else {
+        s_app.mic_secs = s_take_secs;  // silent or too short: keep the old take
+    }
 }
 
 // SYNTH dice: random macros for a custom sound, a random patch in a bank.
@@ -324,6 +351,15 @@ static void touch_begin(int x, int y) {
         s_touch = TOUCH_KEYS;
         return;
     }
+    if (s_app.page == PAGE_SYNTH && s_app.sound == sound_mic_index() && ui_hit_synth_rec(x, y)) {
+        if (s_app.mic_ok) {
+            release_all();
+            mic_start();
+            s_app.mic_rec = mic_recording();
+        }
+        s_touch = TOUCH_REC;
+        return;
+    }
     if (s_app.page == PAGE_SYNTH && ui_hit_synth_dice(x, y)) {
         roll_sound();
         s_touch = TOUCH_IGNORE;
@@ -390,6 +426,7 @@ static void touch_begin(int x, int y) {
 static void handle_touch(u32 down, u32 held, u32 up) {
     if (up & KEY_TOUCH) {
         if (s_touch == TOUCH_FX_PAD) fx_pad_release();
+        if (s_touch == TOUCH_REC && s_app.mic_rec) finish_recording();
         s_app.pad_touch = false;
         source_release(SOURCE_TOUCH);
         s_app.active_slider = -1;
@@ -528,6 +565,11 @@ int main(void) {
         s_seen = s_saved;
     }
     s_app.audio_ok = audio_out_init();
+    s_app.mic_ok = mic_init();
+    {   // the MIC sound starts with the placeholder engine_init loaded
+        static int16_t boing[SAMPLER_RATE];
+        show_take(boing, sampler_boing(boing, SAMPLER_RATE));
+    }
 
     hidSetRepeatParameters(18, 5);
     u32 bg = C2D_Color32(0x00, 0x00, 0x00, 0xFF);
@@ -547,7 +589,10 @@ int main(void) {
 #ifdef VM_DEMO
         // Debug attract mode (make DEMO=1): silent, starts the sequencer and
         // rotates themes, flipping to the SEQ page half the time.
-        if (s_app.frame == 1) seq_toggle_play();
+        if (s_app.frame == 1) {
+            seq_toggle_play();
+            select_sound(sound_mic_index() - 1);  // the first SYNTH visit lands on MIC
+        }
         if (s_app.frame % 480 == 479) ui_set_theme(next_theme());
         s_app.page = (Page)((s_app.frame / 120) % PAGE_COUNT);
         if (s_app.page == PAGE_SYNTH && s_app.frame % 120 == 0) select_sound(s_app.sound + 1);
@@ -561,6 +606,11 @@ int main(void) {
                 set_macro(0, px);
                 set_macro(1, py);
             }
+            // Pretend to record when the MIC sound comes round, for screenshots.
+            unsigned f = s_app.frame % 120;
+            s_app.mic_rec = s_app.page == PAGE_SYNTH && s_app.sound == sound_mic_index() && f > 30 && f < 100;
+            s_app.mic_level = fabsf(sinf(s_app.frame * 0.4f)) * 0.8f;
+            if (s_app.mic_rec) s_app.mic_secs = (f - 30) / 60.0f;
             s_app.fx_sel = (int)((s_app.frame / 480) % FX_COUNT);
             for (int k = 0; k < FX_COUNT; k++)
                 if (k != s_app.fx_sel || s_app.page != PAGE_FX) fx_set((FxKind)k, false, px, py);
@@ -573,6 +623,12 @@ int main(void) {
         if (s_app.frame % 30 == 0) autosave(false);
 #endif
         follow_sequencer();
+        if (s_app.mic_rec) {
+            bool room = mic_poll();
+            s_app.mic_level = mic_level();
+            s_app.mic_secs = (float)mic_frames() / SAMPLER_RATE;
+            if (!room) finish_recording();  // the take is full: stop by itself
+        }
         update_lit_keys();
 
         AudioStats stats = audio_out_stats();
@@ -599,9 +655,12 @@ int main(void) {
 
 #ifndef VM_DEMO
     autosave(true);
+#else
+    (void)autosave;  // the attract build never touches the SD card
 #endif
     if (s_app.seq.playing) seq_toggle_play();
     release_all();
+    mic_exit();
     audio_out_exit();
     engine_exit();
     ui_exit();

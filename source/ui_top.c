@@ -367,6 +367,16 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     motif_draw(&mascot, 0, 1.0f, 0xFF, t->ink, 2.0f);
     sh_eyes(mascot.x, mascot.y, 2.6f, sinf(s_frame * 0.03f) * 0.8f, 0, (s_frame % 190) < 6, rgba(t->ink, 0xFF));
 
+    if (app->mic_rec) {  // a big REC card with a live level meter
+        sh_card(110, 60, 180, 52, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 4);
+        sh_circle(132, 78, 8.0f + ((s_frame / 8) & 1) * 1.5f, rgba(t->pal[0], 0xFF));
+        ui_text(148, 64, 0.6f, rgba(ink_on(t, t->card), 0xFF), 0, "REC  %.1fs", app->mic_secs);
+        for (int i = 0; i < 16; i++) {
+            bool lit = i < (int)(app->mic_level * 20.0f);
+            sh_rect(122 + i * 10, 96, 8, 9, rgba(t->pal[i < 10 ? 1 : i < 13 ? 3 : 0], lit ? 0xFF : 0x30));
+        }
+    }
+
     if (s_toast > 0) {
         int age = TOAST_FRAMES - s_toast;
         float drop = age < 10 ? (10 - age) * 4.0f : 0.0f;

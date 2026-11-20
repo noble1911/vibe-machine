@@ -5,9 +5,11 @@
 #include <3ds.h>
 
 #include "amy.h"
+#include "sampler.h"
 #include "sounds.h"
 
 #include <stdio.h>
+#include <string.h>
 
 static LightLock s_lock;
 
@@ -46,6 +48,11 @@ void engine_init(void) {
     send_locked(&e);
 
     engine_set_patch(0);
+
+    // The MIC sound's placeholder until something is recorded.
+    static int16_t boing[SAMPLER_RATE];
+    int n = sampler_boing(boing, SAMPLER_RATE);
+    engine_load_sample(boing, n, SAMPLER_RATE);
 }
 
 void engine_exit(void) {
@@ -103,6 +110,21 @@ void engine_load_sound(int sound, int patch) {
     }
     snprintf(msg, sizeof(msg), "i%diV%.2f", SYNTH_LEAD, s->level);
     wire_locked(msg);
+}
+
+bool engine_load_sample(const int16_t *data, int frames, int rate) {
+    if (frames <= 0) return false;
+    amy_event off = amy_default_event();
+    off.synth = SYNTH_LEAD;
+    off.velocity = 0.0f;  // note-off for every voice of the synth
+    send_locked(&off);
+    LightLock_Lock(&s_lock);
+    // midinote 60: the C key plays the take at its recorded pitch.
+    int16_t *ram = pcm_load(SAMPLER_PRESET, (uint32_t)frames, (uint32_t)rate, 1, 60.0f, 0, 0);
+    if (ram) memcpy(ram, data, (size_t)frames * sizeof(int16_t));
+    LightLock_Unlock(&s_lock);
+    if (ram) sound_set_sample_frames(frames);
+    return ram != NULL;
 }
 
 void engine_set_macro(int sound, int m, float value) {

@@ -35,6 +35,9 @@ void engine_set_patch(int patch);
 void engine_load_sound(int sound, int patch);
 // Set macro m (0..1) of the CUSTOM sound currently loaded.
 void engine_set_macro(int sound, int m, float value);
+// Replace the MIC sound's sample (mono, `rate` Hz). Silences the lead
+// synth first so no voice is playing the old buffer.
+bool engine_load_sample(const int16_t *data, int frames, int rate);
 // value is normalised 0..1; the engine maps it to the real range.
 void engine_set_param(EngineParam param, float value);
 const char *engine_param_name(EngineParam param);

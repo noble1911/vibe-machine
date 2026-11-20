@@ -8,7 +8,7 @@ animated graphics, built to fit the original 3DS.
 > **Status: early prototype.** It plays 256 Juno-6 and DX7 patches from
 > the buttons and touchscreen, with chords, drums, four effect sliders, a
 > live waveform and a DSP load meter, a 16-step sequencer with live
-> recording, seven original synth engines with an XY "creature pad", and
+> recording, eight original synth engines (one plays your microphone) with an XY "creature pad", and
 > four performance FX. No tape recorder yet.
 
 **The look:** loud 90s Memphis. Nine themes (Prism, Graph Paper,
@@ -38,7 +38,7 @@ synthesis library (MIT) that also runs on the ESP32 and RP2040.
 | Touch SOUND / SEQ tabs | Switch bottom-screen page |
 | SEQ page: tap or drag cells | Paint steps (the synth row uses the last notes you played) |
 | SEQ page: ▶ ● − BPM + CLR | Play/stop, arm recording, tempo, clear |
-| SYNTH page: tap a tile | Pick a sound: JUNO / DX7 banks or PLUCK, SQUELCH, BELL, BREEZE, SUPERSAW, FOLD, WAVY |
+| SYNTH page: tap a tile | Pick a sound: JUNO / DX7 banks or PLUCK, SQUELCH, BELL, BREEZE, SUPERSAW, FOLD, WAVY, MIC |
 | SYNTH page: drag the creature | Its X and Y are the sound's two macros (e.g. CUTOFF / RESO) |
 | SYNTH page: tap a dot (banks) | Load that patch; slide across dots to audition |
 | SELECT / circle pad ← → | Next sound (inside a bank, the circle pad steps patches) |
@@ -46,6 +46,7 @@ synthesis library (MIT) that also runs on the ESP32 and RP2040.
 | FX page: HOLD | Effects stay on after you lift the stylus (tap an effect again to drop it) |
 | SEQ page: dice | Roll a fresh groove (weighted: kick on the one, snares on 2 and 4, synth in key) |
 | SYNTH page: dice | Roll the creature's macros, or a random patch in a bank |
+| SYNTH page, MIC sound: hold REC | Record up to 3 s from the 3DS microphone; then play it across the keys (C = original pitch). X picks the start point in the take, Y the tone |
 
 ## Running it
 

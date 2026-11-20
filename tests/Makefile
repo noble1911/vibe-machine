@@ -18,7 +18,7 @@ build/amy/%.o: $(AMY)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -c $< -o $@
 
-build/sound_probe: sound_probe.c probe_platform.c ../source/sounds.c $(AMY_OBJ)
+build/sound_probe: sound_probe.c probe_platform.c ../source/sounds.c ../source/sampler.c $(AMY_OBJ)
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
@@ -26,7 +26,7 @@ build/fx_probe: fx_probe.c ../source/fx.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
-build/logic_probe: logic_probe.c ../source/dice.c ../source/storage.c ../source/music.c
+build/logic_probe: logic_probe.c ../source/dice.c ../source/storage.c ../source/music.c ../source/sampler.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 

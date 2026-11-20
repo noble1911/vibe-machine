@@ -296,17 +296,16 @@ static void draw_mascot(int sound, float x, float y, float size, float look_x, f
 
 static void draw_sound_tiles(const AppState *app) {
     const Theme *t = ui_theme();
-    for (int i = 0; i < sound_count() && i < 9; i++) {
+    for (int i = 0; i < sound_count(); i++) {
         const bool on = app->sound == i;
-        const float x = SYN_TILE_X0 + (i % 3) * SYN_TILE_PITCH_X, y = SYN_TILE_Y0 + (i / 3) * SYN_TILE_PITCH_Y;
+        const float x = SYN_TILE_X0 + (i % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
+        const float y = SYN_TILE_Y0 + (i / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
         const uint32_t face = on ? t->pal[i % THEME_PALETTE] : t->card;
-        const float o = on ? 0.0f : 0.0f;
-        sh_card(x + o, y + o, SYN_TILE_W, SYN_TILE_H, rgba(face, 0xFF), rgba(t->ink, 0xFF), on ? 3.0f : 1.5f);
+        sh_card(x, y, SYN_TILE_W, SYN_TILE_H, rgba(face, 0xFF), rgba(t->ink, 0xFF), on ? 3.0f : 1.5f);
         uint32_t body = on ? t->card : t->pal[i % THEME_PALETTE];
-        float bob = on ? sinf(s_frame * 0.15f) * 1.5f : 0.0f;
-        draw_mascot(i, x + SYN_TILE_W / 2.0f, y + 17 + bob, on ? 11.0f : 9.0f, 0, 0, body);
-        ui_text(x + SYN_TILE_W / 2.0f, y + SYN_TILE_H - 13, 0.28f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter, "%s",
-                sound_get(i)->tag);
+        float bob = on ? sinf(s_frame * 0.15f) * 1.2f : 0.0f;
+        draw_mascot(i, x + 12, y + SYN_TILE_H / 2.0f + bob, on ? 8.5f : 7.0f, 0, 0, body);
+        ui_text(x + 33, y + 5, 0.36f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter, "%s", sound_get(i)->tag);
     }
 }
 
@@ -336,7 +335,26 @@ static void draw_creature_pad(const AppState *app, const Sound *s) {
     const float x0 = SYN_PAD_X + 8, y0 = SYN_PAD_Y + 20, w = SYN_PAD_W - 16, h = SYN_PAD_H - 28;
     sh_grid(x0, y0, w, h, 13, rgba(t->ink, 0x16));
     ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, "%s", s->name);
-    ui_text(SYN_DICE_X - 4, SYN_PAD_Y + 3, 0.32f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "%s", s->blurb);
+    if (app->sound != sound_mic_index())
+        ui_text(SYN_DICE_X - 4, SYN_PAD_Y + 3, 0.32f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "%s", s->blurb);
+
+    // MIC: the take itself is the backdrop, with START marked on it.
+    if (app->sound == sound_mic_index()) {
+        const float mid = y0 + h / 2.0f, bw = w / SAMPLER_OVERVIEW;
+        for (int i = 0; i < SAMPLER_OVERVIEW; i++) {
+            float a = app->take_overview[i] * (h / 2.0f - 4.0f);
+            bool played = (float)i / SAMPLER_OVERVIEW >= app->macro[0] * 0.8f;
+            sh_rect(x0 + i * bw, mid - a, bw * 0.7f, 2 * a + 1, rgba(t->pal[played ? 2 : 4], played ? 0x90 : 0x40));
+        }
+        sh_rect(x0 + app->macro[0] * 0.8f * w - 1, y0, 2, h, rgba(t->pal[0], 0xFF));
+        // REC sticker: hold it to record.
+        uint32_t face = app->mic_rec ? (((s_frame / 8) & 1) ? t->pal[0] : t->card) : t->card;
+        sticker(SYN_REC_X, SYN_DICE_Y, SYN_REC_W, 16, face, app->mic_rec, 0);
+        float o = app->mic_rec ? 2.0f : 0.0f;
+        sh_circle(SYN_REC_X + 8 + o, SYN_DICE_Y + 8 + o, 4.0f, rgba(app->mic_ok ? t->pal[0] : t->ink, 0xFF));
+        ui_text(SYN_REC_X + 24 + o, SYN_DICE_Y + o, 0.36f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter,
+                app->mic_ok ? "REC" : "N/A");
+    }
 
     const float cx = x0 + app->macro[0] * w, cy = y0 + (1.0f - app->macro[1]) * h;
     // Crosshair to the axes, as dashed lines in the axis colours.

@@ -5,6 +5,7 @@
 
 #include "engine.h"
 #include "fx.h"
+#include "sampler.h"
 #include "music.h"
 #include "seq.h"
 #include "sounds.h"
@@ -32,6 +33,13 @@ typedef struct {
     bool fx_hold;               // HOLD: effects stay on after the stylus lifts
     bool fx_latched[FX_COUNT];  // effects left on by HOLD
     float fx_x[FX_COUNT], fx_y[FX_COUNT];
+    // MIC sampler
+    bool mic_ok;                // microphone service available
+    bool mic_rec;               // recording right now
+    float mic_level;            // live input level, 0..1
+    float mic_secs;             // length of the take so far / of the loaded take
+    float take_overview[SAMPLER_OVERVIEW];  // waveform of the loaded take
+
     bool pad_touch;             // stylus is on the SYNTH or FX pad
     float pad_x, pad_y;         // where (0..1, y up)
 } AppState;

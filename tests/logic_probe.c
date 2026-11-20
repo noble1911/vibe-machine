@@ -3,7 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <stdlib.h>
+
 #include "dice.h"
+#include "sampler.h"
 #include "storage.h"
 
 static int fails;
@@ -60,6 +63,25 @@ int main(void) {
     check(backbeat > 300, "snares sit on beats 2 and 4 most of the time");
     check(in_key, "every synth note is in C major");
     check(busy == 200, "grooves are neither empty nor wall-to-wall");
+
+    // --- sampler ---------------------------------------------------------------
+    static int16_t take[SAMPLER_MAX_FRAMES];
+    memset(take, 0, sizeof(take));
+    int lead = SAMPLER_RATE / 2;  // half a second of silence, then the boing at a low level
+    int n = sampler_boing(take + lead, SAMPLER_MAX_FRAMES - lead);
+    for (int i = lead; i < lead + n; i++) take[i] /= 8;
+    int len = sampler_tidy(take, lead + n);
+    int peak = 0, first = -1;
+    for (int i = 0; i < len; i++) {
+        peak = abs(take[i]) > peak ? abs(take[i]) : peak;
+        if (first < 0 && abs(take[i]) > 2000) first = i;
+    }
+    printf("  tidy: %d -> %d frames, peak %d, first loud frame %d\n", lead + n, len, peak, first);
+    check(len > 0 && len < lead + n, "a take loses its leading silence");
+    check(peak > 28000 && peak < 30000, "a quiet take is normalised to ~0.9 of full scale");
+    check(first >= 0 && first < SAMPLER_RATE / 50, "the sound starts within 20 ms of the key press");
+    memset(take, 0, sizeof(take));
+    check(sampler_tidy(take, SAMPLER_RATE) == 0, "a silent take is refused");
 
     printf(fails ? "\n%d logic problem(s)\n" : "\nall logic OK\n", fails);
     return fails ? 1 : 0;

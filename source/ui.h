@@ -62,14 +62,15 @@
 #define SEQ_DRUM_PITCH 13
 #define SEQ_DRUM_H 12
 
-// SYNTH page: a 3x3 grid of sound tiles, and the pad (an XY creature pad
+// SYNTH page: a 2x5 grid of sound tiles, and the pad (an XY creature pad
 // for CUSTOM sounds, a 16x8 patch-dot grid for BANK sounds).
+#define SYN_TILE_COLS 2
 #define SYN_TILE_X0 4
 #define SYN_TILE_Y0 26
-#define SYN_TILE_W 32
-#define SYN_TILE_H 42
-#define SYN_TILE_PITCH_X 34
-#define SYN_TILE_PITCH_Y 44
+#define SYN_TILE_W 49
+#define SYN_TILE_H 24
+#define SYN_TILE_PITCH_X 52
+#define SYN_TILE_PITCH_Y 26
 #define SYN_PAD_X 110
 #define SYN_PAD_Y 26
 #define SYN_PAD_W 206
@@ -77,6 +78,8 @@
 #define SYN_DICE_X (SYN_PAD_X + SYN_PAD_W - 22)
 #define SYN_DICE_Y (SYN_PAD_Y + 3)
 #define SYN_DICE_W 18
+#define SYN_REC_X (SYN_DICE_X - 42)
+#define SYN_REC_W 38
 #define BANK_COLS 16
 #define BANK_ROWS 8
 #define BANK_X0 (SYN_PAD_X + 6)
@@ -139,6 +142,7 @@ bool ui_hit_seq_cell(int x, int y, int *step, int *row);
 int ui_hit_sound_tile(int x, int y);
 bool ui_in_synth_pad(int x, int y);
 bool ui_hit_synth_dice(int x, int y);
+bool ui_hit_synth_rec(int x, int y);  // the MIC sound's REC sticker
 int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
 int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
 bool ui_in_fx_pad(int x, int y);
