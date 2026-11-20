@@ -9,7 +9,7 @@ CFLAGS := -O2 -DAMY_NO_MINIAUDIO -DAMY_WAVETABLE -DBLOCK_SIZE_BITS=7 -I$(AMY) -I
 LIBS := -lm -lpthread
 
 .PHONY: all clean
-all: build/sound_probe build/fx_probe build/logic_probe build/tape_probe build/seq_probe build/songs_probe build/mix_probe
+all: build/dual_probe build/sound_probe build/fx_probe build/logic_probe build/tape_probe build/seq_probe build/songs_probe build/mix_probe
 	./build/sound_probe
 	./build/fx_probe
 	./build/logic_probe
@@ -17,6 +17,7 @@ all: build/sound_probe build/fx_probe build/logic_probe build/tape_probe build/s
 	./build/seq_probe
 	./build/songs_probe
 	./build/mix_probe
+	./build/dual_probe
 
 build/amy/%.o: $(AMY)/%.c
 	@mkdir -p $(dir $@)
@@ -53,6 +54,23 @@ build/mix_probe: mix_probe.c probe_platform.c ../source/mixer.c ../source/sounds
 build/inspect_song: inspect_song.c ../source/storage.c ../source/sampler.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
+
+build/bench_probe: bench_probe.c probe_platform.c ../source/mixer.c ../source/sounds.c ../source/sampler.c $(AMY_OBJ)
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
+
+# The 3DS build's two-core AMY (tools/amy-dualcore.sh), for dual_probe.
+AMY_DUAL := build/amy-dual-src
+AMY_DUAL_OBJ := $(patsubst $(AMY)/%.c,build/amy-dual/%.o,$(AMY_SRC))
+$(AMY_DUAL)/amy.h: $(wildcard $(AMY)/*.c $(AMY)/*.h) ../tools/amy-dualcore.sh
+	sh ../tools/amy-dualcore.sh $(AMY) $(AMY_DUAL)
+build/amy-dual/%.o: $(AMY_DUAL)/amy.h
+	@mkdir -p $(dir $@)
+	$(CC) $(subst -I$(AMY),-I$(AMY_DUAL),$(CFLAGS)) -DVM_AMY_DUALCORE -w -c $(AMY_DUAL)/$*.c -o $@
+
+build/dual_probe: dual_probe.c probe_platform.c ../source/amy_split.c ../source/mixer.c ../source/sounds.c ../source/sampler.c $(AMY_DUAL_OBJ)
+	@mkdir -p build
+	$(CC) $(subst -I$(AMY),-I$(AMY_DUAL),$(CFLAGS)) -DVM_AMY_DUALCORE -Wall -Wextra $^ $(LIBS) -o $@
 
 clean:
 	rm -rf build

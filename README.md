@@ -118,6 +118,7 @@ runs seven probes:
 | tape | Playback at pitch, an octave up at 2×, reverse, mute, wipe; a track set to one strip records just that strip |
 | logic | Save files, WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling |
 | songs | Song names, listing (sorted, hundreds of songs), save, load, overwrite, delete; the sample library's listing |
+| dual | AMY's oscillators split between two threads at a voice boundary render exactly (bit for bit) what one thread does |
 | mix | Each part reaches only its own strip; level, mute and pan are exact; DRIVE squares the wave off and CRUSH steps it while the level stays within a few dB; another strip's effects leave a part bit-for-bit alone; the master echo still reaches every part |
 
 CI builds the app in the `devkitpro/devkitarm` container and runs every
@@ -129,7 +130,7 @@ probe on each push ([workflow](.github/workflows/build.yml)). Pushing a
 | Path | What |
 |---|---|
 | `source/main.c` | Frame loop; buttons and touch → notes, sequencer, tape, songs |
-| `source/engine.c` | Thread-safe wrapper around AMY (the only file that talks to AMY) |
+| `source/engine.c` | Thread-safe wrapper around AMY; renders each block on both CPU cores (`amy_split.c`) |
 | `source/audio_out.c` | Audio thread: sequencer clock → AMY (parts → mixer → master) → FX → tape → DSP |
 | `source/sounds.c` | The synth engines: AMY patch strings + two macros each |
 | `source/seq.c` | Sequencer: slots, song, swing, accents; clock runs on the audio thread |

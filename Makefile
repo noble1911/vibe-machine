@@ -50,12 +50,15 @@ APP_AUTHOR	:=	noble1911
 # compiled: no miniaudio, i2s, or desktop MIDI layers. source/amy_platform_3ds.c
 # supplies the platform hooks those layers would normally provide.
 #---------------------------------------------------------------------------------
-AMY_DIR		:=	third_party/amy/src
+# The build compiles a copy of AMY's source with its two-core rendering
+# switched on (tools/amy-dualcore.sh); the submodule itself is untouched.
+AMY_SRC		:=	third_party/amy/src
+AMY_DIR		:=	build/amy-src
 AMY_CFILES	:=	amy.c algorithms.c api.c amy_midi.c custom.c cv_trigger.c \
 			delay.c envelope.c examples.c filters.c instrument.c \
 			interp_partials.c log2_exp2.c midi_mappings.c note_output.c \
 			oscillators.c parse.c patches.c pcm.c sequencer.c transfer.c
-AMY_DEFINES	:=	-DAMY_NO_MINIAUDIO -DAMY_WAVETABLE -DBLOCK_SIZE_BITS=7
+AMY_DEFINES	:=	-DAMY_NO_MINIAUDIO -DAMY_WAVETABLE -DBLOCK_SIZE_BITS=7 -DVM_AMY_DUALCORE
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -195,6 +198,7 @@ endif
 
 #---------------------------------------------------------------------------------
 all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
+	@sh tools/amy-dualcore.sh $(AMY_SRC) $(AMY_DIR)
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 $(BUILD):

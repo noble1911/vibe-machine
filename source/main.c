@@ -2132,6 +2132,7 @@ typedef struct {
 enum { SND_JUNO = 0, SND_SQUELCH = 3, SND_BELL = 4 };
 
 static void story_blank(void) {  // a new song, really empty
+    song_delete(SONGS_ROOT, "MY FIRST SONG");  // from a previous run: SAVE AS would ask to replace it
     new_song();
     seq_clear();
     seq_set_bpm(108);

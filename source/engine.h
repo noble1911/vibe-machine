@@ -55,5 +55,6 @@ const char *engine_param_name(EngineParam param);
 // Renders one AMY block (engine_block_frames() stereo frames, interleaved
 // L/R int16) and returns a pointer to it. Valid until the next call.
 const int16_t *engine_render_block(void);
+bool engine_two_cores(void);  // the second core is helping render
 int engine_block_frames(void);
 int engine_sample_rate(void);

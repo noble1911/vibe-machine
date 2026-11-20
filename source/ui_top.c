@@ -357,7 +357,7 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
 
     // CPU meter sticker.
     sh_card(288, 3, 106, 17, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
-    ui_text(293, 3, 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, "CPU");
+    ui_text(293, 3.5f, engine_two_cores() ? 0.34f : 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, engine_two_cores() ? "CPUx2" : "CPU");
     int lit = (int)(stats->load * 10 + 0.5f), peak = (int)(stats->load_peak * 10 + 0.5f);
     for (int i = 0; i < 10; i++) {
         uint32_t c = i < 6 ? t->pal[1] : i < 8 ? t->pal[3] : t->pal[0];

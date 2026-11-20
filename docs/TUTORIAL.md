@@ -93,7 +93,11 @@ In the Azahar emulator, the 3DS buttons are on your keyboard (see
 - The title, and under it the **song name** sticker (`*` = unsaved changes).
 - The **mode sticker**: NOTE / CHORD / DRUMS, the octave, and which pattern
   slot is playing (`A>` means song mode is chaining patterns).
-- The **CPU meter**: how hard the 3DS is working on sound.
+- The **CPU meter**: how hard the 3DS is working on sound. **CPUx2** means
+  both of the 3DS's processor cores are sharing the work (the usual case).
+  If it reaches the red end, the sound can break up (**gaps** counts how
+  often): fewer notes ringing at once, or a lighter sound than JUNO or DX7,
+  brings it down.
 - The scene: a live waveform, layers of triangles that swell with the music,
   and a burst of shapes for every note.
 - The **step strip**: 16 stickers; the playing step jumps up.

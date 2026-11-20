@@ -5,6 +5,7 @@
 #include <3ds.h>
 
 #include "amy.h"
+#include "amy_split.h"
 #include "mixer.h"
 #include "sampler.h"
 #include "sounds.h"
@@ -13,6 +14,26 @@
 #include <string.h>
 
 static LightLock s_lock;
+
+// The second core (the old 3DS's "system core", which an app may use up to
+// a time limit): it renders part of every block's oscillators while the
+// audio thread renders the rest, then the audio thread mixes and runs the
+// effects. See amy_split.h.
+#define CORE1_SHARE 0.6f  // core 0 also runs the effects, so core 1 takes more voices
+static Thread s_worker;
+static LightEvent s_go, s_done;
+static volatile uint16_t s_split;
+static volatile bool s_worker_quit;
+
+static void render_worker(void *arg) {
+    (void)arg;
+    for (;;) {
+        LightEvent_Wait(&s_go);
+        if (s_worker_quit) return;
+        amy_render(s_split, AMY_OSCS, 1);
+        LightEvent_Signal(&s_done);
+    }
+}
 
 // MIC: which parts play it, and how many slices it's chopped into. Read by
 // note on/off from both threads (the sequencer calls in from the audio one).
@@ -67,6 +88,15 @@ void engine_init(void) {
     c.amy_external_bus_postprocess_hook = mixer_hook;
     amy_start(c);
 
+    // A worker on core 1 (if the system lets us have it: otherwise everything
+    // renders on this core, as before).
+    LightEvent_Init(&s_go, RESET_ONESHOT);
+    LightEvent_Init(&s_done, RESET_ONESHOT);
+    APT_SetAppCpuTimeLimit(80);
+    s32 prio = 0x30;
+    svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+    s_worker = threadCreate(render_worker, NULL, 64 * 1024, prio - 2 < 0x18 ? 0x18 : prio - 2, 1, false);
+
     // The drum kit plays through its own strip, with the same headroom as
     // the parts (engine_load_sound).
     amy_event d = amy_default_event();
@@ -98,6 +128,13 @@ void engine_init(void) {
 }
 
 void engine_exit(void) {
+    if (s_worker) {
+        s_worker_quit = true;
+        LightEvent_Signal(&s_go);
+        threadJoin(s_worker, U64_MAX);
+        threadFree(s_worker);
+        s_worker = NULL;
+    }
     LightLock_Lock(&s_lock);
     amy_stop();
     LightLock_Unlock(&s_lock);
@@ -232,10 +269,26 @@ const char *engine_param_name(EngineParam param) {
 
 const int16_t *engine_render_block(void) {
     LightLock_Lock(&s_lock);
-    const int16_t *block = amy_simple_fill_buffer();
+    // amy_simple_fill_buffer(), with the oscillators shared between cores.
+    amy_grab_render_lock();
+    amy_execute_deltas();
+    const uint16_t split = s_worker ? amy_split_point(CORE1_SHARE) : AMY_OSCS;
+    if (split < AMY_OSCS) {
+        s_split = split;
+        LightEvent_Signal(&s_go);
+        amy_render(0, split, 0);
+        LightEvent_Wait(&s_done);
+    } else {
+        amy_render(0, AMY_OSCS, 0);
+        amy_render(AMY_OSCS, AMY_OSCS, 1);  // nothing to render: just clears core 1's buffers
+    }
+    const int16_t *block = amy_fill_buffer();
+    amy_release_render_lock();
     LightLock_Unlock(&s_lock);
     return block;
 }
+
+bool engine_two_cores(void) { return s_worker != NULL; }
 
 int engine_block_frames(void) { return AMY_BLOCK_SIZE; }
 
