@@ -114,9 +114,7 @@ static int fire_step(int step, Event *ev, int n) {
     return n;
 }
 
-void seq_init(SeqNoteFn out) {
-    LOCK_INIT(&s_lock);
-    s_out = out;
+static void starter_locked(void) {
     memset(s_pats, 0, sizeof(s_pats));
     // A starter groove in slot A so START makes music straight away:
     // kick on the beat, snare on 2 and 4, closed hats on the off-beats.
@@ -127,6 +125,22 @@ void seq_init(SeqNoteFn out) {
     for (int s = 2; s < SEQ_STEPS; s += 4) p->drums[s] |= 1u << 2;
     p->drums[14] |= 1u << 3;
     p->accents = 1u << 0 | 1u << 8;
+    s_cur = 0;
+    s_queued = -1;
+    s_song = false;
+    s_swing = 0.0f;
+}
+
+void seq_init(SeqNoteFn out) {
+    LOCK_INIT(&s_lock);
+    s_out = out;
+    starter_locked();
+}
+
+void seq_reset(void) {
+    LOCK(&s_lock);
+    starter_locked();
+    UNLOCK(&s_lock);
 }
 
 void seq_advance(int frames, int rate) {

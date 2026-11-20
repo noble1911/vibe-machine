@@ -20,6 +20,7 @@
 #include "dice.h"
 #include "mic.h"
 #include "sampler.h"
+#include "songs.h"
 #include "seq.h"
 #include "storage.h"
 #include "tape.h"
@@ -68,7 +69,16 @@ typedef enum {
     TOUCH_TAPE_TRACK,
     TOUCH_SLOT,
     TOUCH_SWING,
+    TOUCH_SONG_HOLD,
 } TouchMode;
+
+#define SONG_HOLD_FRAMES 45  // hold DELETE / NEW (and LOAD over unsaved work)
+
+#ifdef VM_DEMO
+#define SONGS_ROOT STORAGE_DIR "/demo-songs"  // the attract build never touches your songs
+#else
+#define SONGS_ROOT STORAGE_DIR "/songs"
+#endif
 
 #define SLOT_COPY_FRAMES 40  // hold a slot sticker this long to copy into it
 
@@ -238,10 +248,27 @@ static void load_tape(void) {
 // ---------------------------------------------------------------- MIC ----
 
 static float s_take_secs;  // length of the loaded take
+// A copy of the loaded take, so a song can save it; s_take_user is false
+// while it is still the built-in boing.
+static int16_t s_take_buf[SAMPLER_MAX_FRAMES];
+static int s_take_frames;
+static bool s_take_user;
+static uint32_t s_mic_gen;  // bumps with every new take (for "unsaved")
 
 static void show_take(const int16_t *data, int frames) {
+    if (frames > SAMPLER_MAX_FRAMES) frames = SAMPLER_MAX_FRAMES;
+    if (data != s_take_buf) memcpy(s_take_buf, data, (size_t)frames * sizeof(int16_t));
+    s_take_frames = frames;
     sampler_overview(data, frames, s_app.take_overview, SAMPLER_OVERVIEW);
     s_take_secs = s_app.mic_secs = (float)frames / SAMPLER_RATE;
+}
+
+static void load_boing(void) {
+    static int16_t boing[SAMPLER_RATE];
+    int n = sampler_boing(boing, SAMPLER_RATE);
+    engine_load_sample(boing, n, SAMPLER_RATE);
+    show_take(boing, n);
+    s_take_user = false;
 }
 
 static void finish_recording(void) {
@@ -251,6 +278,8 @@ static void finish_recording(void) {
     frames = sampler_tidy(take, frames);
     if (frames > SAMPLER_RATE / 20 && engine_load_sample(take, frames, SAMPLER_RATE)) {
         show_take(take, frames);
+        s_take_user = true;
+        s_mic_gen++;
 #ifndef VM_DEMO
         wav_write(STORAGE_DIR "/mic.wav", take, frames, SAMPLER_RATE);
 #endif
@@ -279,17 +308,19 @@ static void roll_sound(void) {
 
 static void capture(SaveState *st) {
     memset(st, 0, sizeof(*st));  // zero padding too, so states compare with memcmp
+    const SeqStatus seq = seq_status();  // live, not last frame's copy
+    memcpy(st->name, s_app.song_name, sizeof(st->name));
     st->theme = s_theme;
     st->sound = s_app.sound;
     st->patch = s_app.patch;
     memcpy(st->macro, s_app.macro, sizeof(st->macro));
     memcpy(st->params, s_app.params, sizeof(st->params));
     st->octave = s_app.octave;
-    st->bpm = s_app.seq.bpm;
+    st->bpm = seq.bpm;
     for (int i = 0; i < SEQ_SLOTS; i++) seq_get_slot(i, &st->slots[i]);
-    st->slot = s_app.seq.slot;
-    st->song = s_app.seq.song;
-    st->swing = s_app.seq.swing;
+    st->slot = seq.slot;
+    st->song = seq.song;
+    st->swing = seq.swing;
     memcpy(st->fx_x, s_app.fx_x, sizeof(st->fx_x));
     memcpy(st->fx_y, s_app.fx_y, sizeof(st->fx_y));
 }
@@ -314,6 +345,8 @@ static void restore(const SaveState *st) {
     seq_set_swing(st->swing);
     memcpy(s_app.fx_x, st->fx_x, sizeof(s_app.fx_x));
     memcpy(s_app.fx_y, st->fx_y, sizeof(s_app.fx_y));
+    memcpy(s_app.song_name, st->name, sizeof(s_app.song_name));
+    s_app.song_name[SONG_NAME_MAX] = '\0';
 }
 
 // Save a moment after things stop changing (and again on quit). The file
@@ -332,6 +365,226 @@ static void autosave(bool force) {
     bool dirty = memcmp(&now, &s_saved, sizeof(now)) != 0;
     if (dirty && (force || s_app.frame - s_changed_at >= SAVE_SETTLE_FRAMES)) {
         if (storage_save(STORAGE_PATH, &now)) s_saved = now;
+    }
+}
+
+// --------------------------------------------------------------- songs ----
+
+// What the current song looked like when it was last saved or loaded.
+static SaveState s_song_base;
+static uint32_t s_song_tape_gen, s_song_mic_gen;
+
+static void song_mark_clean(void) {
+    capture(&s_song_base);
+    s_song_tape_gen = tape_generation();
+    s_song_mic_gen = s_mic_gen;
+    s_app.song_dirty = false;
+}
+
+static void update_song_dirty(void) {
+    SaveState now;
+    capture(&now);
+    s_app.song_dirty = memcmp(&now, &s_song_base, sizeof(now)) != 0 || tape_generation() != s_song_tape_gen ||
+                       s_mic_gen != s_song_mic_gen;
+}
+
+static void refresh_songs(void) {
+    s_app.song_count = song_list(SONGS_ROOT, s_app.songs, SONGS_MAX);
+    s_app.song_sel = -1;
+    for (int i = 0; i < s_app.song_count; i++)
+        if (strcmp(s_app.songs[i].name, s_app.song_name) == 0) s_app.song_sel = i;
+    if (s_app.song_sel < 0 && s_app.song_count > 0) s_app.song_sel = 0;
+    int max_scroll = s_app.song_count > SONG_ROWS ? s_app.song_count - SONG_ROWS : 0;
+    if (s_app.song_sel >= 0 && s_app.song_sel < s_app.song_scroll) s_app.song_scroll = s_app.song_sel;
+    if (s_app.song_sel >= s_app.song_scroll + SONG_ROWS) s_app.song_scroll = s_app.song_sel - SONG_ROWS + 1;
+    if (s_app.song_scroll > max_scroll) s_app.song_scroll = max_scroll;
+}
+
+static void stop_transports(void) {
+    if (seq_status().playing) seq_toggle_play();
+    tape_play(false);
+    release_all();
+}
+
+static bool save_song(const char *name) {
+    char clean[SONG_NAME_MAX + 1], path[160];
+    song_clean_name(name, clean);
+    memcpy(s_app.song_name, clean, sizeof(clean));
+    SaveState st;
+    capture(&st);
+    bool ok = song_save_state(SONGS_ROOT, clean, &st);
+    for (int t = 0; t < TAPE_TRACKS; t++) {
+        char file[16];
+        snprintf(file, sizeof(file), "tape%d.wav", t + 1);
+        song_path(SONGS_ROOT, clean, file, path, sizeof(path));
+        int frames = 0;
+        const int16_t *data = tape_track_data(t, &frames);
+        if (data && frames > 0)
+            ok &= wav_write(path, data, frames, TAPE_RATE);
+        else
+            remove(path);
+    }
+    song_path(SONGS_ROOT, clean, "mic.wav", path, sizeof(path));
+    if (s_take_user)
+        ok &= wav_write(path, s_take_buf, s_take_frames, SAMPLER_RATE);
+    else
+        remove(path);
+    if (ok) song_mark_clean();
+    refresh_songs();
+    return ok;
+}
+
+static bool load_song(const char *name) {
+    SaveState st;
+    if (!song_load_state(SONGS_ROOT, name, &st)) return false;
+    stop_transports();
+    restore(&st);
+    memcpy(s_app.song_name, name, SONG_NAME_MAX + 1);
+    char path[160];
+    int16_t *buf = malloc(TAPE_FRAMES * sizeof(int16_t));
+    for (int t = 0; t < TAPE_TRACKS; t++) {
+        char file[16];
+        snprintf(file, sizeof(file), "tape%d.wav", t + 1);
+        song_path(SONGS_ROOT, name, file, path, sizeof(path));
+        int rate = 0, frames = buf ? wav_read(path, buf, TAPE_FRAMES, &rate) : -1;
+        if (frames > 0 && rate == TAPE_RATE)
+            tape_load_track(t, buf, frames);
+        else
+            tape_clear(t);
+        tape_set_dirty(t);  // the autosaved copy should follow this song now
+    }
+    free(buf);
+    song_path(SONGS_ROOT, name, "mic.wav", path, sizeof(path));
+    int rate = 0, frames = wav_read(path, s_take_buf, SAMPLER_MAX_FRAMES, &rate);
+    if (frames > 0 && rate == SAMPLER_RATE && engine_load_sample(s_take_buf, frames, rate)) {
+        show_take(s_take_buf, frames);
+        s_take_user = true;
+    } else {
+        load_boing();
+    }
+    s_mic_gen++;
+    song_mark_clean();
+    refresh_songs();
+    return true;
+}
+
+static void new_song(void) {
+    stop_transports();
+    seq_reset();
+    seq_set_bpm(112);
+    for (int t = 0; t < TAPE_TRACKS; t++) tape_clear(t);
+    load_boing();
+    s_mic_gen++;
+    const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
+    for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
+    select_sound(0);
+    s_app.octave = 0;
+    for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
+    s_app.song_name[0] = '\0';
+    song_mark_clean();
+    refresh_songs();
+}
+
+// Ask for a name with the 3DS keyboard, offering a random one.
+static bool ask_song_name(char *out) {
+    char suggestion[SONG_NAME_MAX + 1], buf[48];
+    song_random_name((uint32_t)svcGetSystemTick(), suggestion);
+#ifdef VM_DEMO
+    (void)buf;
+    strcpy(out, suggestion);
+    return true;
+#else
+    SwkbdState kb;
+    swkbdInit(&kb, SWKBD_TYPE_NORMAL, 2, SONG_NAME_MAX);
+    swkbdSetHintText(&kb, "Name your song");
+    swkbdSetInitialText(&kb, suggestion);
+    swkbdSetValidation(&kb, SWKBD_NOTEMPTY_NOTBLANK, 0, 0);
+    if (swkbdInputText(&kb, buf, sizeof(buf)) != SWKBD_BUTTON_CONFIRM) return false;
+    song_clean_name(buf, out);
+    return true;
+#endif
+}
+
+// Slow jobs (writing ~10 MB of tape) run a couple of frames after the
+// "SAVING..." card has been drawn, so the screen says what is happening.
+typedef enum { JOB_NONE, JOB_SAVE, JOB_LOAD, JOB_NEW } Job;
+static Job s_job;
+static char s_job_name[SONG_NAME_MAX + 1];
+static int s_job_wait;
+
+static void start_job(Job job, const char *name, const char *msg) {
+    s_job = job;
+    snprintf(s_job_name, sizeof(s_job_name), "%s", name ? name : "");
+    s_app.busy = msg;
+    s_job_wait = 2;
+}
+
+static void run_job(void) {
+    if (s_job == JOB_NONE || --s_job_wait > 0) return;
+    switch (s_job) {
+        case JOB_SAVE: save_song(s_job_name); break;
+        case JOB_LOAD: load_song(s_job_name); break;
+        case JOB_NEW: new_song(); break;
+        default: break;
+    }
+    s_job = JOB_NONE;
+    s_app.busy = NULL;
+}
+
+static unsigned s_song_hold_frames;
+
+static void song_hold_done(int button) {
+    const bool has_sel = s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count;
+    if (button == SONG_HIT_LOAD && has_sel) start_job(JOB_LOAD, s_app.songs[s_app.song_sel].name, "LOADING...");
+    if (button == SONG_HIT_DELETE && has_sel) {
+        if (strcmp(s_app.songs[s_app.song_sel].name, s_app.song_name) == 0) s_app.song_name[0] = '\0';
+        song_delete(SONGS_ROOT, s_app.songs[s_app.song_sel].name);
+        refresh_songs();
+    }
+    if (button == SONG_HIT_NEW) start_job(JOB_NEW, NULL, "NEW SONG...");
+}
+
+static void songs_touch(int x, int y) {
+    const int hit = ui_hit_songs(x, y);
+    const bool has_sel = s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count;
+    char name[SONG_NAME_MAX + 1];
+    s_touch = TOUCH_IGNORE;
+    if (hit >= SONG_HIT_ROW) {
+        int i = s_app.song_scroll + (hit - SONG_HIT_ROW);
+        if (i < s_app.song_count) s_app.song_sel = i;
+        return;
+    }
+    switch (hit) {
+        case SONG_HIT_UP:
+            if (s_app.song_scroll > 0) s_app.song_scroll--;
+            break;
+        case SONG_HIT_DOWN:
+            if (s_app.song_scroll + SONG_ROWS < s_app.song_count) s_app.song_scroll++;
+            break;
+        case SONG_HIT_SAVE_AS:
+            if (ask_song_name(name)) start_job(JOB_SAVE, name, "SAVING...");
+            break;
+        case SONG_HIT_SAVE:
+            if (s_app.song_name[0])
+                start_job(JOB_SAVE, s_app.song_name, "SAVING...");
+            else if (ask_song_name(name))
+                start_job(JOB_SAVE, name, "SAVING...");
+            break;
+        case SONG_HIT_LOAD:
+            if (!has_sel) break;
+            if (!s_app.song_dirty) {
+                start_job(JOB_LOAD, s_app.songs[s_app.song_sel].name, "LOADING...");
+                break;
+            }
+            /* fall through: unsaved changes, so LOAD is held */
+        case SONG_HIT_DELETE:
+        case SONG_HIT_NEW:
+            if (hit != SONG_HIT_NEW && !has_sel) break;
+            s_app.song_hold = hit;
+            s_song_hold_frames = 0;
+            s_touch = TOUCH_SONG_HOLD;
+            break;
+        default: break;
     }
 }
 
@@ -516,6 +769,16 @@ static void touch_begin(int x, int y) {
         }
         return;
     }
+    if (s_app.page == PAGE_SONGS) {
+        songs_touch(x, y);
+        return;
+    }
+    if (s_app.page == PAGE_SOUND && ui_hit_songs_button(x, y)) {
+        s_app.page = PAGE_SONGS;
+        refresh_songs();
+        s_touch = TOUCH_IGNORE;
+        return;
+    }
     if (s_app.page == PAGE_SOUND) {
         if (ui_hit_theme(x, y)) {
             ui_set_theme(next_theme());
@@ -573,6 +836,8 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         if (s_touch == TOUCH_SLOT && s_slot_frames < SLOT_COPY_FRAMES) seq_select_slot(s_app.slot_hold);
         s_app.slot_hold = -1;
         s_app.slot_hold_t = 0.0f;
+        s_app.song_hold = -1;
+        s_app.song_hold_t = 0.0f;
         s_app.pad_touch = false;
         source_release(SOURCE_TOUCH);
         s_app.active_slider = -1;
@@ -644,6 +909,11 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             break;
         }
         case TOUCH_SWING: seq_set_swing(ui_swing_at(tp.px)); break;
+        case TOUCH_SONG_HOLD:
+            if (s_song_hold_frames < SONG_HOLD_FRAMES && ++s_song_hold_frames == SONG_HOLD_FRAMES)
+                song_hold_done(s_app.song_hold);
+            s_app.song_hold_t = (float)s_song_hold_frames / SONG_HOLD_FRAMES;
+            break;
         case TOUCH_SLOT:
             if (s_slot_frames < SLOT_COPY_FRAMES && ++s_slot_frames == SLOT_COPY_FRAMES) {
                 seq_copy_to_slot(s_app.slot_hold);  // a variation, ready to edit
@@ -734,10 +1004,13 @@ int main(void) {
     {
         SaveState st;
         if (storage_load(STORAGE_PATH, &st)) restore(&st);
+        load_boing();  // the MIC placeholder, unless a saved take replaces it
 #ifndef VM_DEMO
-        static int16_t take[SAMPLER_MAX_FRAMES];
-        int rate = 0, frames = wav_read(STORAGE_DIR "/mic.wav", take, SAMPLER_MAX_FRAMES, &rate);
-        if (frames > 0 && rate == SAMPLER_RATE && engine_load_sample(take, frames, rate)) show_take(take, frames);
+        int rate = 0, frames = wav_read(STORAGE_DIR "/mic.wav", s_take_buf, SAMPLER_MAX_FRAMES, &rate);
+        if (frames > 0 && rate == SAMPLER_RATE && engine_load_sample(s_take_buf, frames, rate)) {
+            show_take(s_take_buf, frames);
+            s_take_user = true;
+        }
 #endif
         s_app.seq = seq_status();
         seq_snapshot(&s_app.pattern);
@@ -752,10 +1025,10 @@ int main(void) {
 #endif
     s_app.audio_ok = audio_out_init();
     s_app.mic_ok = mic_init();
-    {   // the MIC sound starts with the placeholder engine_init loaded
-        static int16_t boing[SAMPLER_RATE];
-        show_take(boing, sampler_boing(boing, SAMPLER_RATE));
-    }
+    mkdir(SONGS_ROOT, 0777);
+    s_app.song_hold = -1;
+    song_mark_clean();  // what was restored counts as "saved"
+    refresh_songs();
 
     hidSetRepeatParameters(18, 5);
     u32 bg = C2D_Color32(0x00, 0x00, 0x00, 0xFF);
@@ -792,7 +1065,14 @@ int main(void) {
         }
         if (s_app.frame % 300 == 299) tape_select((int)((s_app.frame / 300) % TAPE_TRACKS));
         if (s_app.frame % 480 == 479) ui_set_theme(next_theme());
-        s_app.page = (Page)((s_app.frame / 120) % PAGE_COUNT);
+        s_app.page = (Page)((s_app.frame / 120) % (PAGE_COUNT + 1));  // + SONGS
+        if (s_app.frame == 40 || s_app.frame == 50 || s_app.frame == 60) {
+            char nm[SONG_NAME_MAX + 1];
+            song_random_name(s_app.frame * 7919u, nm);
+            save_song(nm);
+        }
+        if (s_app.page == PAGE_SONGS && s_app.frame % 120 == 0) refresh_songs();
+        update_song_dirty();
         if (s_app.page == PAGE_SYNTH && s_app.frame % 120 == 0) select_sound(s_app.sound + 1);
         {   // wander a pretend stylus around the pads
             float a = s_app.frame * 0.05f;
@@ -818,7 +1098,10 @@ int main(void) {
         handle_buttons(down, held, up, repeat);
         handle_touch(down, held, up);
 #ifndef VM_DEMO
-        if (s_app.frame % 30 == 0) autosave(false);
+        if (s_app.frame % 30 == 0) {
+            autosave(false);
+            update_song_dirty();
+        }
         {   // the tape just stopped: a good moment to write its tracks
             static bool was_playing;
             if (was_playing && !s_app.tape.playing) save_tape();
@@ -853,6 +1136,7 @@ int main(void) {
         C2D_SceneBegin(bottom);
         ui_draw_bottom(&s_app);
         C3D_FrameEnd(0);
+        run_job();  // after the frame that shows "SAVING..." has gone out
         s_app.frame++;
     }
 

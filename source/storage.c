@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 2  // 2: eight pattern slots, accents, song, swing
+#define VERSION 3  // 2: eight pattern slots, accents, song, swing; 3: song name
 #define MAX_PAYLOAD 2048
 
 typedef struct {
@@ -83,6 +83,7 @@ static void encode(Writer *w, const SaveState *st) {
     put(w, &song, 1);
     put(w, &st->swing, sizeof(st->swing));
     for (int i = 0; i < SEQ_SLOTS; i++) put_pattern(w, &st->slots[i]);
+    put(w, st->name, sizeof(st->name));
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -114,6 +115,10 @@ static void decode(Reader *r, SaveState *st, int version) {
     st->slot = slot >= 0 && slot < SEQ_SLOTS ? slot : 0;
     st->song = song != 0;
     for (int i = 0; i < SEQ_SLOTS; i++) get_pattern(r, &st->slots[i], true);
+    if (version >= 3) {
+        get(r, st->name, sizeof(st->name));
+        st->name[sizeof(st->name) - 1] = '\0';
+    }
 }
 
 bool storage_save(const char *path, const SaveState *st) {
@@ -137,7 +142,7 @@ bool storage_load(const char *path, SaveState *st) {
     uint8_t buf[MAX_PAYLOAD];
     uint32_t sum = 0;
     bool ok = fread(magic, 1, 4, f) == 4 && memcmp(magic, "VIBE", 4) == 0 && fread(head, sizeof(head), 1, f) == 1 &&
-              (head[0] == 1 || head[0] == VERSION) && head[1] <= MAX_PAYLOAD && fread(buf, 1, head[1], f) == head[1] &&
+              (head[0] >= 1 && head[0] <= VERSION) && head[1] <= MAX_PAYLOAD && fread(buf, 1, head[1], f) == head[1] &&
               fread(&sum, sizeof(sum), 1, f) == 1 && sum == checksum(buf, head[1]);
     fclose(f);
     if (!ok) return false;

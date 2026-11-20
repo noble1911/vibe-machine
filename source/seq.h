@@ -68,6 +68,7 @@ void seq_set_bpm(int bpm);
 void seq_set_swing(float swing);
 void seq_set_song(bool on);
 void seq_clear(void);                       // the current slot
+void seq_reset(void);  // a new song: empty slots, starter groove in A, no swing / song
 void seq_set_pattern(const SeqPattern *p);  // the current slot
 
 // Switch pattern: immediately when stopped, at the next bar while playing.

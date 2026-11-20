@@ -15,6 +15,7 @@
 #define STORAGE_PATH STORAGE_DIR "/state.vms"
 
 typedef struct {
+    char name[17];  // the song this state belongs to ("" = unnamed)
     int theme;
     int sound;
     int patch;

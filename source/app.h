@@ -8,10 +8,12 @@
 #include "sampler.h"
 #include "music.h"
 #include "seq.h"
+#include "songs.h"
 #include "sounds.h"
 #include "tape.h"
 
-typedef enum { PAGE_SOUND, PAGE_SEQ, PAGE_SYNTH, PAGE_FX, PAGE_TAPE, PAGE_COUNT } Page;
+// PAGE_COUNT pages have tabs; SONGS opens from the SOUND page.
+typedef enum { PAGE_SOUND, PAGE_SEQ, PAGE_SYNTH, PAGE_FX, PAGE_TAPE, PAGE_COUNT, PAGE_SONGS = PAGE_COUNT } Page;
 
 typedef struct {
     int sound;                  // index into sounds.c
@@ -48,6 +50,15 @@ typedef struct {
     bool tape_link;             // tape PLAY / REWIND also drive the sequencer
     int tape_hold_track;        // track sticker being held (to clear), or -1
     float tape_hold;            // 0..1 progress of that hold
+
+    // Songs
+    char song_name[SONG_NAME_MAX + 1];  // "" until saved or loaded
+    bool song_dirty;            // changes since it was last saved / loaded
+    SongInfo songs[SONGS_MAX];  // the SONGS page list
+    int song_count, song_sel, song_scroll;
+    int song_hold;              // SONGS button being held, or -1
+    float song_hold_t;
+    const char *busy;           // "SAVING..." etc. while a slow job runs, else NULL
 
     bool pad_touch;             // stylus is on the SYNTH or FX pad
     float pad_x, pad_y;         // where (0..1, y up)

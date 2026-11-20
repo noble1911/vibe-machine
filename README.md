@@ -49,6 +49,7 @@ synthesis library (MIT) that also runs on the ESP32 and RP2040.
 | SEQ page: A–H | Tap: switch pattern (at the next bar while playing). Hold: copy the current pattern there |
 | SEQ page: SONG | Chain the filled slots in order, bar by bar |
 | SEQ page: SWING strip | 0–50% swing on the 16ths |
+| SOUND page: SONGS | Save, load and manage named songs (see below) |
 | SYNTH page: dice | Roll the creature's macros, or a random patch in a bank |
 | SYNTH page, MIC sound: hold REC | Record up to 3 s from the 3DS microphone; then play it across the keys (C = original pitch). X picks the start point in the take, Y the tone |
 | TAPE page: tap a track / M / hold a track | Arm it for recording / mute it / wipe it |
@@ -80,6 +81,21 @@ Needs custom firmware (Luma3DS) and the Homebrew Launcher. Copy
 `vibe-machine.3dsx` to `sdmc:/3ds/`. Sound needs the console's DSP firmware
 at `sdmc:/3ds/dspfirm.cdc`; run the **DSP1** homebrew once to dump it from
 your own console. Do not use the emulator placeholder on real hardware.
+
+### Songs
+
+Tap **SONGS** (the floppy disk on the SOUND page) for the song browser.
+**SAVE AS** asks for a name on the 3DS keyboard (it suggests a random one,
+like *NEON GECKO 7*), **SAVE** overwrites the current song, **LOAD** opens
+the selected one, and **DELETE** / **NEW** need a hold, as does **LOAD**
+when you have unsaved changes. The song's name sits under the title on the
+top screen, with `*` while there are unsaved changes.
+
+A song is a folder, `sdmc:/3ds/vibe-machine/songs/<NAME>/`: `song.vms`
+(all 8 patterns, song mode, swing, tempo, sound and macros, sliders, theme,
+FX) plus `tape1.wav` … `tape4.wav` and `mic.wav`.
+
+### Autosave
 
 Everything (pattern, sound, macros, sliders, tempo, theme) is saved to
 `sdmc:/3ds/vibe-machine/state.vms` a moment after you change it and again
@@ -116,6 +132,7 @@ release.
 | `source/seq.c` | 16-step sequencer, 8 slots, song, swing, accents; clock on the audio thread (also builds on a PC for `tests/seq_probe`) |
 | `source/sounds.c` | The synth engines: AMY patch strings + two macros each |
 | `source/fx.c` | Performance FX on the master output (audio thread) |
+| `source/songs.c` | Named songs: folders, listing, name cleaning, random names |
 | `source/tape.c` | 4-track tape (60 s, 22.05 kHz mono per track), varispeed / reverse / scrub |
 | `tests/` | Host probes: build AMY natively, check every sound and FX (`make -C tests`) |
 | `source/ui*.c` | Both screens (`ui_top.c`, `ui_bottom.c`), touch layout, text |

@@ -58,7 +58,10 @@ float tape_peak(int track, int block);
 bool tape_dirty(int track);
 const int16_t *tape_track_data(int track, int *frames);  // frames = recorded length
 void tape_mark_saved(int track);
+void tape_set_dirty(int track);  // force a re-save (after loading a song's tapes)
 void tape_load_track(int track, const int16_t *data, int frames);
+// Bumps whenever any track is recorded on, wiped or loaded (for "unsaved").
+uint32_t tape_generation(void);
 
 // --- audio thread --------------------------------------------------------
 // io: interleaved stereo int16 at `rate` Hz (the live, post-FX mix). Records

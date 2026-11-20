@@ -1,0 +1,73 @@
+// songs_probe -- named songs on disk: save, list (sorted, with summary),
+// load, overwrite, delete, and name cleaning.
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+
+#include "dice.h"
+#include "songs.h"
+
+static int fails;
+static void check(int ok, const char *what) {
+    printf("%-58s %s\n", what, ok ? "ok" : "FAIL");
+    fails += !ok;
+}
+
+static SaveState make(int bpm, int filled, const char *name) {
+    SaveState st;
+    memset(&st, 0, sizeof(st));
+    st.bpm = bpm;
+    for (int i = 0; i < filled; i++) dice_groove(&st.slots[i], 99u + i, 0);
+    strcpy(st.name, name);
+    return st;
+}
+
+int main(void) {
+    const char *root = "build/songs";
+    mkdir("build", 0777);
+    SongInfo list[SONGS_MAX];
+    int n = song_list(root, list, SONGS_MAX);
+    for (int i = 0; i < n; i++) song_delete(root, list[i].name);  // start clean
+
+    char name[SONG_NAME_MAX + 1];
+    song_clean_name("  neon/pizza!!  v2 ", name);
+    check(strcmp(name, "NEON PIZZA V2") == 0, "names are cleaned to safe upper-case words");
+    song_clean_name("???", name);
+    check(strcmp(name, "UNTITLED") == 0, "an empty name becomes UNTITLED");
+    song_clean_name("ABCDEFGHIJKLMNOPQRSTUVWXYZ", name);
+    check(strlen(name) == SONG_NAME_MAX, "long names are cut to 16 characters");
+    int ok = 1;
+    for (uint32_t s = 1; s < 50; s++) {
+        char r[SONG_NAME_MAX + 1], c[SONG_NAME_MAX + 1];
+        song_random_name(s, r);
+        song_clean_name(r, c);
+        ok &= strcmp(r, c) == 0 && strlen(r) > 3;
+    }
+    check(ok, "random names are already clean");
+
+    SaveState a = make(120, 3, "ZEBRA DISCO"), b = make(90, 1, "ACID TAPE 4");
+    check(song_save_state(root, "ZEBRA DISCO", &a) && song_save_state(root, "ACID TAPE 4", &b), "two songs save");
+    n = song_list(root, list, SONGS_MAX);
+    check(n == 2 && strcmp(list[0].name, "ACID TAPE 4") == 0 && strcmp(list[1].name, "ZEBRA DISCO") == 0,
+          "the list is sorted by name");
+    check(list[1].bpm == 120 && list[1].patterns == 3 && list[0].patterns == 1, "each entry knows its tempo and patterns");
+
+    SaveState back;
+    check(song_load_state(root, "ZEBRA DISCO", &back) && memcmp(&back, &a, sizeof(a)) == 0, "a song loads back exactly");
+    SaveState a2 = make(150, 2, "ZEBRA DISCO");
+    song_save_state(root, "ZEBRA DISCO", &a2);
+    n = song_list(root, list, SONGS_MAX);
+    check(n == 2 && list[1].bpm == 150, "saving under the same name overwrites it");
+
+    char wav[160];
+    song_path(root, "ACID TAPE 4", "tape1.wav", wav, sizeof(wav));
+    FILE *f = fopen(wav, "wb");
+    fputs("x", f);
+    fclose(f);
+    check(song_delete(root, "ACID TAPE 4") && !song_exists(root, "ACID TAPE 4"), "delete removes the song and its tapes");
+    n = song_list(root, list, SONGS_MAX);
+    check(n == 1, "the list no longer shows it");
+
+    printf(fails ? "\n%d song problem(s)\n" : "\nall songs OK\n", fails);
+    return fails ? 1 : 0;
+}

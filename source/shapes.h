@@ -37,6 +37,9 @@ void sh_speckles(float x, float y, float w, float h, int n, uint32_t seed, u32 c
 // pupils; blink draws them shut.
 void sh_eyes(float x, float y, float r, float look_x, float look_y, bool blink, u32 ink);
 
+// A 3.5" floppy disk, `s` pixels square.
+void sh_floppy(float x, float y, float s, u32 body, u32 label, u32 ink);
+
 // Sticker card: ink border plus a hard offset shadow (shadow 0 = none).
 void sh_card(float x, float y, float w, float h, u32 face, u32 ink, float shadow);
 

@@ -225,6 +225,14 @@ void sh_eyes(float x, float y, float r, float look_x, float look_y, bool blink, 
     }
 }
 
+void sh_floppy(float x, float y, float s, u32 body, u32 label, u32 ink) {
+    sh_rect(x, y, s, s, ink);
+    sh_rect(x + 1, y + 1, s - 2, s - 2, body);
+    sh_rect(x + s * 0.25f, y + 1, s * 0.5f, s * 0.32f, ink);    // metal shutter
+    sh_rect(x + s * 0.55f, y + 2, s * 0.12f, s * 0.22f, body);  // its window
+    sh_rect(x + s * 0.18f, y + s * 0.5f, s * 0.64f, s * 0.42f, label);
+}
+
 void sh_card(float x, float y, float w, float h, u32 face, u32 ink, float shadow) {
     if (shadow > 0.0f) sh_rect(x + shadow, y + shadow, w, h, ink);
     sh_rect(x, y, w, h, ink);

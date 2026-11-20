@@ -216,6 +216,20 @@ float ui_tape_speed_at(int x) {
     return s;
 }
 
+bool ui_hit_songs_button(int x, int y) {
+    return in_box(x, y, SONGS_BTN_X - 3, SONGS_BTN_Y - 2, SONGS_BTN_W + 6, SONGS_BTN_H + 4);
+}
+
+int ui_hit_songs(int x, int y) {
+    for (int i = 0; i < 5; i++)
+        if (in_box(x, y, SONG_BTN_X - 2, SONG_BTN_Y0 + i * SONG_BTN_PITCH - 1, SONG_BTN_W + 4, SONG_BTN_H + 2)) return i;
+    if (in_box(x, y, SONG_SCROLL_X - 2, SONG_LIST_Y0, SONG_SCROLL_W + 4, SONG_SCROLL_H)) return SONG_HIT_UP;
+    if (in_box(x, y, SONG_SCROLL_X - 2, SONG_LIST_Y0 + SONG_SCROLL_H + 4, SONG_SCROLL_W + 4, SONG_SCROLL_H)) return SONG_HIT_DOWN;
+    for (int r = 0; r < SONG_ROWS; r++)
+        if (in_box(x, y, SONG_LIST_X, SONG_LIST_Y0 + r * SONG_ROW_PITCH - 1, SONG_LIST_W, SONG_ROW_H + 3)) return SONG_HIT_ROW + r;
+    return SONG_HIT_NONE;
+}
+
 bool ui_in_fx_pad(int x, int y) { return in_box(x, y, FX_PAD_X, FX_PAD_Y, FX_PAD_W, FX_PAD_H); }
 
 static void pad_pos(int x, int y, int px, int py, int pw, int ph, float *nx, float *ny) {

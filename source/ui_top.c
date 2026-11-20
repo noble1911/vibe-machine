@@ -12,6 +12,7 @@
 // depth sits behind the screen, negative floats in front of it.
 
 #include <math.h>
+#include <string.h>
 
 #include "motif.h"
 #include "patch_names.h"
@@ -315,9 +316,20 @@ static void draw_steps(const AppState *app) {
     }
 }
 
+// The song's name on a sticker under the title, with * for unsaved changes.
+static void draw_song_name(const AppState *app) {
+    const Theme *t = ui_theme();
+    const char *name = app->song_name[0] ? app->song_name : "NEW SONG";
+    float w = 34.0f + strlen(name) * 7.4f + (app->song_dirty ? 8.0f : 0.0f);
+    sh_card(6, 24, w, 17, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
+    sh_floppy(10, 26, 13, rgba(t->pal[2], 0xFF), rgba(0xFFFFFF, 0xFF), rgba(t->ink, 0xFF));
+    ui_text(28, 24.5f, 0.42f, rgba(ink_on(t, t->card), 0xFF), 0, "%s%s", name, app->song_dirty ? " *" : "");
+}
+
 static void draw_hud(const AppState *app, const AudioStats *stats) {
     const Theme *t = ui_theme();
     draw_title();
+    draw_song_name(app);
     draw_steps(app);
 
     static const char *const mode_names[] = {"NOTE", "CHORD", "DRUMS"};
@@ -377,6 +389,11 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     mascot.seed = (uint32_t)app->sound * 31u + 7u;
     motif_draw(&mascot, 0, 1.0f, 0xFF, t->ink, 2.0f);
     sh_eyes(mascot.x, mascot.y, 2.6f, sinf(s_frame * 0.03f) * 0.8f, 0, (s_frame % 190) < 6, rgba(t->ink, 0xFF));
+
+    if (app->busy) {
+        sh_card(120, 70, 160, 40, rgba(t->pal[1], 0xFF), rgba(t->ink, 0xFF), 4);
+        ui_text(200, 78, 0.6f, rgba(ink_on(t, t->pal[1]), 0xFF), C2D_AlignCenter, "%s", app->busy);
+    }
 
     if (app->mic_rec) {  // a big REC card with a live level meter
         sh_card(110, 60, 180, 52, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 4);

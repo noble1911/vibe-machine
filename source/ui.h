@@ -143,6 +143,38 @@
 #define TAPE_SPEED_Y 136
 #define TAPE_SPEED_H 22
 
+// SOUND page: SONGS button under THEME.
+#define SONGS_BTN_X THEME_X
+#define SONGS_BTN_Y 136
+#define SONGS_BTN_W THEME_W
+#define SONGS_BTN_H 22
+// SONGS page: the list (with scroll stickers) and a column of buttons.
+#define SONG_LIST_X 4
+#define SONG_LIST_W 196
+#define SONG_LIST_Y0 26
+#define SONG_ROW_H 22
+#define SONG_ROW_PITCH 26
+#define SONG_ROWS 5
+#define SONG_SCROLL_X 204
+#define SONG_SCROLL_W 22
+#define SONG_SCROLL_H 62
+#define SONG_BTN_X 232
+#define SONG_BTN_W 84
+#define SONG_BTN_Y0 26
+#define SONG_BTN_H 24
+#define SONG_BTN_PITCH 27
+typedef enum {
+    SONG_HIT_NONE = -1,
+    SONG_HIT_SAVE_AS,
+    SONG_HIT_SAVE,
+    SONG_HIT_LOAD,
+    SONG_HIT_DELETE,
+    SONG_HIT_NEW,
+    SONG_HIT_UP,
+    SONG_HIT_DOWN,
+    SONG_HIT_ROW,  // + visible row index
+} SongHit;
+
 typedef enum {
     TAPE_HIT_NONE = -1,
     TAPE_HIT_REW,
@@ -202,6 +234,8 @@ bool ui_hit_synth_rec(int x, int y);  // the MIC sound's REC sticker
 int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
 int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
 bool ui_in_fx_pad(int x, int y);
+bool ui_hit_songs_button(int x, int y);  // on the SOUND page
+int ui_hit_songs(int x, int y);          // a SongHit (rows offset by index)
 int ui_hit_tape(int x, int y);  // a TapeHit (tracks / mutes offset by index)
 float ui_tape_speed_at(int x);  // speed strip position -> -2..2 (snaps to -1, 0, 1)
 // The TAPE page shows REC armed and the speed knob from these.
