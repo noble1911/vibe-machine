@@ -2520,8 +2520,13 @@ static void story_touch(u32 *down, u32 *held, u32 *up, touchPosition *tp) {
         const int p = t - STORY_MOVE;
         if (e->k == S_HOLD && e->c > 0) {  // a timed hold: down until the time is up
             static uint64_t until;
-            if (p == 0) until = svcGetSystemTick() + (uint64_t)e->c * (SYSCLOCK_ARM11 / 1000);
-            press = svcGetSystemTick() < until ? p + 1 : p;
+            static int end;  // the frame it ended on, fixed once it has (-1 while held)
+            if (p == 0) {
+                until = svcGetSystemTick() + (uint64_t)e->c * (SYSCLOCK_ARM11 / 1000);
+                end = -1;
+            }
+            if (end < 0 && p > 0 && svcGetSystemTick() >= until) end = p - 1;
+            press = end < 0 ? p + 1 : end;
         }
         if (p <= press) {  // stylus down (dragging along, if it's a drag)
             const float f = press > 0 ? (float)p / press : 1.0f;
