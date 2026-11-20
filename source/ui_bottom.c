@@ -219,7 +219,7 @@ static void draw_songs_page(const AppState *app) {
         ui_text(SONG_CONFIRM_X + SONG_CONFIRM_W / 2.0f, SONG_CONFIRM_Y + 22, 0.5f, txt, C2D_AlignCenter, "%s?", app->confirm_name);
         ui_text(SONG_CONFIRM_X + SONG_CONFIRM_W / 2.0f, SONG_CONFIRM_Y + 42, 0.36f, txt, C2D_AlignCenter, "hold to replace");
         if (app->song_hold == SONG_HIT_CONFIRM && app->song_hold_t > 0.0f)
-            sh_rect(SONG_CONFIRM_X + 3, SONG_CONFIRM_Y + SONG_CONFIRM_H - 7, (SONG_CONFIRM_W - 6) * app->song_hold_t, 4, ink);
+            sh_rect(SONG_CONFIRM_X + 3, SONG_CONFIRM_Y + SONG_CONFIRM_H - 7, (SONG_CONFIRM_W - 6) * app->song_hold_t, 4, txt);
     }
 
     // Buttons. DELETE and NEW (and LOAD over unsaved changes) are held:
@@ -229,13 +229,14 @@ static void draw_songs_page(const AppState *app) {
     for (int b = 0; b < 5; b++) {
         const float y = SONG_BTN_Y0 + b * SONG_BTN_PITCH;
         bool enabled = b == 0 || b == 4 || (b == 1) || ((b == 2 || b == 3) && has_sel);
-        uint32_t face = !enabled ? t->card : b == 3 ? t->pal[0] : b == 4 ? t->pal[4] : t->pal[(b + 1) % THEME_PALETTE];
+        // colourful(): never a black or white face, whatever the theme.
+        uint32_t face = !enabled ? t->card : colourful(t, b);
         sticker(SONG_BTN_X, y, SONG_BTN_W, SONG_BTN_H, face, false, 0);
         bool hold = b == 3 || b == 4 || (b == 2 && app->song_dirty);
         ui_text(SONG_BTN_X + SONG_BTN_W / 2.0f, y + 2, 0.42f, rgba(ink_on(t, face), enabled ? 0xFF : 0x50), C2D_AlignCenter,
                 "%s%s", labels[b], hold && enabled ? " (hold)" : "");
         if (app->song_hold == b && app->song_hold_t > 0.0f)
-            sh_rect(SONG_BTN_X + 2, y + SONG_BTN_H - 5, (SONG_BTN_W - 4) * app->song_hold_t, 3, ink);
+            sh_rect(SONG_BTN_X + 2, y + SONG_BTN_H - 5, (SONG_BTN_W - 4) * app->song_hold_t, 3, rgba(ink_on(t, face), 0xFF));
     }
 }
 
@@ -372,7 +373,7 @@ static void draw_slots(const AppState *app) {
         char label[2] = {(char)('A' + i), 0};
         sticker(x, SEQ_SLOT_Y, SEQ_SLOT_W, SEQ_SLOT_H, face, !cur, label);
         if (app->slot_hold == i && app->slot_hold_t > 0.0f)  // hold to copy here
-            sh_rect(x + 1, SEQ_SLOT_Y + SEQ_SLOT_H - 3, (SEQ_SLOT_W - 2) * app->slot_hold_t, 3, rgba(t->ink, 0xFF));
+            sh_rect(x + 1, SEQ_SLOT_Y + SEQ_SLOT_H - 3, (SEQ_SLOT_W - 2) * app->slot_hold_t, 3, rgba(ink_on(t, face), 0xFF));
     }
     sticker(SEQ_SONG_X, SEQ_SLOT_Y, SEQ_SONG_W, SEQ_SLOT_H, st->song ? t->pal[3] : t->card, !st->song, "SONG");
 
@@ -644,7 +645,7 @@ static void draw_tape_tracks(const AppState *app) {
                 C2D_AlignCenter, "M");
         // Hold-to-wipe progress: a bar that fills across the sticker.
         if (app->tape_hold_track == k && app->tape_hold > 0.0f)
-            sh_rect(TAPE_TRK_X + 2, y + TAPE_TRK_H - 5, (TAPE_TRK_W - 4) * app->tape_hold, 3, rgba(t->pal[0], 0xFF));
+            sh_rect(TAPE_TRK_X + 2, y + TAPE_TRK_H - 5, (TAPE_TRK_W - 4) * app->tape_hold, 3, rgba(ink_on(t, face), 0xFF));
     }
     uint32_t lf = app->tape_link ? t->pal[3] : t->card;
     sticker(TAPE_TRK_X, TAPE_LINK_Y, TAPE_TRK_W, TAPE_LINK_H, lf, false, app->tape_link ? "SEQ LINK" : "NO LINK");
