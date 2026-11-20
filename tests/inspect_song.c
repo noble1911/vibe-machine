@@ -22,15 +22,15 @@ int main(int argc, char **argv) {
     for (int i = 0; i < SEQ_SLOTS; i++) {
         const SeqPattern *p = &st.slots[i];
         int hits = 0, fx = 0;
-        for (int s = 0; s < SEQ_STEPS; s++) {
+        for (int s = 0; s < SEQ_STEPS_MAX; s++) {
             for (int l = 0; l < 8; l++) hits += (p->drums[s] >> l) & 1;
             fx += p->fx[s] != 0;
         }
         if (!hits && !p->count && !fx) continue;
-        printf("slot %c: %d drum hits, %d notes, %d FX steps\n", 'A' + i, hits, p->count, fx);
+        printf("slot %c: %d bar(s), %d drum hits, %d notes, %d FX steps\n", 'A' + i, seq_bars(p), hits, p->count, fx);
         for (int l = 0; l < 4; l++) {
             printf("   lane %d ", l);
-            for (int s = 0; s < SEQ_STEPS; s++) putchar((p->drums[s] >> l) & 1 ? 'x' : '.');
+            for (int s = 0; s < seq_len(p); s++) putchar((p->drums[s] >> l) & 1 ? 'x' : '.');
             putchar('\n');
         }
         for (int n = 0; n < p->count; n++)
@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
                    p->notes[n].pitch, p->notes[n].len, p->notes[n].vel);
         if (fx) {
             printf("   fx ");
-            for (int s = 0; s < SEQ_STEPS; s++) putchar(p->fx[s] ? '0' + p->fx[s] : '.');
+            for (int s = 0; s < seq_len(p); s++) putchar(p->fx[s] ? '0' + p->fx[s] : '.');
             putchar('\n');
         }
     }

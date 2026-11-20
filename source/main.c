@@ -26,6 +26,10 @@
 #include "storage.h"
 #include "tape.h"
 #include "wav.h"
+
+// Save states hold eight patterns of up to four bars: give the main thread
+// room for a few of them on its stack.
+u32 __stacksize__ = 256 * 1024;
 #include "ui.h"
 
 #define QUIT_HOLD_FRAMES 60   // hold START this long to quit
@@ -78,7 +82,10 @@ typedef enum {
     TOUCH_MIX,
     TOUCH_SMP,
     TOUCH_SONG_BTN,
+    TOUCH_BAR_BTN,
 } TouchMode;
+
+#define BAR_LEN_FRAMES 30  // hold BAR this long to change the pattern's length
 
 #define UNDO_HOLD_FRAMES 40   // hold the SEQ page's ✕ this long to undo
 #define SONG_SHEET_FRAMES 30  // hold SONG this long to open / close the SONG sheet
@@ -102,6 +109,11 @@ static AppState s_app;
 static int s_theme;
 
 static TouchMode s_touch;
+
+// The grid and the roll show one bar of the pattern: screen column c is
+// step page_step(c).
+static inline int page_step(int column) { return s_app.bar_page * SEQ_STEPS + column; }
+
 static touchPosition s_tp;  // this frame's stylus (real, or the story's)
 static u32 s_keys_held;     // this frame's held buttons (real, or the story's)
 static SeqButton s_button;
@@ -1520,6 +1532,7 @@ static void roll_begin(int x, int y) {
         s_touch = TOUCH_IGNORE;
         return;
     }
+    step = page_step(step);
     const int pitch = roll_pitch(row);
     int idx = seq_roll_find(s_app.part, step, pitch);
     s_roll_moved = s_roll_created = false;
@@ -1551,6 +1564,7 @@ static void roll_begin(int x, int y) {
 static void roll_drag(int x, int y) {
     int step, row;
     ui_roll_cell_clamped(x, y, &step, &row);
+    step = page_step(step);
     if (step == s_roll_last_step && row == s_roll_last_row) return;
     s_roll_last_step = step;
     s_roll_last_row = row;
@@ -1563,7 +1577,8 @@ static void roll_drag(int x, int y) {
         return;
     }
     int new_step = s_roll_orig.step + (step - s_roll_anchor_step);
-    new_step = new_step < 0 ? 0 : new_step >= SEQ_STEPS ? SEQ_STEPS - 1 : new_step;
+    const int last = seq_len(&s_app.pattern) - 1;
+    new_step = new_step < 0 ? 0 : new_step > last ? last : new_step;
     int rows = music_roll_rows(s_app.roll_chromatic);
     int abs_row = music_roll_row(s_roll_orig.pitch, s_app.roll_chromatic) + (row - s_roll_anchor_row);
     abs_row = abs_row < 0 ? 0 : abs_row >= rows ? rows - 1 : abs_row;
@@ -1588,21 +1603,23 @@ static void roll_end(void) {
     s_app.roll_active = -1;
 }
 
-static bool cell_on(int step, int row) {
+static bool cell_on(int column, int row) {
+    const int step = page_step(column);
     int tmp[4];
     if (row == 0) return seq_notes_at(&s_app.pattern, s_app.part, step, tmp, 4) > 0;
-    if (row == SEQ_ROW_ACCENT) return (s_app.pattern.accents >> step) & 1u;
+    if (row == SEQ_ROW_ACCENT) return (s_app.pattern.accents >> step) & 1ull;
     return (s_app.pattern.drums[step] >> (row - 1)) & 1u;
 }
 
-static void paint_cell(int step, int row) {
+static void paint_cell(int column, int row) {
+    const int step = page_step(column);
     if (row == 0)
         seq_set_synth(s_app.part, step, s_paint_on ? &s_last_note : NULL);
     else if (row == SEQ_ROW_ACCENT)
         seq_set_accent(step, s_paint_on);
     else
         seq_set_drum(step, row - 1, s_paint_on);
-    s_paint_step = step;
+    s_paint_step = column;
 }
 
 // One level of undo for the big edits (✕, the dice, copying into a slot):
@@ -1640,6 +1657,21 @@ static void clear_pattern(void) {
     }
 }
 
+// A one-bar pattern repeated out to `len` steps.
+static void repeat_bar(SeqPattern *p, int len) {
+    p->len = (uint8_t)len;
+    const int n = p->count;
+    for (int s = SEQ_STEPS; s < len; s++) {
+        p->drums[s] = p->drums[s % SEQ_STEPS];
+        if ((p->accents >> (s % SEQ_STEPS)) & 1ull) p->accents |= 1ull << s;
+    }
+    for (int start = SEQ_STEPS; start < len; start += SEQ_STEPS)
+        for (int i = 0; i < n && p->count < SEQ_NOTES; i++) {
+            p->notes[p->count] = p->notes[i];
+            p->notes[p->count++].step = (uint8_t)(p->notes[i].step + start);
+        }
+}
+
 static void press_button(SeqButton b) {
     switch (b) {
         case SEQ_BTN_PLAY: seq_toggle_play(); break;
@@ -1651,6 +1683,7 @@ static void press_button(SeqButton b) {
             undo_save(s_app.seq.slot);
             SeqPattern p;
             dice_groove(&p, (uint32_t)svcGetSystemTick() ^ (s_app.frame * 2654435761u), s_app.octave);
+            repeat_bar(&p, seq_len(&s_app.pattern));  // a longer pattern gets it in every bar
             seq_set_part_pattern(s_app.part, &p);  // new drums, and new notes for this part only
             for (int k = 0; k < MUSIC_KEYS; k += 2) ui_seq_struck(k, k & 2);  // celebrate the roll
             break;
@@ -1781,6 +1814,7 @@ static void touch_begin(int x, int y) {
     }
     if (s_app.page == PAGE_FX) {
         int hit = ui_hit_fx_sticker(x, y), step = ui_hit_fx_auto(x, y);
+        if (step >= 0) step = page_step(step);
         if (hit >= 0) {
             fx_sticker(hit);
             s_touch = TOUCH_IGNORE;
@@ -1813,7 +1847,10 @@ static void touch_begin(int x, int y) {
     }
     int slot = ui_hit_seq_slot(x, y);
     if (slot >= 0) {
-        if (slot == SEQ_HIT_ROLL) {
+        if (slot == SEQ_HIT_BAR) {  // tap: next bar on screen; hold: the pattern's length
+            s_app.bar_hold = 0;
+            s_touch = TOUCH_BAR_BTN;
+        } else if (slot == SEQ_HIT_ROLL) {
             s_app.roll_view = s_app.arr_view ? true : !s_app.roll_view;
             s_app.arr_view = false;
             s_touch = TOUCH_IGNORE;
@@ -1890,6 +1927,9 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             if (on && a.count == 0 && !s_app.arr_view) notice("SONG CHAINS A-H. HOLD SONG TO ARRANGE");
         }
         s_app.song_btn_hold = -1;
+        if (s_touch == TOUCH_BAR_BTN && s_app.bar_hold >= 0)
+            s_app.bar_page = (s_app.bar_page + 1) % seq_bars(&s_app.pattern);
+        s_app.bar_hold = -1;
         s_app.slot_hold = -1;
         s_app.roll_active = -1;
         s_app.mix_strip = -1;
@@ -1972,6 +2012,16 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         case TOUCH_ROLL_NOTE: roll_drag(tp.px, tp.py); break;
         case TOUCH_MIX: mix_drag(tp.py); break;
         case TOUCH_SMP: sampler_drag(tp.px); break;
+        case TOUCH_BAR_BTN:
+            if (s_app.bar_hold >= 0 && ++s_app.bar_hold >= BAR_LEN_FRAMES) {
+                const int bars = seq_bars(&s_app.pattern), next = bars == 1 ? 2 : bars == 2 ? 4 : 1;
+                seq_set_bars(next);
+                char msg[sizeof(s_app.notice)];
+                snprintf(msg, sizeof(msg), "PATTERN %c: %d BAR%s", 'A' + s_app.seq.slot, next, next > 1 ? "S" : "");
+                notice(msg);
+                s_app.bar_hold = -1;  // done: the release does nothing
+            }
+            break;
         case TOUCH_SONG_BTN:
             if (s_app.song_btn_hold >= 0 && ++s_app.song_btn_hold >= SONG_SHEET_FRAMES) {
                 s_app.arr_view = !s_app.arr_view;
@@ -2241,6 +2291,7 @@ static const StoryEv kStory[] = {
     TAP(TABX(PAGE_SEQ), TABY),
     TAP(ROLLX, SLY),  // back to the grid
     HOLD(SLX(1), SLY, 50),
+    WAITSEC(3),  // playing, the switch to B waits for the bar line
     TAP(GX(14), DY(0)), TAP(GX(15), DY(1)), TAP(GX(7), DY(1)),
     TAP(GX(14), DY(3)),
     WAIT(90),
@@ -2410,6 +2461,7 @@ int main(void) {
     mix_default();
     s_app.arr_sel = -1;
     s_app.song_btn_hold = -1;
+    s_app.bar_hold = -1;
     sampler_edit_default(&s_app.sample_edit);
     mkdir("sdmc:/3ds", 0777);
     mkdir(STORAGE_DIR, 0777);
@@ -2471,6 +2523,12 @@ int main(void) {
         s_app.seq = seq_status();
         seq_snapshot(&s_app.pattern);
         seq_get_arrangement(&s_app.arr);
+        {   // the bar on screen: within the pattern; following the playhead while recording live
+            const int bars = seq_bars(&s_app.pattern);
+            if (s_app.seq.playing && s_app.seq.recording) s_app.bar_page = s_app.seq.step / SEQ_STEPS;
+            if (s_app.bar_page >= bars) s_app.bar_page = bars - 1;
+            if (s_app.bar_page < 0) s_app.bar_page = 0;
+        }
         fx_set_tempo((float)s_app.seq.bpm);
         s_app.fx = fx_state();
         s_app.tape = tape_status();

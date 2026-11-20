@@ -475,6 +475,7 @@ static void draw_grid(const AppState *app) {
     const Theme *t = ui_theme();
     const SeqPattern *p = &app->pattern;
     const SeqStatus *st = &app->seq;
+    const int off = app->bar_page * SEQ_STEPS;  // the bar on screen
     const u32 ink = rgba(t->ink, 0xFF);
     const float top = SEQ_SYNTH_Y - 3, bottom = SEQ_DRUM_Y + SEQ_LANES * SEQ_DRUM_PITCH + 1;
 
@@ -484,7 +485,7 @@ static void draw_grid(const AppState *app) {
     for (int s = 0; s < SEQ_STEPS; s++) {
         float x = SEQ_GRID_X + s * SEQ_CELL_W;
         if ((s / 4) & 1) sh_rect(x, top + 2, SEQ_CELL_W, bottom - top - 4, rgba(t->ink, 0x12));
-        if (st->playing && s == st->step) sh_rect(x, top + 2, SEQ_CELL_W, bottom - top - 4, rgba(t->pal[0], 0x55));
+        if (st->playing && off + s == st->step) sh_rect(x, top + 2, SEQ_CELL_W, bottom - top - 4, rgba(t->pal[0], 0x55));
     }
 
     // Row chips on the left: a squiggle for the synth, key motifs for drums.
@@ -507,13 +508,14 @@ static void draw_grid(const AppState *app) {
         motif_draw(&m, 0, 1.0f, 0xFF, t->ink, 0);
     }
 
-    for (int s = 0; s < SEQ_STEPS; s++) {
-        const float x = SEQ_GRID_X + s * SEQ_CELL_W;
+    for (int c = 0; c < SEQ_STEPS; c++) {
+        const int s = off + c;  // the pattern's step in this column
+        const float x = SEQ_GRID_X + c * SEQ_CELL_W;
         const bool head = st->playing && s == st->step;
         const float pop = head ? -2.0f : 0.0f;  // cells under the playhead lift off
 
         // Accent row: a small triangle that stands up on accented steps.
-        if ((p->accents >> s) & 1u)
+        if ((p->accents >> s) & 1ull)
             sh_tri(x + SEQ_CELL_W / 2.0f, SEQ_ACC_Y + SEQ_ACC_H / 2.0f + 0.5f, 4.5f, -1.5708f, rgba(t->pal[0], 0xFF));
         else
             sh_rect(x + SEQ_CELL_W / 2.0f - 3, SEQ_ACC_Y + SEQ_ACC_H / 2.0f, 6, 1, rgba(t->ink, 0x30));
@@ -566,6 +568,19 @@ static void draw_slots(const AppState *app) {
         sh_rect(SEQ_SONG_X + 1, SEQ_SLOT_Y + SEQ_SLOT_H - 3, (SEQ_SONG_W - 2) * app->song_btn_hold / 30.0f, 3,
                 rgba(ink_on(t, st->song ? t->pal[3] : t->card), 0xFF));
     sticker(SEQ_ROLL_X, SEQ_SLOT_Y, SEQ_ROLL_W, SEQ_SLOT_H, app->roll_view ? t->pal[1] : t->card, !app->roll_view, "ROLL");
+
+    {   // BAR: which bar is on screen, of how many (tap: next; hold: length)
+        const int bars = seq_bars(&app->pattern), playing_bar = st->playing ? st->step / SEQ_STEPS : -1;
+        const uint32_t f = bars > 1 ? colourful(t, 2) : t->card;
+        sticker(SEQ_BAR_X, SEQ_SLOT_Y, SEQ_BAR_W, SEQ_SLOT_H, f, false, 0);
+        const u32 c = rgba(ink_on(t, f), 0xFF);
+        ui_text(SEQ_BAR_X + SEQ_BAR_W / 2.0f, SEQ_SLOT_Y + 0.5f, 0.38f, c, C2D_AlignCenter, "%d/%d", app->bar_page + 1, bars);
+        for (int b = 0; b < bars; b++)  // one dot a bar; the playing one lit
+            sh_rect(SEQ_BAR_X + SEQ_BAR_W / 2.0f - bars * 2.5f + b * 5 + 0.5f, SEQ_SLOT_Y + SEQ_SLOT_H - 4, 3, 2,
+                    rgba(b == playing_bar ? t->pal[0] : t->ink, b == playing_bar ? 0xFF : 0x60));
+        if (app->bar_hold > 0)
+            sh_rect(SEQ_BAR_X + 1, SEQ_SLOT_Y + SEQ_SLOT_H - 2, (SEQ_BAR_W - 2) * app->bar_hold / 30.0f, 2, c);
+    }
 
     sh_card(SEQ_SWING_X, SEQ_SLOT_Y, SEQ_SWING_W, SEQ_SLOT_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
     float fill = (SEQ_SWING_W - 4) * st->swing / SEQ_SWING_MAX;
@@ -622,11 +637,12 @@ static void draw_roll(const AppState *app) {
             ui_text(ROLL_KEYS_X + 1, y - 2, 0.28f, rgba(t->ink, 0xFF), 0, "%s", music_note_name(pitch));
     }
     // Beat shading and the playhead.
+    const int off = app->bar_page * SEQ_STEPS;  // the bar on screen
     for (int s2 = 0; s2 < SEQ_STEPS; s2++) {
         float x = gx + s2 * ROLL_CELL_W;
         if ((s2 / 4) & 1) sh_rect(x, gy, ROLL_CELL_W, gh, rgba(t->ink, 0x0E));
         sh_rect(x, gy, 1, gh, rgba(t->ink, s2 % 4 == 0 ? 0x40 : 0x14));
-        if (st->playing && s2 == st->step) sh_rect(x, gy, ROLL_CELL_W, gh, rgba(t->pal[0], 0x40));
+        if (st->playing && off + s2 == st->step) sh_rect(x, gy, ROLL_CELL_W, gh, rgba(t->pal[0], 0x40));
     }
     // Other parts' notes, faintly, to write against.
     for (int i = 0; i < p->count; i++) {
@@ -634,8 +650,13 @@ static void draw_roll(const AppState *app) {
         if (n->part == app->part) continue;
         int r = music_roll_row(n->pitch, chrom) - app->roll_scroll;
         if (r < 0 || r >= ROLL_ROWS) continue;
-        float x = gx + n->step * ROLL_CELL_W + 1, y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
+        if (n->step + n->len <= off || n->step >= off + SEQ_STEPS) continue;  // not in this bar
+        float x = gx + (n->step - off) * ROLL_CELL_W + 1, y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
         float w = n->len * ROLL_CELL_W - 2;
+        if (x < gx) {
+            w -= gx - x;
+            x = gx;
+        }
         if (x + w > gx + gw) w = gx + gw - x;
         sh_rect(x, y + 2, w, ROLL_ROW_H - 5, rgba(part_rgb(t, n->part), 0x55));
     }
@@ -645,8 +666,13 @@ static void draw_roll(const AppState *app) {
         if (n->part != app->part) continue;
         int r = music_roll_row(n->pitch, chrom) - app->roll_scroll;
         if (r < 0 || r >= ROLL_ROWS) continue;
-        float x = gx + n->step * ROLL_CELL_W + 1, y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
+        if (n->step + n->len <= off || n->step >= off + SEQ_STEPS) continue;  // not in this bar
+        float x = gx + (n->step - off) * ROLL_CELL_W + 1, y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
         float w = n->len * ROLL_CELL_W - 2;
+        if (x < gx) {  // started in an earlier bar
+            w -= gx - x;
+            x = gx;
+        }
         bool over = x + w > gx + gw;  // runs past the bar: clip and mark it
         if (over) w = gx + gw - x;
         bool sounding = st->playing && st->step >= n->step && st->step < n->step + n->len;
@@ -677,7 +703,7 @@ static void draw_arr(const AppState *app) {
     sticker(ARR_END_X, ARR_HEAD_Y, ARR_END_W, ARR_HEAD_H, a->loop ? t->pal[1] : t->pal[0], false,
             a->loop ? "LOOP" : "STOP");
     int bars = 0;
-    for (int i = 0; i < a->count; i++) bars += a->rows[i].reps;
+    for (int i = 0; i < a->count; i++) bars += a->rows[i].reps * app->seq.slot_bars[a->rows[i].slot];
     const int secs = (int)(bars * 240.0f / (app->seq.bpm > 0 ? app->seq.bpm : 120) + 0.5f);
     ui_text(ARR_END_X + ARR_END_W + 6, ARR_HEAD_Y + 1, 0.36f, rgba(ink_on(t, t->bg_b), 0xFF), 0, "%d BARS %d:%02d", bars,
             secs / 60, secs % 60);
@@ -709,7 +735,7 @@ static void draw_arr(const AppState *app) {
         const bool sel = i == app->arr_sel, playing = i == app->seq.arr_row;
         sticker(x, y, ARR_CELL_W, ARR_CELL_H, face, false, 0);
         if (playing) {  // fills as the row plays through its repeats
-            const float f = (app->seq.arr_rep + (app->seq.step + 1) / (float)SEQ_STEPS) / r->reps;
+            const float f = (app->seq.arr_rep + (app->seq.step + 1) / (float)seq_len(&app->pattern)) / r->reps;
             sh_rect(x + 1, y + ARR_CELL_H - 4, (ARR_CELL_W - 2) * (f > 1 ? 1 : f), 3, rgba(ink_on(t, face), 0xFF));
         }
         const u32 txt = rgba(ink_on(t, face), 0xFF);
@@ -1044,10 +1070,12 @@ static void draw_fx_auto(const AppState *app) {
     const Theme *t = ui_theme();
     const SeqPattern *p = &app->pattern;
     bool any = false;
-    for (int s = 0; s < SEQ_STEPS; s++) any |= p->fx[s] != 0;
+    const int off = app->bar_page * SEQ_STEPS;  // the bar on screen
+    for (int s = 0; s < SEQ_STEPS_MAX; s++) any |= p->fx[s] != 0;
     if (!any && !app->seq.recording) return;
-    for (int s = 0; s < SEQ_STEPS; s++) {
-        const float x = FX_AUTO_X0 + s * FX_AUTO_PITCH;
+    for (int c = 0; c < SEQ_STEPS; c++) {
+        const int s = off + c;
+        const float x = FX_AUTO_X0 + c * FX_AUTO_PITCH;
         const int k1 = p->fx[s];
         const bool now = app->seq.playing && app->seq.step == s;
         sh_rect(x + 0.5f, FX_AUTO_Y, FX_AUTO_PITCH - 1.5f, FX_AUTO_H,

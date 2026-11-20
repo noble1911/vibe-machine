@@ -195,6 +195,14 @@ Along the bottom:
   every filled slot in order (A, B, C, …), one bar each, and loops.
   **Hold** it to open the **SONG sheet** (below) and arrange a real song.
 - **ROLL**: switches the grid to the piano roll (below).
+- **BAR** (`1/2`): patterns can be **1, 2 or 4 bars** long. **Hold** BAR to
+  change the current pattern's length: 1 → 2 → 4 → 1. Growing a pattern
+  copies what's there into the new bars, ready for you to vary; shrinking
+  only hides the extra bars (grow it again and they're back). The grid and
+  the roll show **one bar at a time**: **tap** BAR for the next one. The
+  dots under it show which bar is playing. While you **record live**, the
+  screen follows the playhead from bar to bar, so you can play a long
+  melody straight in.
 - **SW**: swing. Drag from 0% to 50%. It lengthens the on-beat 16ths and
   shortens the off-beat ones, for a shuffle.
 

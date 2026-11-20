@@ -13,10 +13,12 @@
 
 #include "music.h"
 
-#define SEQ_STEPS 16
+#define SEQ_STEPS 16          // steps in a bar (and on screen at once)
+#define SEQ_BARS_MAX 4        // a pattern is 1, 2 or 4 bars long
+#define SEQ_STEPS_MAX (SEQ_STEPS * SEQ_BARS_MAX)
 #define SEQ_LANES MUSIC_KEYS  // one drum lane per key (kick, snare, hat...)
 #define SEQ_SLOTS 8           // patterns A..H
-#define SEQ_NOTES 64          // piano-roll notes per pattern
+#define SEQ_NOTES 128         // piano-roll notes per pattern
 #define SEQ_BPM_MIN 40
 #define SEQ_BPM_MAX 240
 #define SEQ_SWING_MAX 0.5f    // even steps up to 50% longer, odd ones shorter
@@ -38,22 +40,26 @@ typedef struct {
 
 // One note on the piano roll.
 typedef struct {
-    uint8_t step;   // 0..15, where it starts
+    uint8_t step;   // 0..len-1, where it starts
     uint8_t pitch;  // MIDI note
-    uint8_t len;    // 1..16 steps (may run past the end of the bar)
+    uint8_t len;    // 1..SEQ_STEPS_MAX steps (may run past the end of the pattern)
     uint8_t vel;    // 1..255 (velocity = vel / 255)
     uint8_t part;   // which instrument part plays it (0..PARTS-1)
 } SeqRollNote;
 
 typedef struct {
-    uint8_t drums[SEQ_STEPS];  // bit n = drum lane n hits on this step
-    uint16_t accents;          // bit s = step s is accented
-    uint8_t count;             // notes in use
+    uint8_t len;                   // steps: 16, 32 or 64 (0 counts as 16)
+    uint8_t drums[SEQ_STEPS_MAX];  // bit n = drum lane n hits on this step
+    uint64_t accents;              // bit s = step s is accented
+    uint8_t count;                 // notes in use
     SeqRollNote notes[SEQ_NOTES];
     // FX automation: the FX page's pad, recorded per step. fx[s] is 0 for
     // nothing, else FxKind + 1; fx_x / fx_y its position (0..255).
-    uint8_t fx[SEQ_STEPS], fx_x[SEQ_STEPS], fx_y[SEQ_STEPS];
+    uint8_t fx[SEQ_STEPS_MAX], fx_x[SEQ_STEPS_MAX], fx_y[SEQ_STEPS_MAX];
 } SeqPattern;
+
+static inline int seq_len(const SeqPattern *p) { return p->len ? p->len : SEQ_STEPS; }
+static inline int seq_bars(const SeqPattern *p) { return seq_len(p) / SEQ_STEPS; }
 
 // The song's arrangement (SONG mode): rows played in order, each a slot
 // repeated `reps` times with some parts dropped out. Empty: SONG chains
@@ -75,7 +81,7 @@ typedef struct {
     bool playing;
     bool recording;
     int bpm;
-    int step;        // step most recently fired (valid while playing)
+    int step;        // step most recently fired (valid while playing), 0..len-1
     uint32_t fired;  // increments every time a step fires
     int slot;        // pattern playing / being edited (0..7 = A..H)
     int queued;      // slot that takes over at the next bar, or -1
@@ -86,6 +92,7 @@ typedef struct {
     int arr_row;     // arrangement row playing (SONG mode with an arrangement), else -1
     int arr_rep;     // which repeat of it (0-based)
     uint32_t ends;   // bumps each time an arrangement plays to its end and stops
+    uint8_t slot_bars[SEQ_SLOTS];  // each slot's length in bars
 } SeqStatus;
 
 // velocity 0 means note-off. `synth` is SYNTH_DRUMS or part_synth(part).
@@ -110,6 +117,10 @@ void seq_set_part_mute(int part, bool muted);  // part PARTS = the drums
 void seq_clear(void);                       // the current slot
 void seq_reset(void);  // a new song: empty slots, starter groove in A, no swing / song
 void seq_set_pattern(const SeqPattern *p);  // the current slot
+// The current slot's length: 1, 2 or 4 bars. Growing it repeats what's
+// there into the new bars (ready to vary); shrinking hides the bars past
+// the end (they come back if it grows again).
+void seq_set_bars(int bars);
 
 // Switch pattern: immediately when stopped, at the next bar while playing.
 void seq_select_slot(int slot);

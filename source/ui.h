@@ -68,17 +68,20 @@
 #define SEQ_SLOT_Y 145
 #define SEQ_SLOT_H 17
 #define SEQ_SLOT_X0 4
-#define SEQ_SLOT_W 21
-#define SEQ_SLOT_PITCH 23
-#define SEQ_SONG_X 190
-#define SEQ_SONG_W 32
-#define SEQ_ROLL_X 226
-#define SEQ_ROLL_W 32
-#define SEQ_SWING_X 262
-#define SEQ_SWING_W 54
+#define SEQ_SLOT_W 18
+#define SEQ_SLOT_PITCH 20
+#define SEQ_SONG_X 166
+#define SEQ_SONG_W 30
+#define SEQ_ROLL_X 199
+#define SEQ_ROLL_W 30
+#define SEQ_BAR_X 232       // BAR: which bar is on screen (tap) / the length (hold)
+#define SEQ_BAR_W 36
+#define SEQ_SWING_X 271
+#define SEQ_SWING_W 45
 #define SEQ_HIT_SONG SEQ_SLOTS        // ui_hit_seq_slot results beyond 0..7
 #define SEQ_HIT_SWING (SEQ_SLOTS + 1)
 #define SEQ_HIT_ROLL (SEQ_SLOTS + 2)
+#define SEQ_HIT_BAR (SEQ_SLOTS + 3)
 
 // SEQ page, ROLL view: a scale/chromatic toggle and a keyboard strip on the
 // left, then 16 step columns by ROLL_ROWS pitch rows.

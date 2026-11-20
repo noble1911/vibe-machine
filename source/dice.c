@@ -27,6 +27,7 @@ static const int kPenta[] = {0, 1, 2, 4, 5, 7};
 void dice_groove(SeqPattern *out, uint32_t seed, int octave) {
     Rng rng = {seed | 1u};
     memset(out, 0, sizeof(*out));
+    out->len = SEQ_STEPS;
     for (int s = 0; s < SEQ_STEPS; s++)
         for (int lane = 0; lane < SEQ_LANES; lane++)
             if (rng_int(&rng, 100) < kChance[lane][s]) out->drums[s] |= (uint8_t)(1u << lane);

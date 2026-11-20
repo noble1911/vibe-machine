@@ -9,10 +9,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 12 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+#define VERSION 13 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
                    // 9: tape sources; 10: sample edit; 11: arrangement, tape mutes;
-                   // 12: FX automation
-#define MAX_PAYLOAD 4096
+                   // 12: FX automation; 13: patterns of 1-4 bars, 128 notes
+#define MAX_PAYLOAD 12288
 
 typedef struct {
     uint8_t buf[MAX_PAYLOAD];
@@ -52,8 +52,10 @@ static uint32_t checksum(const uint8_t *p, size_t n) {
 }
 
 static void put_pattern(Writer *w, const SeqPattern *p) {
-    put(w, p->drums, sizeof(p->drums));
-    put(w, &p->accents, sizeof(p->accents));
+    const uint8_t len = (uint8_t)seq_len(p);
+    put(w, &len, 1);
+    put(w, p->drums, SEQ_STEPS_MAX);
+    put(w, &p->accents, 8);
     put(w, &p->count, 1);
     for (int i = 0; i < p->count; i++) {
         const SeqRollNote *n = &p->notes[i];
@@ -62,25 +64,39 @@ static void put_pattern(Writer *w, const SeqPattern *p) {
     }
 }
 
-// version 6: drums, accents, then the piano-roll notes.
+// version 13: length, 64 steps of drums, 64 accent bits, then the notes.
+// versions 6-12: one bar: 16 steps of drums, 16 accent bits, the notes.
 // versions 1-5: drums, one note-or-chord per step, then (2+) accents; each
 // becomes one-step-long roll notes.
 static void get_pattern(Reader *r, SeqPattern *p, int version) {
     memset(p, 0, sizeof(*p));
-    get(r, p->drums, sizeof(p->drums));
+    p->len = SEQ_STEPS;
+    if (version >= 13) {
+        get(r, &p->len, 1);
+        if (p->len != 16 && p->len != 32 && p->len != 64) r->ok = false;
+        get(r, p->drums, SEQ_STEPS_MAX);
+        get(r, &p->accents, 8);
+    } else {
+        get(r, p->drums, SEQ_STEPS);
+    }
     if (version >= 6) {
-        get(r, &p->accents, sizeof(p->accents));
+        if (version < 13) {
+            uint16_t acc;
+            get(r, &acc, 2);
+            p->accents = acc;
+        }
         get(r, &p->count, 1);
-        if (p->count > SEQ_NOTES) {
+        if (p->count > SEQ_NOTES || (version < 13 && p->count > 64)) {
             r->ok = false;
             return;
         }
         const int bytes = version >= 7 ? 5 : 4;  // 7 adds the part
+        const int len = seq_len(p);
         for (int i = 0; i < p->count; i++) {
             uint8_t b[5] = {0, 0, 0, 0, 0};
             get(r, b, (size_t)bytes);
             p->notes[i] = (SeqRollNote){b[0], b[1], b[2], b[3], b[4]};
-            if (b[0] >= SEQ_STEPS || b[2] < 1 || b[2] > SEQ_STEPS || b[1] > 127 || b[4] >= PARTS) r->ok = false;
+            if (b[0] >= len || b[2] < 1 || b[2] > SEQ_STEPS_MAX || b[1] > 127 || b[4] >= PARTS) r->ok = false;
         }
         return;
     }
@@ -93,7 +109,11 @@ static void get_pattern(Reader *r, SeqPattern *p, int version) {
         for (int i = 0; i < count && i < MUSIC_MAX_NOTES && p->count < SEQ_NOTES; i++)
             p->notes[p->count++] = (SeqRollNote){(uint8_t)s, notes[i], 1, (uint8_t)(SEQ_VEL_SYNTH * 255), 0};
     }
-    if (version >= 2) get(r, &p->accents, sizeof(p->accents));
+    if (version >= 2) {
+        uint16_t acc;
+        get(r, &acc, 2);
+        p->accents = acc;
+    }
 }
 
 static void encode(Writer *w, const SaveState *st) {
@@ -140,10 +160,10 @@ static void encode(Writer *w, const SaveState *st) {
         put(w, row, 3);
     }
     put(w, &st->tape_muted, 1);
-    for (int i = 0; i < SEQ_SLOTS; i++) {  // version 12
-        put(w, st->slots[i].fx, SEQ_STEPS);
-        put(w, st->slots[i].fx_x, SEQ_STEPS);
-        put(w, st->slots[i].fx_y, SEQ_STEPS);
+    for (int i = 0; i < SEQ_SLOTS; i++) {  // version 12 (13: all 64 steps)
+        put(w, st->slots[i].fx, SEQ_STEPS_MAX);
+        put(w, st->slots[i].fx_x, SEQ_STEPS_MAX);
+        put(w, st->slots[i].fx_y, SEQ_STEPS_MAX);
     }
 }
 
@@ -251,18 +271,21 @@ static void decode(Reader *r, SaveState *st, int version) {
         get(r, &st->tape_muted, 1);
     }
     if (version >= 12) {
+        const int n = version >= 13 ? SEQ_STEPS_MAX : SEQ_STEPS;
         for (int i = 0; i < SEQ_SLOTS; i++) {
-            get(r, st->slots[i].fx, SEQ_STEPS);
-            get(r, st->slots[i].fx_x, SEQ_STEPS);
-            get(r, st->slots[i].fx_y, SEQ_STEPS);
-            for (int s = 0; s < SEQ_STEPS; s++)
+            get(r, st->slots[i].fx, (size_t)n);
+            get(r, st->slots[i].fx_x, (size_t)n);
+            get(r, st->slots[i].fx_y, (size_t)n);
+            for (int s = 0; s < n; s++)
                 if (st->slots[i].fx[s] > 4) r->ok = false;  // FX_COUNT kinds
         }
     }
 }
 
 bool storage_save(const char *path, const SaveState *st) {
-    Writer w = {.ok = true};
+    static Writer w;  // big: not on the stack
+    w.n = 0;
+    w.ok = true;
     encode(&w, st);
     if (!w.ok) return false;
     FILE *f = fopen(path, "wb");
@@ -279,14 +302,14 @@ bool storage_load(const char *path, SaveState *st) {
     if (!f) return false;
     char magic[4];
     uint16_t head[2];
-    uint8_t buf[MAX_PAYLOAD];
+    static uint8_t buf[MAX_PAYLOAD];  // big: not on the stack
     uint32_t sum = 0;
     bool ok = fread(magic, 1, 4, f) == 4 && memcmp(magic, "VIBE", 4) == 0 && fread(head, sizeof(head), 1, f) == 1 &&
               (head[0] >= 1 && head[0] <= VERSION) && head[1] <= MAX_PAYLOAD && fread(buf, 1, head[1], f) == head[1] &&
               fread(&sum, sizeof(sum), 1, f) == 1 && sum == checksum(buf, head[1]);
     fclose(f);
     if (!ok) return false;
-    SaveState tmp;
+    static SaveState tmp;
     Reader r = {buf, head[1], 0, true};
     memset(&tmp, 0, sizeof(tmp));
     decode(&r, &tmp, head[0]);

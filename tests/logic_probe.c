@@ -50,6 +50,9 @@ int main(void) {
     a.octave = -2;
     a.bpm = 137;
     for (int i = 0; i < SEQ_SLOTS; i++) dice_groove(&a.slots[i], 12345u + i, 0);
+    a.slots[3].len = 32;  // a two-bar pattern
+    a.slots[3].drums[20] = 0x5;
+    a.slots[3].accents |= 1ull << 40;
     for (int i = 0; i < a.slots[0].count; i++) a.slots[0].notes[i].part = (uint8_t)(i % PARTS);
     a.slot = 5;
     a.song = true;
@@ -77,9 +80,11 @@ int main(void) {
     {   // The biggest song there can be still fits the file.
         SaveState big = a;
         for (int i = 0; i < SEQ_SLOTS; i++) {
+            big.slots[i].len = SEQ_STEPS_MAX;
+            big.slots[i].accents = ~0ull;
             big.slots[i].count = SEQ_NOTES;
-            for (int n = 0; n < SEQ_NOTES; n++) big.slots[i].notes[n] = (SeqRollNote){(uint8_t)(n % 16), 60, 1, 200, 0};
-            for (int st = 0; st < SEQ_STEPS; st++) {
+            for (int n = 0; n < SEQ_NOTES; n++) big.slots[i].notes[n] = (SeqRollNote){(uint8_t)(n % 64), 60, 1, 200, 0};
+            for (int st = 0; st < SEQ_STEPS_MAX; st++) {
                 big.slots[i].drums[st] = 0xFF;
                 big.slots[i].fx[st] = 1 + st % 4;
                 big.slots[i].fx_x[st] = big.slots[i].fx_y[st] = (uint8_t)(st * 16);

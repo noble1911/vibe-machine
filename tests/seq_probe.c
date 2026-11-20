@@ -318,6 +318,69 @@ int main(void) {
         seq_set_song(false);
     }
 
+    // --- patterns longer than a bar ---------------------------------------------
+    {
+        SeqPattern two;
+        memset(&two, 0, sizeof(two));
+        two.len = 32;
+        two.drums[0] = 1u << 0;   // kick on bar 1
+        two.drums[16] = 1u << 1;  // snare on bar 2
+        seq_put_slot(0, &two);
+        seq_set_song(false);
+        seq_select_slot(0);
+        seq_set_bpm(120);  // a bar is 2 s
+        s_nhits = 0;
+        seq_toggle_play();
+        run(5.0);
+        seq_toggle_play();
+        run(0.1);
+        long t[8];
+        int note[8], nd = 0;
+        for (int i = 0; i < s_nhits && nd < 8; i++)
+            if (s_hits[i].synth == SYNTH_DRUMS && s_hits[i].vel > 0) {
+                t[nd] = s_hits[i].t;
+                note[nd++] = s_hits[i].note;
+            }
+        printf("  2-bar pattern: %d hits at %.2f, %.2f, %.2f s\n", nd, nd > 0 ? t[0] / 44100.0 : -1, nd > 1 ? t[1] / 44100.0 : -1,
+               nd > 2 ? t[2] / 44100.0 : -1);
+        check(nd == 3 && note[0] == note[2] && note[1] != note[0] && labs(t[1] - t[0] - 88200) < 200 &&
+                  labs(t[2] - t[0] - 176400) < 200,
+              "a 2-bar pattern plays bar 2 before going round");
+
+        // Growing it to 4 bars copies bars 1-2 into 3-4.
+        SeqPattern one;
+        memset(&one, 0, sizeof(one));
+        one.drums[4] = 1u << 2;
+        one.notes[one.count++] = (SeqRollNote){8, 60, 2, 200, 0};
+        seq_put_slot(1, &one);
+        seq_select_slot(1);
+        seq_set_bars(4);
+        SeqPattern got;
+        seq_get_slot(1, &got);
+        int copies = 0;
+        for (int i = 0; i < got.count; i++) copies += got.notes[i].pitch == 60 && got.notes[i].step % 16 == 8;
+        check(seq_len(&got) == 64 && got.drums[20] == got.drums[4] && got.drums[52] == got.drums[4] && copies == 4,
+              "growing a pattern to 4 bars repeats it into the new bars");
+        seq_set_bars(1);
+        seq_get_slot(1, &got);
+        check(seq_len(&got) == 16 && got.drums[4] == (1u << 2), "shrinking keeps the first bar");
+
+        // An arrangement row of a 2-bar pattern x2 is 4 bars long.
+        SeqArrangement arr;
+        memset(&arr, 0, sizeof(arr));
+        arr.rows[arr.count++] = (SeqArrRow){0, 2, 0};
+        arr.loop = false;
+        seq_set_arrangement(&arr);
+        seq_set_song(true);
+        const uint32_t e0 = seq_status().ends;
+        seq_toggle_play();
+        run(7.5);
+        const bool still = seq_status().playing;
+        run(1.0);
+        check(still && !seq_status().playing && seq_status().ends == e0 + 1, "a 2-bar row x2 lasts 4 bars (8 s), then stops");
+        seq_set_song(false);
+    }
+
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);
     return fails ? 1 : 0;
 }

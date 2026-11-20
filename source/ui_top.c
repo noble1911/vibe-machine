@@ -306,11 +306,14 @@ static void draw_steps(const AppState *app) {
     if (st->recording && ((s_frame / 15) & 1)) sh_circle(15, y + 6.5f, 3, rgba(t->pal[0], 0xFF));
     ui_text(33, y - 0.5f, 0.38f, icon, C2D_AlignCenter, "%d", st->bpm);
 
-    for (int s = 0; s < SEQ_STEPS; s++) {
+    // The bar that's playing (or the one on the bottom screen).
+    const int off = (st->playing ? st->step / SEQ_STEPS : app->bar_page) * SEQ_STEPS;
+    for (int c = 0; c < SEQ_STEPS; c++) {
+        const int s = off + c;
         const bool head = st->playing && s == st->step;
         int dummy[1];
         const bool full = app->pattern.drums[s] || seq_notes_at(&app->pattern, -1, s, dummy, 1) > 0;
-        float x = 52 + s * 21.5f, lift = head ? -5.0f : 0.0f;
+        float x = 52 + c * 21.5f, lift = head ? -5.0f : 0.0f;
         uint32_t f = head ? t->pal[0] : full ? t->pal[1 + (s / 4) % 4] : t->card;
         sh_card(x, y + lift, 18, 14, rgba(f, full || head ? 0xFF : 0xC0), ink, head ? 3 : 1.5f);
         if (s % 4 == 0) sh_circle(x + 9, y + 7 + lift, 1.8f, rgba(ink_on(t, f), 0xFF));

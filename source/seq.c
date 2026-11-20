@@ -51,7 +51,7 @@ static uint8_t s_muted;  // bit n = part n muted; bit PARTS = the drums
 
 // Hits recorded slightly early (into the coming step) already sounded live;
 // skip them once when that step fires so they are not heard twice.
-static uint8_t s_skip_drums[SEQ_STEPS];
+static uint8_t s_skip_drums[SEQ_STEPS_MAX];
 typedef struct {
     uint8_t step, pitch, part;
 } Skip;
@@ -81,7 +81,7 @@ static int s_nactive;
 static bool slot_used(int slot) {
     const SeqPattern *p = &s_pats[slot];
     if (p->count) return true;
-    for (int s = 0; s < SEQ_STEPS; s++)
+    for (int s = 0; s < SEQ_STEPS_MAX; s++)
         if (p->drums[s]) return true;
     return false;
 }
@@ -183,7 +183,7 @@ static int start_note(int part, int pitch, float vel, double off, Event *ev, int
 
 static int fire_step(int step, Event *ev, int n) {
     const SeqPattern *p = &s_pats[s_cur];
-    const bool accent = (p->accents >> step) & 1u;
+    const bool accent = (p->accents >> step) & 1ull;
     uint8_t hits = p->drums[step] & (uint8_t)~s_skip_drums[step];
     s_skip_drums[step] = 0;
     // An arrangement row can drop parts out on top of the mixer's mutes.
@@ -216,7 +216,8 @@ static void starter_locked(void) {
     p->drums[12] |= 1u << 1;
     for (int s = 2; s < SEQ_STEPS; s += 4) p->drums[s] |= 1u << 2;
     p->drums[14] |= 1u << 3;
-    p->accents = 1u << 0 | 1u << 8;
+    p->accents = 1ull << 0 | 1ull << 8;
+    for (int i = 0; i < SEQ_SLOTS; i++) s_pats[i].len = SEQ_STEPS;
     s_cur = 0;
     s_queued = -1;
     s_song = false;
@@ -257,7 +258,7 @@ void seq_advance(int frames, int rate) {
                 s_pos -= len;
                 s_ticks++;
                 n = release_due(s_ticks, ev, n);  // notes ending on this boundary go first
-                int next = (s_step + 1) % SEQ_STEPS;
+                int next = (s_step + 1) % seq_len(&s_pats[s_cur]);
                 if (next == 0) bar_end();
                 if (s_end_pending) {  // the arrangement played to its end
                     s_end_pending = false;
@@ -348,9 +349,17 @@ void seq_set_part_mute(int part, bool muted) {
     UNLOCK(&s_lock);
 }
 
-void seq_clear(void) {
+// A pattern's length is always explicit in here (16, 32 or 64).
+static void normalise_len(SeqPattern *p) {
+    if (p->len != 32 && p->len != 64) p->len = SEQ_STEPS;
+}
+
+void seq_clear(void) {  // everything but the length
     LOCK(&s_lock);
+    const uint8_t len = s_pats[s_cur].len;
     memset(&s_pats[s_cur], 0, sizeof(SeqPattern));
+    s_pats[s_cur].len = len;
+    normalise_len(&s_pats[s_cur]);
     s_nrec = 0;
     UNLOCK(&s_lock);
 }
@@ -358,6 +367,7 @@ void seq_clear(void) {
 void seq_set_pattern(const SeqPattern *p) {
     LOCK(&s_lock);
     s_pats[s_cur] = *p;
+    normalise_len(&s_pats[s_cur]);
     s_nrec = 0;
     UNLOCK(&s_lock);
 }
@@ -385,7 +395,7 @@ void seq_copy_to_slot(int slot) {
 }
 
 void seq_set_drum(int step, int lane, bool on) {
-    if (step < 0 || step >= SEQ_STEPS || lane < 0 || lane >= SEQ_LANES) return;
+    if (step < 0 || step >= SEQ_STEPS_MAX || lane < 0 || lane >= SEQ_LANES) return;
     LOCK(&s_lock);
     if (on)
         s_pats[s_cur].drums[step] |= (uint8_t)(1u << lane);
@@ -395,12 +405,12 @@ void seq_set_drum(int step, int lane, bool on) {
 }
 
 void seq_set_accent(int step, bool on) {
-    if (step < 0 || step >= SEQ_STEPS) return;
+    if (step < 0 || step >= SEQ_STEPS_MAX) return;
     LOCK(&s_lock);
     if (on)
-        s_pats[s_cur].accents |= (uint16_t)(1u << step);
+        s_pats[s_cur].accents |= 1ull << step;
     else
-        s_pats[s_cur].accents &= (uint16_t)~(1u << step);
+        s_pats[s_cur].accents &= ~(1ull << step);
     UNLOCK(&s_lock);
 }
 
@@ -413,10 +423,10 @@ static void remove_locked(SeqPattern *p, int index) {
 }
 
 static int add_locked(SeqPattern *p, int part, int step, int pitch, int len, int vel) {
-    if (p->count >= SEQ_NOTES || step < 0 || step >= SEQ_STEPS || part < 0 || part >= PARTS) return -1;
+    if (p->count >= SEQ_NOTES || step < 0 || step >= SEQ_STEPS_MAX || part < 0 || part >= PARTS) return -1;
     if (pitch < 0) pitch = 0;
     if (pitch > 127) pitch = 127;
-    len = len < 1 ? 1 : len > SEQ_STEPS ? SEQ_STEPS : len;
+    len = len < 1 ? 1 : len > SEQ_STEPS_MAX ? SEQ_STEPS_MAX : len;
     vel = vel < 1 ? 1 : vel > 255 ? 255 : vel;
     // One note per (part, step, pitch): adding again replaces it.
     for (int i = 0; i < p->count; i++)
@@ -429,6 +439,37 @@ static int add_locked(SeqPattern *p, int part, int step, int pitch, int len, int
     return p->count++;
 }
 
+void seq_set_bars(int bars) {
+    const int len = (bars >= 4 ? 4 : bars >= 2 ? 2 : 1) * SEQ_STEPS;
+    LOCK(&s_lock);
+    SeqPattern *p = &s_pats[s_cur];
+    const int old = seq_len(p);
+    if (len > old) {  // the new bars start as copies of what's there
+        for (int s = old; s < len; s++) {
+            p->drums[s] = p->drums[s % old];
+            p->fx[s] = p->fx[s % old];
+            p->fx_x[s] = p->fx_x[s % old];
+            p->fx_y[s] = p->fx_y[s % old];
+            if ((p->accents >> (s % old)) & 1ull) p->accents |= 1ull << s;
+            else p->accents &= ~(1ull << s);
+        }
+        // Notes already living in the new bars (from before a shrink) go,
+        // then the copies come in.
+        for (int i = 0; i < p->count;)
+            if (p->notes[i].step >= old) remove_locked(p, i);
+            else i++;
+        const int n = p->count;
+        for (int start = old; start < len; start += old)
+            for (int i = 0; i < n; i++) {
+                const SeqRollNote *rn = &p->notes[i];
+                add_locked(p, rn->part, rn->step + start, rn->pitch, rn->len, rn->vel);
+            }
+    }
+    p->len = (uint8_t)len;
+    if (s_step >= len) s_step = len - 1;
+    UNLOCK(&s_lock);
+}
+
 static void clear_step_locked(SeqPattern *p, int part, int step) {
     for (int i = 0; i < p->count;)
         if (p->notes[i].step == step && p->notes[i].part == part) remove_locked(p, i);
@@ -436,7 +477,7 @@ static void clear_step_locked(SeqPattern *p, int part, int step) {
 }
 
 void seq_set_synth(int part, int step, const SeqNote *note) {
-    if (step < 0 || step >= SEQ_STEPS) return;
+    if (step < 0 || step >= SEQ_STEPS_MAX) return;
     LOCK(&s_lock);
     SeqPattern *p = &s_pats[s_cur];
     clear_step_locked(p, part, step);
@@ -472,15 +513,16 @@ void seq_roll_set(int index, int step, int pitch, int len) {
     SeqPattern *p = &s_pats[s_cur];
     if (index >= 0 && index < p->count) {
         SeqRollNote *rn = &p->notes[index];
-        rn->step = (uint8_t)(step < 0 ? 0 : step >= SEQ_STEPS ? SEQ_STEPS - 1 : step);
+        const int last = seq_len(p) - 1;
+        rn->step = (uint8_t)(step < 0 ? 0 : step > last ? last : step);
         rn->pitch = (uint8_t)(pitch < 0 ? 0 : pitch > 127 ? 127 : pitch);
-        rn->len = (uint8_t)(len < 1 ? 1 : len > SEQ_STEPS ? SEQ_STEPS : len);
+        rn->len = (uint8_t)(len < 1 ? 1 : len > SEQ_STEPS_MAX ? SEQ_STEPS_MAX : len);
     }
     UNLOCK(&s_lock);
 }
 
 void seq_set_fx(int step, int kind1, float x, float y) {
-    if (step < 0 || step >= SEQ_STEPS) return;
+    if (step < 0 || step >= SEQ_STEPS_MAX) return;
     LOCK(&s_lock);
     SeqPattern *p = &s_pats[s_cur];
     p->fx[step] = (uint8_t)(kind1 < 0 ? 0 : kind1);
@@ -529,7 +571,7 @@ int seq_notes_at(const SeqPattern *p, int part, int step, int *pitches, int max)
 // Nearest step to "now"; *ahead is set when that is the coming step.
 static int nearest_step(bool *ahead) {
     *ahead = s_pos >= step_len_after(s_step) / 2.0;
-    return *ahead ? (s_step + 1) % SEQ_STEPS : s_step;
+    return *ahead ? (s_step + 1) % seq_len(&s_pats[s_cur]) : s_step;
 }
 
 void seq_record_drum(int lane) {
@@ -573,7 +615,7 @@ void seq_record_release(int part, const SeqNote *note) {
             int idx = s_rec_held[i].index;
             if (idx < p->count && p->notes[idx].pitch == s_rec_held[i].pitch) {
                 int len = (int)(now - s_rec_held[i].start + 0.5);
-                p->notes[idx].len = (uint8_t)(len < 1 ? 1 : len > SEQ_STEPS ? SEQ_STEPS : len);
+                p->notes[idx].len = (uint8_t)(len < 1 ? 1 : len > SEQ_STEPS_MAX ? SEQ_STEPS_MAX : len);
             }
             s_rec_held[i] = s_rec_held[--s_nrec];
             break;
@@ -584,9 +626,11 @@ void seq_record_release(int part, const SeqNote *note) {
 SeqStatus seq_status(void) {
     LOCK(&s_lock);
     SeqStatus st = {s_playing, s_recording, s_bpm, s_step, s_fired, s_cur, s_queued, s_song, s_swing, 0, s_muted,
-                    arranging() && s_playing ? s_arr_row : -1, s_arr_rep, s_ends};
-    for (int i = 0; i < SEQ_SLOTS; i++)
+                    arranging() && s_playing ? s_arr_row : -1, s_arr_rep, s_ends, {0}};
+    for (int i = 0; i < SEQ_SLOTS; i++) {
         if (slot_used(i)) st.used |= (uint8_t)(1u << i);
+        st.slot_bars[i] = (uint8_t)seq_bars(&s_pats[i]);
+    }
     UNLOCK(&s_lock);
     return st;
 }
@@ -608,5 +652,6 @@ void seq_put_slot(int slot, const SeqPattern *p) {
     if (slot < 0 || slot >= SEQ_SLOTS) return;
     LOCK(&s_lock);
     s_pats[slot] = *p;
+    normalise_len(&s_pats[slot]);
     UNLOCK(&s_lock);
 }

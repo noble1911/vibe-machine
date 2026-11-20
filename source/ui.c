@@ -316,6 +316,7 @@ int ui_hit_seq_slot(int x, int y) {
     }
     if (x >= SEQ_SONG_X - 2 && x < SEQ_SONG_X + SEQ_SONG_W + 2) return SEQ_HIT_SONG;
     if (x >= SEQ_ROLL_X - 2 && x < SEQ_ROLL_X + SEQ_ROLL_W + 2) return SEQ_HIT_ROLL;
+    if (x >= SEQ_BAR_X - 1 && x < SEQ_BAR_X + SEQ_BAR_W + 1) return SEQ_HIT_BAR;
     if (x >= SEQ_SWING_X - 2 && x < SEQ_SWING_X + SEQ_SWING_W + 4) return SEQ_HIT_SWING;
     return -1;
 }

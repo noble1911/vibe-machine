@@ -19,6 +19,7 @@ static SaveState make(int bpm, int filled, const char *name) {
     SaveState st;
     memset(&st, 0, sizeof(st));
     st.bpm = bpm;
+    for (int i = 0; i < SEQ_SLOTS; i++) st.slots[i].len = SEQ_STEPS;  // as the sequencer keeps them
     for (int i = 0; i < filled; i++) dice_groove(&st.slots[i], 99u + i, 0);
     strcpy(st.name, name);
     sampler_edit_default(&st.sample_edit);

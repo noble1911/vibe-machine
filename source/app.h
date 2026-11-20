@@ -44,6 +44,8 @@ typedef struct {
     Page page;                  // bottom-screen page
     SeqPattern pattern;         // snapshot of the sequencer, taken each frame
     SeqStatus seq;
+    int bar_page;               // the bar of the pattern the grid / roll / FX strip show (0..3)
+    int bar_hold;               // frames BAR has been held (hold: change the length), or -1
     bool roll_view;             // SEQ page shows the piano roll instead of the grid
     bool arr_view;              // ...or the SONG sheet (the arrangement), which wins
     SeqArrangement arr;         // snapshot of the arrangement, taken each frame
