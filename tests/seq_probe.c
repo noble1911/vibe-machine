@@ -2,6 +2,7 @@
 // note it emits, to check timing (straight and swung), accents, pattern
 // slots switching at the bar, and song chaining.
 #include <math.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -17,12 +18,13 @@ typedef struct {
     float vel;
 } Hit;
 
-static Hit s_hits[4096];
-static int s_nhits;
+static Hit s_hits[4096], s_offs[4096];
+static int s_nhits, s_noffs;
 static long s_clock;  // frames rendered so far
 
 static void record(int synth, int note, float vel) {
     if (vel > 0.0f && s_nhits < 4096) s_hits[s_nhits++] = (Hit){s_clock, synth, note, vel};
+    if (vel <= 0.0f && s_noffs < 4096) s_offs[s_noffs++] = (Hit){s_clock, synth, note, vel};
 }
 
 static void run(double secs) {
@@ -134,6 +136,85 @@ int main(void) {
     seq_copy_to_slot(7);
     SeqStatus st = seq_status();
     check(st.slot == 7 && (st.used & 0x80), "copying a pattern into a slot selects and fills it");
+
+    // --- piano roll ---------------------------------------------------------
+    const double step = 5512.5;
+    seq_set_song(false);
+    seq_set_swing(0.0f);
+    SeqPattern roll;
+    memset(&roll, 0, sizeof(roll));
+    roll.notes[roll.count++] = (SeqRollNote){0, 60, 4, 200};   // a long C
+    roll.notes[roll.count++] = (SeqRollNote){8, 64, 1, 200};   // a chord: E G B
+    roll.notes[roll.count++] = (SeqRollNote){8, 67, 1, 200};
+    roll.notes[roll.count++] = (SeqRollNote){8, 71, 1, 200};
+    roll.notes[roll.count++] = (SeqRollNote){15, 72, 3, 200};  // runs over the bar line
+    seq_put_slot(6, &roll);
+    seq_select_slot(6);
+    s_nhits = s_noffs = 0;
+    s_clock = 0;
+    seq_toggle_play();
+    run(2.6);
+    seq_toggle_play();
+    run(0.1);
+    long on60 = -1, off60 = -1, off72 = -1;
+    int chord = 0;
+    for (int i = 0; i < s_nhits; i++) {
+        if (s_hits[i].note == 60 && on60 < 0) on60 = s_hits[i].t;
+        if (s_hits[i].t >= (long)(8 * step) - BLOCK && s_hits[i].t <= (long)(8 * step) + BLOCK &&
+            (s_hits[i].note == 64 || s_hits[i].note == 67 || s_hits[i].note == 71))
+            chord++;
+    }
+    for (int i = 0; i < s_noffs; i++) {
+        if (s_offs[i].note == 60 && off60 < 0) off60 = s_offs[i].t;
+        if (s_offs[i].note == 72 && off72 < 0) off72 = s_offs[i].t;
+    }
+    printf("  roll: C on %ld off %ld (ideal %.0f); chord notes together %d; bar-crossing note off %ld (ideal %.0f)\n",
+           on60, off60, 3.55 * step, chord, off72, (15 + 2.55) * step);
+    check(on60 == 0 && labs(off60 - (long)(3.55 * step)) <= BLOCK, "a 4-step note holds for its length");
+    check(chord == 3, "three notes on one step sound together");
+    check(labs(off72 - (long)(17.55 * step)) <= BLOCK, "a note can hold over the bar line");
+
+    // Retrigger: a long C, then another C on step 2. The first must be let
+    // go before the second starts, and its old release must not cut the
+    // second short.
+    memset(&roll, 0, sizeof(roll));
+    roll.notes[roll.count++] = (SeqRollNote){0, 60, 6, 200};
+    roll.notes[roll.count++] = (SeqRollNote){2, 60, 1, 200};
+    seq_put_slot(6, &roll);
+    s_nhits = s_noffs = 0;
+    s_clock = 0;
+    seq_toggle_play();
+    run(0.9);  // about 7 steps
+    seq_toggle_play();
+    run(0.1);
+    int offs = 0;
+    long first_off = -1;
+    for (int i = 0; i < s_noffs; i++)
+        if (s_offs[i].note == 60) {
+            offs++;
+            if (first_off < 0) first_off = s_offs[i].t;
+        }
+    printf("  retrigger: %d note-offs for C, the first at %ld (ideal %.0f)\n", offs, first_off, 2 * step);
+    check(offs == 2 && labs(first_off - (long)(2 * step)) <= BLOCK, "retriggering a held note releases it cleanly");
+
+    // Live recording: hold a note for three steps and the roll keeps it that long.
+    seq_select_slot(5);
+    seq_clear();
+    seq_set_recording(true);
+    s_clock = 0;
+    seq_toggle_play();
+    run(step * 2.1 / RATE);  // just after step 2 starts
+    SeqNote held = {2, 1, {64}};
+    seq_record_synth(&held);
+    run(step * 3.0 / RATE);
+    seq_record_release(&held);
+    seq_toggle_play();
+    seq_set_recording(false);
+    SeqPattern got;
+    seq_snapshot(&got);
+    printf("  recorded: %d note(s), step %d, length %d\n", got.count, got.count ? got.notes[0].step : -1,
+           got.count ? got.notes[0].len : -1);
+    check(got.count == 1 && got.notes[0].step == 2 && got.notes[0].len == 3, "a live note is recorded as long as it was held");
 
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);
     return fails ? 1 : 0;

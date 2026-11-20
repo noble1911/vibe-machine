@@ -308,7 +308,8 @@ static void draw_steps(const AppState *app) {
 
     for (int s = 0; s < SEQ_STEPS; s++) {
         const bool head = st->playing && s == st->step;
-        const bool full = app->pattern.drums[s] || app->pattern.synth[s].count;
+        int dummy[1];
+        const bool full = app->pattern.drums[s] || seq_notes_at(&app->pattern, s, dummy, 1) > 0;
         float x = 52 + s * 21.5f, lift = head ? -5.0f : 0.0f;
         uint32_t f = head ? t->pal[0] : full ? t->pal[1 + (s / 4) % 4] : t->card;
         sh_card(x, y + lift, 18, 14, rgba(f, full || head ? 0xFF : 0xC0), ink, head ? 3 : 1.5f);

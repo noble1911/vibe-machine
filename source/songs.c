@@ -100,11 +100,9 @@ bool song_info(const char *root, SongInfo *s) {
     s->patterns = 0;
     for (int i = 0; i < SEQ_SLOTS; i++) {
         const SeqPattern *p = &st.slots[i];
-        for (int k = 0; k < SEQ_STEPS; k++)
-            if (p->drums[k] || p->synth[k].count) {
-                s->patterns++;
-                break;
-            }
+        bool used = p->count > 0;
+        for (int k = 0; k < SEQ_STEPS && !used; k++) used = p->drums[k] != 0;
+        s->patterns += used;
     }
     return true;
 }

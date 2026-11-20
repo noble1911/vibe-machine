@@ -110,6 +110,11 @@ static void source_release(int src) {
     Held *h = &s_held[src];
     if (h->key < 0) return;
     for (int i = 0; i < h->count; i++) engine_note_off(h->synth, h->notes[i]);
+    if (h->synth == SYNTH_LEAD) {  // a live-recorded note is as long as you held it
+        SeqNote n = {(int8_t)h->key, (uint8_t)h->count, {0}};
+        for (int i = 0; i < h->count && i < MUSIC_MAX_NOTES; i++) n.notes[i] = (uint8_t)h->notes[i];
+        seq_record_release(&n);
+    }
     h->key = -1;
     h->count = 0;
 }
@@ -750,7 +755,8 @@ static void seq_out(int synth, int note, float velocity) {
 static unsigned s_slot_frames;
 
 static bool cell_on(int step, int row) {
-    if (row == 0) return s_app.pattern.synth[step].count > 0;
+    int tmp[4];
+    if (row == 0) return seq_notes_at(&s_app.pattern, step, tmp, 4) > 0;
     if (row == SEQ_ROW_ACCENT) return (s_app.pattern.accents >> step) & 1u;
     return (s_app.pattern.drums[step] >> (row - 1)) & 1u;
 }
@@ -794,10 +800,13 @@ static void follow_sequencer(void) {
             ui_seq_struck(lane, true);
             s_flash[lane] = FLASH_FRAMES;
         }
-    const SeqNote *n = &s_app.pattern.synth[step];
-    if (n->count && n->key >= 0 && n->key < MUSIC_KEYS) {
-        ui_seq_struck(n->key, false);
-        s_flash[n->key] = FLASH_FRAMES;
+    int pitches[8];
+    int n = seq_notes_at(&s_app.pattern, step, pitches, 8);
+    for (int i = 0; i < n && i < 8; i++) {
+        int key = music_key_of_pitch(pitches[i]);
+        if (key < 0) continue;
+        ui_seq_struck(key, false);
+        s_flash[key] = FLASH_FRAMES;
     }
 }
 

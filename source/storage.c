@@ -9,8 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 5  // 2: slots, accents, song, swing; 3: song name; 4: unsaved; 5: changed audio
-#define MAX_PAYLOAD 2048
+#define VERSION 6  // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: piano roll
+#define MAX_PAYLOAD 4096
 
 typedef struct {
     uint8_t buf[MAX_PAYLOAD];
@@ -51,23 +51,46 @@ static uint32_t checksum(const uint8_t *p, size_t n) {
 
 static void put_pattern(Writer *w, const SeqPattern *p) {
     put(w, p->drums, sizeof(p->drums));
-    for (int s = 0; s < SEQ_STEPS; s++) {
-        put(w, &p->synth[s].key, 1);
-        put(w, &p->synth[s].count, 1);
-        put(w, p->synth[s].notes, MUSIC_MAX_NOTES);
-    }
     put(w, &p->accents, sizeof(p->accents));
+    put(w, &p->count, 1);
+    for (int i = 0; i < p->count; i++) {
+        const SeqRollNote *n = &p->notes[i];
+        uint8_t b[4] = {n->step, n->pitch, n->len, n->vel};
+        put(w, b, 4);
+    }
 }
 
-static void get_pattern(Reader *r, SeqPattern *p, bool accents) {
+// version 6: drums, accents, then the piano-roll notes.
+// versions 1-5: drums, one note-or-chord per step, then (2+) accents; each
+// becomes one-step-long roll notes.
+static void get_pattern(Reader *r, SeqPattern *p, int version) {
+    memset(p, 0, sizeof(*p));
     get(r, p->drums, sizeof(p->drums));
-    for (int s = 0; s < SEQ_STEPS; s++) {
-        get(r, &p->synth[s].key, 1);
-        get(r, &p->synth[s].count, 1);
-        get(r, p->synth[s].notes, MUSIC_MAX_NOTES);
-        if (p->synth[s].count > MUSIC_MAX_NOTES) r->ok = false;
+    if (version >= 6) {
+        get(r, &p->accents, sizeof(p->accents));
+        get(r, &p->count, 1);
+        if (p->count > SEQ_NOTES) {
+            r->ok = false;
+            return;
+        }
+        for (int i = 0; i < p->count; i++) {
+            uint8_t b[4];
+            get(r, b, 4);
+            p->notes[i] = (SeqRollNote){b[0], b[1], b[2], b[3]};
+            if (b[0] >= SEQ_STEPS || b[2] < 1 || b[2] > SEQ_STEPS || b[1] > 127) r->ok = false;
+        }
+        return;
     }
-    if (accents) get(r, &p->accents, sizeof(p->accents));
+    for (int s = 0; s < SEQ_STEPS; s++) {
+        uint8_t key, count, notes[MUSIC_MAX_NOTES];
+        get(r, &key, 1);
+        get(r, &count, 1);
+        get(r, notes, MUSIC_MAX_NOTES);
+        if (count > MUSIC_MAX_NOTES) r->ok = false;
+        for (int i = 0; i < count && i < MUSIC_MAX_NOTES && p->count < SEQ_NOTES; i++)
+            p->notes[p->count++] = (SeqRollNote){(uint8_t)s, notes[i], 1, (uint8_t)(SEQ_VEL_SYNTH * 255)};
+    }
+    if (version >= 2) get(r, &p->accents, sizeof(p->accents));
 }
 
 static void encode(Writer *w, const SaveState *st) {
@@ -108,7 +131,7 @@ static void decode(Reader *r, SaveState *st, int version) {
     st->song = false;
     st->swing = 0.0f;
     if (version == 1) {
-        get_pattern(r, &st->slots[0], false);
+        get_pattern(r, &st->slots[0], 1);
         return;
     }
     int32_t slot;
@@ -118,7 +141,7 @@ static void decode(Reader *r, SaveState *st, int version) {
     get(r, &st->swing, sizeof(st->swing));
     st->slot = slot >= 0 && slot < SEQ_SLOTS ? slot : 0;
     st->song = song != 0;
-    for (int i = 0; i < SEQ_SLOTS; i++) get_pattern(r, &st->slots[i], true);
+    for (int i = 0; i < SEQ_SLOTS; i++) get_pattern(r, &st->slots[i], version);
     if (version >= 3) {
         get(r, st->name, sizeof(st->name));
         st->name[sizeof(st->name) - 1] = '\0';

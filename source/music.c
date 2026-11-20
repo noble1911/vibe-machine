@@ -2,6 +2,8 @@
 
 #include "music.h"
 
+#include <stdio.h>
+
 static const int kMajor[7] = {0, 2, 4, 5, 7, 9, 11};
 
 // GM drum notes, all present in AMY's built-in kit (patch 258).
@@ -30,6 +32,43 @@ int music_key_notes(int key, PlayMode mode, int octave, int notes[MUSIC_MAX_NOTE
             notes[0] = degree_note(key, octave);
             return 1;
     }
+}
+
+bool music_in_scale(int pitch) {
+    static const bool in[12] = {1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1};
+    return in[((pitch % 12) + 12) % 12];
+}
+
+int music_roll_rows(bool chromatic) {
+    int n = 0;
+    for (int p = ROLL_LOW; p <= ROLL_HIGH; p++) n += chromatic || music_in_scale(p);
+    return n;
+}
+
+int music_roll_pitch(int row, bool chromatic) {
+    for (int p = ROLL_LOW; p <= ROLL_HIGH; p++)
+        if (chromatic || music_in_scale(p)) {
+            if (row-- == 0) return p;
+        }
+    return ROLL_HIGH;
+}
+
+int music_roll_row(int pitch, bool chromatic) {
+    int row = -1;
+    for (int p = ROLL_LOW; p <= ROLL_HIGH && p <= pitch; p++) row += chromatic || music_in_scale(p);
+    return row < 0 ? 0 : row;
+}
+
+int music_key_of_pitch(int pitch) {
+    static const int key[12] = {0, -1, 1, -1, 2, 3, -1, 4, -1, 5, -1, 6};
+    return key[((pitch % 12) + 12) % 12];
+}
+
+const char *music_note_name(int pitch) {
+    static const char *const names[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
+    static char buf[16];
+    snprintf(buf, sizeof(buf), "%s%d", names[((pitch % 12) + 12) % 12], pitch / 12 - 1);
+    return buf;
 }
 
 const char *music_key_label(int key, PlayMode mode) {

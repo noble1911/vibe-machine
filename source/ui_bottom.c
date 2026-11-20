@@ -293,6 +293,13 @@ static void draw_transport(const AppState *app) {
     draw_die(SEQ_DICE_X, TAB_Y, SEQ_DICE_W, t->pal[3]);
 }
 
+// Is a note that started before `step` still held through it?
+static bool synth_held(const SeqPattern *p, int step) {
+    for (int i = 0; i < p->count; i++)
+        if (p->notes[i].step < step && p->notes[i].step + p->notes[i].len > step) return true;
+    return false;
+}
+
 static void draw_grid(const AppState *app) {
     const Theme *t = ui_theme();
     const SeqPattern *p = &app->pattern;
@@ -337,13 +344,18 @@ static void draw_grid(const AppState *app) {
         else
             sh_rect(x + SEQ_CELL_W / 2.0f - 3, SEQ_ACC_Y + SEQ_ACC_H / 2.0f, 6, 1, rgba(t->ink, 0x30));
 
-        const SeqNote *n = &p->synth[s];
-        if (n->count) {
+        int pitches[8];
+        int count = seq_notes_at(p, s, pitches, 8);
+        if (count) {
+            int low = pitches[0];
+            for (int i = 1; i < count && i < 8; i++) low = pitches[i] < low ? pitches[i] : low;
             uint32_t face = colourful(t, 1);
             sh_card(x + 1 + pop, SEQ_SYNTH_Y + pop, SEQ_CELL_W - 2, SEQ_SYNTH_H, rgba(face, 0xFF), ink, head ? 3 : 1.5f);
             ui_text(x + SEQ_CELL_W / 2.0f + pop, SEQ_SYNTH_Y + 1.5f + pop, 0.34f, rgba(ink_on(t, face), 0xFF),
-                    C2D_AlignCenter, "%s", kNoteNames[n->notes[0] % 12]);
-            if (n->count > 1) sh_circle(x + SEQ_CELL_W - 4 + pop, SEQ_SYNTH_Y + 3 + pop, 1.6f, ink);
+                    C2D_AlignCenter, "%s", kNoteNames[low % 12]);
+            if (count > 1) sh_circle(x + SEQ_CELL_W - 4 + pop, SEQ_SYNTH_Y + 3 + pop, 1.6f, ink);
+        } else if (synth_held(p, s)) {  // a longer note started earlier is still sounding here
+            sh_rect(x, SEQ_SYNTH_Y + SEQ_SYNTH_H / 2.0f - 1.5f, SEQ_CELL_W, 3, rgba(colourful(t, 1), 0xFF));
         } else {
             sh_rect(x + 2, SEQ_SYNTH_Y + 2, SEQ_CELL_W - 4, SEQ_SYNTH_H - 4, rgba(t->ink, 0x18));
         }

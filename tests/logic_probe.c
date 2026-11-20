@@ -63,9 +63,10 @@ int main(void) {
         int hits = 0;
         for (int s = 0; s < SEQ_STEPS; s++) {
             for (int l = 0; l < SEQ_LANES; l++) hits += (p.drums[s] >> l) & 1;
-            for (int i = 0; i < p.synth[s].count; i++) in_key &= major[p.synth[s].notes[i] % 12];
+            (void)s;
         }
         busy += hits >= 6 && hits <= 60;
+        for (int i = 0; i < p.count; i++) in_key &= major[p.notes[i].pitch % 12];
     }
     check(one, "every groove lands the kick on the one");
     check(backbeat > 300, "snares sit on beats 2 and 4 most of the time");
@@ -90,6 +91,61 @@ int main(void) {
     check(first >= 0 && first < SAMPLER_RATE / 50, "the sound starts within 20 ms of the key press");
     memset(take, 0, sizeof(take));
     check(sampler_tidy(take, SAMPLER_RATE) == 0, "a silent take is refused");
+
+    // --- an older save (format 5, one note-or-chord per step) converts ---------
+    {
+        uint8_t pay[2048];
+        size_t n = 0;
+#define PUT(p, len) (memcpy(pay + n, (p), (len)), n += (len))
+        int32_t ints[5] = {2, 3, 0, 1, 99};  // theme, sound, patch, octave, bpm
+        float f8[2 + PARAM_COUNT + 2 * FX_COUNT] = {0};
+        PUT(ints, sizeof(ints));
+        PUT(f8, sizeof(f8));
+        int32_t slot = 0;
+        uint8_t song = 0;
+        float swing = 0.25f;
+        PUT(&slot, 4);
+        PUT(&song, 1);
+        PUT(&swing, 4);
+        for (int sl = 0; sl < SEQ_SLOTS; sl++) {
+            uint8_t drums[SEQ_STEPS] = {0};
+            if (sl == 0) drums[0] = 1;
+            PUT(drums, sizeof(drums));
+            for (int st = 0; st < SEQ_STEPS; st++) {
+                uint8_t cell[5] = {0, 0, 0, 0, 0};  // key, count, notes[3]
+                if (sl == 0 && st == 4) cell[1] = 3, cell[2] = 60, cell[3] = 64, cell[4] = 67;  // a chord
+                if (sl == 0 && st == 9) cell[1] = 1, cell[2] = 62;
+                PUT(cell, 5);
+            }
+            uint16_t acc = sl == 0 ? 0x0101 : 0;
+            PUT(&acc, 2);
+        }
+        char name[17] = "OLD SONG";
+        PUT(name, 17);
+        uint8_t tail[3] = {0, 0, 0};  // unsaved, tape_changed, mic_changed
+        PUT(tail, 3);
+#undef PUT
+        uint32_t h = 2166136261u;
+        for (size_t i = 0; i < n; i++) h = (h ^ pay[i]) * 16777619u;
+        FILE *f = fopen("build/v5.vms", "wb");
+        uint16_t head[2] = {5, (uint16_t)n};
+        fwrite("VIBE", 1, 4, f);
+        fwrite(head, sizeof(head), 1, f);
+        fwrite(pay, 1, n, f);
+        fwrite(&h, 4, 1, f);
+        fclose(f);
+        SaveState old;
+        bool loaded = storage_load("build/v5.vms", &old);
+        const SeqPattern *p = &old.slots[0];
+        int chord_at_4 = 0, d_at_9 = 0;
+        for (int i = 0; i < p->count; i++) {
+            if (p->notes[i].step == 4 && p->notes[i].len == 1) chord_at_4++;
+            if (p->notes[i].step == 9 && p->notes[i].pitch == 62) d_at_9++;
+        }
+        check(loaded && old.bpm == 99 && strcmp(old.name, "OLD SONG") == 0 && p->count == 4 && chord_at_4 == 3 &&
+                  d_at_9 == 1 && p->accents == 0x0101 && p->drums[0] == 1,
+              "a song saved before the piano roll loads with its notes");
+    }
 
     // --- WAV ------------------------------------------------------------------
     static int16_t wav_in[4000], wav_out[4000];
