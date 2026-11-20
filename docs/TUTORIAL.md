@@ -93,6 +93,10 @@ In the Azahar emulator, the 3DS buttons are on your keyboard (see
 - The title, and under it the **song name** sticker (`*` = unsaved changes).
 - The **mode sticker**: NOTE / CHORD / DRUMS, the octave, and which pattern
   slot is playing (`A>` means song mode is chaining patterns).
+- **Recording badges** under the CPU meter, on every page: **REC** (red,
+  blinking) while the sequencer is recording, **REC ARMED** when ● is on
+  but nothing's playing yet; **TAPE 1 REC / ARMED** for the tape; and
+  **MIXDOWN** during a mixdown.
 - The **CPU meter**: how hard the 3DS is working on sound. **CPUx2** means
   both of the 3DS's processor cores are sharing the work (the usual case).
   If it reaches the red end, the sound can break up (**gaps** counts how
@@ -182,6 +186,12 @@ The grid is one bar of 16 steps. From the top:
 Arm **●**, press **START**, and play: notes land on the nearest step. Hold
 **R** while recording to record drums, **L** for chords. Hits you play just
 before a step are snapped onto it and not played twice.
+
+The keys along the bottom flash with the beat to show what they'd play.
+On the grid they flash for the drums too (each drum lane is a key); in the
+piano roll, and on the other pages, they flash only for the **current
+part's** notes, so the drums don't get in the way of playing a melody.
+Hold **R** and they show the drums again.
 
 ### Patterns and songs
 

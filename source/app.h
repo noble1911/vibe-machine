@@ -93,6 +93,7 @@ typedef struct {
 
     // TAPE page
     TapeStatus tape;            // read back from the tape each frame
+    bool tape_armed;            // TAPE's record is armed (it records while the tape plays)
     bool tape_link;             // tape PLAY / REWIND also drive the sequencer
     int tape_hold_track;        // track sticker being held (to clear), or -1
     float tape_hold;            // 0..1 progress of that hold

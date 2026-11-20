@@ -1698,10 +1698,15 @@ static void follow_sequencer(void) {
     s_seen_fired = s_app.seq.fired;
     if (!s_app.seq.playing) return;
     const int step = s_app.seq.step;
-    for (int lane = 0; lane < SEQ_LANES; lane++)
+    // The keys light up for what they would play: the drums only on the
+    // grid (whose drum lanes are the keys) or while R makes them drums;
+    // elsewhere -- the piano roll, SYNTH... -- just the current part's notes.
+    const bool keys_are_drums = s_app.mode == PLAY_DRUM || (s_app.page == PAGE_SEQ && !s_app.roll_view && !s_app.arr_view);
+    const bool drums_muted = (s_app.seq.muted >> PARTS) & 1u;
+    for (int lane = 0; lane < SEQ_LANES && !drums_muted; lane++)
         if ((s_app.pattern.drums[step] >> lane) & 1u) {
             ui_seq_struck(lane, true);
-            s_flash[lane] = FLASH_FRAMES;
+            if (keys_are_drums) s_flash[lane] = FLASH_FRAMES;
         }
     int pitches[8];
     // Every part's notes fire bursts; only the current part lights the keys.
@@ -1712,7 +1717,7 @@ static void follow_sequencer(void) {
             int key = music_key_of_pitch(pitches[i]);
             if (key < 0) continue;
             ui_seq_struck(key, false);
-            if (part == s_app.part) s_flash[key] = FLASH_FRAMES;
+            if (part == s_app.part && s_app.mode != PLAY_DRUM) s_flash[key] = FLASH_FRAMES;
         }
     }
 }
@@ -2546,6 +2551,7 @@ int main(void) {
         }
         watch_takes();
         ui_tape_ui_state(s_tape_armed, s_tape_speed);
+        s_app.tape_armed = s_tape_armed;
 
 #ifdef VM_DEMO
         // Debug attract mode (make DEMO=1): silent, starts the sequencer and

@@ -342,12 +342,32 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     draw_title();
     draw_song_name(app);
     draw_steps(app);
+    {   // Recording is armed: say so on every page, under the CPU meter.
+        float by = app->mixdown ? 56 : 36;  // under the mixdown card, if there is one
+        const bool blink = (s_frame / 15) & 1;
+        if (app->seq.recording) {  // the sequencer's REC: notes and FX moves go into the pattern
+            const bool live = app->seq.playing;
+            const uint32_t f = t->pal[0];
+            sh_card(288, by, 106, 17, rgba(f, 0xFF), rgba(t->ink, 0xFF), 2);
+            if (!live || blink) sh_circle(297, by + 8.5f, 4, rgba(ink_on(t, f), 0xFF));
+            ui_text(347, by + 0.5f, 0.42f, rgba(ink_on(t, f), 0xFF), C2D_AlignCenter, live ? "REC" : "REC ARMED");
+            by += 20;
+        }
+        if (app->tape_armed) {  // TAPE's record: the armed track records while the tape plays
+            const bool live = app->tape.recording;
+            const uint32_t f = t->pal[0];
+            sh_card(288, by, 106, 17, rgba(live ? f : t->card, 0xFF), rgba(t->ink, 0xFF), 2);
+            if (!live || blink) sh_circle(297, by + 8.5f, 4, rgba(live ? ink_on(t, f) : f, 0xFF));
+            ui_text(347, by + 0.5f, 0.42f, rgba(ink_on(t, live ? f : t->card), 0xFF), C2D_AlignCenter, "TAPE %d %s",
+                    app->tape.track + 1, live ? "REC" : "ARMED");
+        }
+    }
     if (app->mixdown) {  // recording the mixdown: say so, under the CPU meter
         const int secs = (int)app->mixdown_secs;
         const uint32_t f = ((s_frame / 15) & 1) ? t->pal[0] : t->card;
-        sh_card(288, 24, 106, 17, rgba(f, 0xFF), rgba(t->ink, 0xFF), 2);
-        sh_circle(297, 32.5f, 4, rgba(f == t->pal[0] ? t->ink : t->pal[0], 0xFF));
-        ui_text(346, 24.5f, 0.42f, rgba(ink_on(t, f), 0xFF), C2D_AlignCenter, "%s %d:%02d",
+        sh_card(288, 36, 106, 17, rgba(f, 0xFF), rgba(t->ink, 0xFF), 2);
+        sh_circle(297, 44.5f, 4, rgba(f == t->pal[0] ? t->ink : t->pal[0], 0xFF));
+        ui_text(346, 36.5f, 0.42f, rgba(ink_on(t, f), 0xFF), C2D_AlignCenter, "%s %d:%02d",
                 app->mixdown == 2 ? "TAIL" : "MIXDOWN", secs / 60, secs % 60);
     }
 
