@@ -197,6 +197,7 @@ int ui_hit_tape(int x, int y) {
         int ty = TAPE_TRK_Y0 + t * TAPE_TRK_PITCH;
         if (in_box(x, y, TAPE_TRK_X + TAPE_TRK_W - TAPE_MUTE_W, ty - 1, TAPE_MUTE_W + 3, TAPE_TRK_H + 2))
             return TAPE_HIT_MUTE + t;
+        if (in_box(x, y, TAPE_TRK_X + TAPE_SRC_DX - 1, ty - 1, TAPE_SRC_W + 2, TAPE_TRK_H + 2)) return TAPE_HIT_SOURCE + t;
         if (in_box(x, y, TAPE_TRK_X - 2, ty - 1, TAPE_TRK_W - TAPE_MUTE_W + 2, TAPE_TRK_H + 2)) return TAPE_HIT_TRACK + t;
     }
     if (in_box(x, y, TAPE_TRK_X - 2, TAPE_LINK_Y - 1, TAPE_TRK_W + 4, TAPE_LINK_H + 4)) return TAPE_HIT_LINK;

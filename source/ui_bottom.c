@@ -229,13 +229,22 @@ static void draw_mix_page(const AppState *app) {
         // Name sticker: the part and its sound (tap to play that part).
         sticker(x, MIX_HEAD_Y, MIX_W, MIX_HEAD_H, col, false, 0);
         const u32 on_col = rgba(ink_on(t, col), 0xFF);
+        bool on_tape = false;
+        for (int tr = 0; tr < TAPE_TRACKS; tr++) on_tape |= app->tape.used[tr] && app->tape.source[tr] == k;
+        const float tx = x + MIX_W / 2.0f - (on_tape ? 6 : 0);  // make room for the cassette
         if (k < PARTS) {
             const bool cur = k == app->part;
             if (cur) sh_tri(x + 6, MIX_HEAD_Y + MIX_HEAD_H / 2.0f, 4, 0, on_col);  // the part you're playing
-            ui_text(x + MIX_W / 2.0f + (cur ? 3 : 0), MIX_HEAD_Y + 1.5f, 0.36f, on_col, C2D_AlignCenter, "%d %s", k + 1,
+            ui_text(tx + (cur ? 3 : 0), MIX_HEAD_Y + 1.5f, 0.36f, on_col, C2D_AlignCenter, "%d %s", k + 1,
                     sound_get(mix_sound(app, k))->name);
         } else {
-            ui_text(x + MIX_W / 2.0f, MIX_HEAD_Y + 1.5f, 0.36f, on_col, C2D_AlignCenter, "DRUMS");
+            ui_text(tx, MIX_HEAD_Y + 1.5f, 0.36f, on_col, C2D_AlignCenter, "DRUMS");
+        }
+        if (on_tape) {  // this strip is on tape: a little cassette
+            const float qx = x + MIX_W - 9, qy = MIX_HEAD_Y + MIX_HEAD_H / 2.0f;
+            sh_rect(qx - 6, qy - 4, 12, 8, on_col);
+            sh_rect(qx - 4, qy - 2, 2, 2, rgba(col, 0xFF));
+            sh_rect(qx + 2, qy - 2, 2, 2, rgba(col, 0xFF));
         }
         draw_fader(app, k, x, col);
         for (int i = 0; i < MIX_KNOBS; i++)
@@ -886,13 +895,24 @@ static void draw_tape_tracks(const AppState *app) {
         const uint32_t face = armed ? t->pal[k % THEME_PALETTE] : t->card;
         sticker(TAPE_TRK_X, y, TAPE_TRK_W, TAPE_TRK_H, face, false, 0);
         const uint32_t ink = ink_on(t, face);
-        ui_text(TAPE_TRK_X + 6, y + 3, 0.45f, rgba(ink, 0xFF), 0, "%d", k + 1);
-        // Level meter, and a "recording" dot on the armed track.
-        float lv = tp->level[k] * 30.0f;
-        sh_rect(TAPE_TRK_X + 18, y + 7, 30, 8, rgba(t->ink, 0x20));
-        sh_rect(TAPE_TRK_X + 18, y + 7, lv > 30 ? 30 : lv, 8, rgba(armed ? ink : t->pal[k % THEME_PALETTE], 0xFF));
-        if (armed && tp->recording) sh_circle(TAPE_TRK_X + 12, y + 18, 2.5f, rgba(t->pal[0], 0xFF));
-        if (!tp->used[k]) ui_text(TAPE_TRK_X + 33, y + 5, 0.3f, rgba(ink, 0x90), C2D_AlignCenter, "empty");
+        ui_text(TAPE_TRK_X + 4, y + 3, 0.45f, rgba(ink, 0xFF), 0, "%d", k + 1);
+        // Source chip: what this track records (tap to change).
+        const int src = tp->source[k];
+        const uint32_t sface = src == TAPE_SRC_ALL ? t->card : strip_rgb(t, src);
+        const u32 stext = rgba(ink_on(t, sface), 0xFF);
+        const float sx = TAPE_TRK_X + TAPE_SRC_DX, scx = sx + TAPE_SRC_W / 2.0f;
+        sh_card(sx, y + 3, TAPE_SRC_W, 13, rgba(sface, 0xFF), rgba(t->ink, 0xFF), 0);
+        if (src == TAPE_SRC_ALL)
+            ui_text(scx, y + 3.5f, 0.32f, stext, C2D_AlignCenter, "ALL");
+        else if (src == MIX_DRUMS)
+            ui_text(scx, y + 3.5f, 0.32f, stext, C2D_AlignCenter, "DRUMS");
+        else
+            ui_text(scx, y + 3.5f, 0.32f, stext, C2D_AlignCenter, "PART %d", src + 1);
+        // Level meter along the bottom (dim while empty), and a "recording" dot.
+        float lv = tp->level[k] * TAPE_SRC_W;
+        sh_rect(sx, y + 18, TAPE_SRC_W, 3, rgba(t->ink, tp->used[k] ? 0x30 : 0x12));
+        sh_rect(sx, y + 18, lv > TAPE_SRC_W ? TAPE_SRC_W : lv, 3, rgba(armed ? ink : t->pal[k % THEME_PALETTE], 0xFF));
+        if (armed && tp->recording) sh_circle(TAPE_TRK_X + 7, y + 18, 2.5f, rgba(t->pal[0], 0xFF));
         // Mute stamp.
         const float mx = TAPE_TRK_X + TAPE_TRK_W - TAPE_MUTE_W;
         sh_rect(mx, y + 2, 1, TAPE_TRK_H - 4, rgba(t->ink, 0x60));

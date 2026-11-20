@@ -9,7 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 8  // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer
+#define VERSION 9  // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+                   // 9: tape sources
 #define MAX_PAYLOAD 4096
 
 typedef struct {
@@ -126,6 +127,7 @@ static void encode(Writer *w, const SaveState *st) {
         put(w, st->mix[k].knob, sizeof(st->mix[k].knob));
     }
     put(w, &st->solo, 1);
+    put(w, st->tape_source, sizeof(st->tape_source));  // version 9
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -143,6 +145,7 @@ static void decode(Reader *r, SaveState *st, int version) {
     st->muted = 0;
     for (int k = 0; k < MIX_STRIPS; k++) mixer_strip_default(&st->mix[k]);
     st->solo = 0;
+    for (int t = 0; t < TAPE_TRACKS; t++) st->tape_source[t] = TAPE_SRC_ALL;
     get(r, st->params, sizeof(st->params));
     get(r, st->fx_x, sizeof(st->fx_x));
     get(r, st->fx_y, sizeof(st->fx_y));
@@ -200,6 +203,11 @@ static void decode(Reader *r, SaveState *st, int version) {
         }
         get(r, &st->solo, 1);
         st->solo &= (uint8_t)((1u << MIX_STRIPS) - 1);
+    }
+    if (version >= 9) {
+        get(r, st->tape_source, sizeof(st->tape_source));
+        for (int t = 0; t < TAPE_TRACKS; t++)
+            if (st->tape_source[t] < TAPE_SRC_ALL || st->tape_source[t] >= TAPE_SOURCES) r->ok = false;
     }
 }
 

@@ -1,8 +1,10 @@
 // tape.h -- a 4-track tape recorder.
 //
-// The tape records whatever you play (after the performance FX, so a
-// stutter or tape-stop performance gets captured too) onto the armed track,
-// and plays all unmuted tracks back on top of the live sound. It runs on the
+// The tape records onto the armed track from that track's source: ALL is
+// whatever you hear (after the performance FX, so a stutter or tape-stop
+// performance gets captured too); a source of 0..TAPE_SOURCES-1 is one MIX
+// strip on its own (parts 1-3, drums), before the master's echo, reverb and
+// FX. It plays all unmuted tracks back on top of the live sound. It runs on the
 // audio thread's sample clock, like the sequencer, so the two stay locked.
 //
 // Tracks are mono, TAPE_RATE Hz, TAPE_SECONDS long; the tape loops at the
@@ -16,6 +18,8 @@
 #include <stdint.h>
 
 #define TAPE_TRACKS 4
+#define TAPE_SOURCES 4    // MIX strips (mixer.h's MIX_STRIPS)
+#define TAPE_SRC_ALL (-1)
 #define TAPE_RATE 22050
 #define TAPE_SECONDS 60
 #define TAPE_FRAMES (TAPE_RATE * TAPE_SECONDS)
@@ -33,6 +37,7 @@ typedef struct {
     bool muted[TAPE_TRACKS];
     float level[TAPE_TRACKS];  // playback meters, 0..1
     bool used[TAPE_TRACKS];    // has anything been recorded
+    int source[TAPE_TRACKS];   // TAPE_SRC_ALL or a MIX strip
 } TapeStatus;
 
 bool tape_init(void);
@@ -48,6 +53,7 @@ void tape_set_speed(float speed);  // -2..2, used while playing (not recording)
 // stopped): the scratch gesture.
 void tape_scrub(bool active, float speed);
 void tape_mute(int track, bool muted);
+void tape_set_source(int track, int source);  // TAPE_SRC_ALL or 0..TAPE_SOURCES-1
 void tape_clear(int track);
 TapeStatus tape_status(void);
 // Peak level (0..1) of track `track` around the overview block `block`.
@@ -66,6 +72,8 @@ uint32_t tape_generation(void);
 uint32_t tape_track_generation(int track);
 
 // --- audio thread --------------------------------------------------------
-// io: interleaved stereo int16 at `rate` Hz (the live, post-FX mix). Records
-// it if armed, then adds the tape playback in place.
-void tape_process(int16_t *io, int frames, int rate);
+// io: interleaved stereo int16 at `rate` Hz (the live, post-FX mix).
+// strips: TAPE_SOURCES mono blocks of the same `frames` (full scale +-1.0),
+// one per MIX strip, or NULL. Records the armed track's source if armed,
+// then adds the tape playback to io in place.
+void tape_process(int16_t *io, const float *const *strips, int frames, int rate);

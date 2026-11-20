@@ -60,3 +60,11 @@ void mixer_hook(uint16_t bus, int32_t *buf, uint16_t len);
 // Loudest sample (0..1, after level and pan) a strip has sent since the last
 // call. For the meters.
 float mixer_peak(int strip);
+
+// The master bus's volume (AMY's, as the SOUND page's VOL sets it), so that
+// mixer_strip_block() comes out at the level you hear.
+void mixer_set_master_volume(float volume);
+// Audio thread, right after rendering a block: what one strip sent to the
+// master during it, mono, full scale +-1.0 (as heard, before the master's
+// tone, echo, reverb and the FX). AMY_BLOCK_SIZE frames. For the tape.
+const float *mixer_strip_block(int strip);

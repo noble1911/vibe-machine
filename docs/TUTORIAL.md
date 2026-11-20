@@ -316,22 +316,50 @@ the axes do.
 
 ![TAPE page](images/tape.png)
 
-A four-track tape, 60 seconds long, that loops. It records **everything you
-play, effects included**, so a stutter or tape-stop performance goes onto
-tape exactly as you played it.
+A four-track tape, 60 seconds long, that loops. Think of it as a
+multitrack recorder for **performances**: you play a pass, it goes on
+tape, and the tape plays it back while you play the next one. (For
+recording a sound to play on the keys, use the **MIC** sound:
+[section 8](#8-sampling-your-voice-with-mic).)
+
+Each track has a **source**, the chip next to its number. Pick the track,
+then tap its chip to change the source:
+
+- **ALL**: everything you hear, effects included, so a stutter or tape-stop
+  performance goes onto tape exactly as you played it.
+- **DRUMS**, **PART 1**, **PART 2**, **PART 3**: just that strip of the
+  [MIX page](#9-the-mix-page-balancing-the-parts), with its level, pan and
+  strip effects, but without the master echo, reverb or the FX page.
 
 ### Recording a track
 
 1. **Tap a track sticker** (1–4) to choose which track records. It turns
-   coloured.
+   coloured. Tap its chip again to change the source.
 2. Tap **●** to arm recording.
 3. Tap **▶**. With **SEQ LINK** on (the default), the sequencer starts at
    the same moment, so your take lines up with the beat.
 4. Play. The other tracks play back while you record, so you can layer.
 5. Tap **■** to stop. The tape is saved when it stops.
 
+If the source was one strip, that strip is **muted live** when the take
+ends, so you hear it once, from the tape, instead of twice. A notice says
+so, and the strip's sticker on MIX gets a little cassette. Unmute it on MIX
+to hear both, or to record it again. (A take of a strip that's muted would
+be silent, so you get a warning when one starts.)
+
 The window shows all four tracks scrolling past the playhead (red while
 recording).
+
+### Building a song layer by layer
+
+1. Track **1**, source **DRUMS**: ● ▶, let the beat play a few bars, ■.
+   The live drums mute; the tape has them now.
+2. Track **2**, source **PART 1**: record a bass line over the taped drums.
+3. Track **3**, source **PART 2**: chords. Now every layer is on tape, and
+   you're free to change the patterns, sounds or effects without losing
+   what you recorded, or to scratch, reverse and slow the tape.
+4. Use **ALL** for a final pass with the FX page: a stutter or a tape stop
+   over the whole thing onto track 4.
 
 ### Playing with the tape
 

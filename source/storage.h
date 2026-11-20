@@ -11,6 +11,7 @@
 #include "mixer.h"
 #include "seq.h"
 #include "sounds.h"
+#include "tape.h"
 
 #define STORAGE_DIR "sdmc:/3ds/vibe-machine"
 #define STORAGE_PATH STORAGE_DIR "/state.vms"
@@ -30,6 +31,7 @@ typedef struct {
     uint8_t muted;   // bit n = part n muted; bit PARTS = the drums
     MixStrip mix[MIX_STRIPS];  // the MIX page (older files: defaults)
     uint8_t solo;    // bit n = strip n soloed
+    int8_t tape_source[TAPE_TRACKS];  // TAPE_SRC_ALL or a MIX strip
     float params[PARAM_COUNT];
     int octave;
     int bpm;

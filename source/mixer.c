@@ -20,6 +20,8 @@ typedef struct {
 } StripDsp;
 static volatile StripDsp s_dsp[MIX_STRIPS];
 static volatile float s_peak[MIX_STRIPS];
+static volatile float s_out_scale = 0.1f;  // AMY's mixdown: 0.1 x the master's volume
+static float s_out[MIX_STRIPS][AMY_BLOCK_SIZE];  // audio thread only
 // Audio thread only.
 static float s_hold[MIX_STRIPS][2];
 static int s_count[MIX_STRIPS][2];
@@ -76,6 +78,8 @@ void mixer_hook(uint16_t bus, int32_t *buf, uint16_t len) {
     const float drive = s_dsp[bus].drive, step = s_dsp[bus].step;
     const int rate = s_dsp[bus].rate;
     float peak = 0.0f;
+    float *out = s_out[bus];
+    const float out_scale = s_out_scale / AMY_NCHANS;
     for (int c = 0; c < AMY_NCHANS; c++) {
         const float g = s_dsp[bus].gain[c & 1];
         SAMPLE *src = buf + c * len, *dst = master + c * len;
@@ -98,6 +102,8 @@ void mixer_hook(uint16_t bus, int32_t *buf, uint16_t len) {
             }
             x *= g;
             dst[i] += F2S(x);
+            if (c == 0) out[i] = x * out_scale;  // the mono copy for the tape
+            else out[i] += x * out_scale;
             const float a = fabsf(x);
             if (a > peak) peak = a;
         }
@@ -106,6 +112,10 @@ void mixer_hook(uint16_t bus, int32_t *buf, uint16_t len) {
     }
     if (peak > s_peak[bus]) s_peak[bus] = peak;
 }
+
+void mixer_set_master_volume(float volume) { s_out_scale = 0.1f * volume; }
+
+const float *mixer_strip_block(int strip) { return strip >= 0 && strip < MIX_STRIPS ? s_out[strip] : NULL; }
 
 float mixer_peak(int strip) {
     if (strip < 0 || strip >= MIX_STRIPS) return 0.0f;

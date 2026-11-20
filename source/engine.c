@@ -61,6 +61,7 @@ void engine_init(void) {
     amy_event e = amy_default_event();
     e.bus = MIX_MASTER_BUS;
     e.volume = 1.0f;
+    mixer_set_master_volume(1.0f);
     e.echo_level = 0.0f;
     e.echo_delay_ms = 375.0f;
     e.echo_max_delay_ms = 750.0f;
@@ -179,6 +180,7 @@ void engine_set_param(EngineParam param, float v) {
             break;
         case PARAM_VOLUME:
             e.volume = v * 2.5f;
+            mixer_set_master_volume(e.volume);
             break;
         default:
             return;

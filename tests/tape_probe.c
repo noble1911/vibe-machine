@@ -28,7 +28,7 @@ static double run(double secs, int tone, double *pitch_hz) {
             int16_t v = tone ? (int16_t)(0.5 * 32767 * sin(2 * M_PI * 440.0 * s_t / RATE)) : 0;
             b[2 * i] = b[2 * i + 1] = v;
         }
-        tape_process(b, BLOCK, RATE);
+        tape_process(b, NULL, BLOCK, RATE);
         for (int i = 0; i < BLOCK; i++) {
             int x = b[2 * i];
             sq += (double)x * x;
@@ -48,7 +48,7 @@ int main(void) {
     int16_t in[BLOCK * 2], out[BLOCK * 2];
     for (int i = 0; i < BLOCK * 2; i++) in[i] = (int16_t)(i * 97 - 9000);
     memcpy(out, in, sizeof(in));
-    tape_process(out, BLOCK, RATE);
+    tape_process(out, NULL, BLOCK, RATE);
     check(memcmp(in, out, sizeof(in)) == 0, "a stopped tape leaves the live sound untouched");
 
     // Record 2 s of tone on track 0.
@@ -97,6 +97,42 @@ int main(void) {
     tape_clear(0);
     rms = run(0.5, 0, NULL);
     check(rms < 0.001 && !tape_status().used[0], "a cleared track is empty");
+
+    // A track with a strip as its source records that strip, not the mix:
+    // the live mix carries a loud 440 Hz tone, strip 2 a quiet 220 Hz one.
+    {
+        tape_clear(1);
+        tape_set_source(1, 2);
+        tape_select(1);
+        tape_rewind();
+        tape_record(true);
+        tape_play(true);
+        static float strip[BLOCK];
+        const float *strips[TAPE_SOURCES] = {NULL, NULL, strip, NULL};
+        int16_t b[BLOCK * 2];
+        for (int done = 0; done < RATE; done += BLOCK) {
+            for (int i = 0; i < BLOCK; i++, s_t++) {
+                b[2 * i] = b[2 * i + 1] = (int16_t)(0.6 * 32767 * sin(2 * M_PI * 440.0 * s_t / RATE));
+                strip[i] = (float)(0.2 * sin(2 * M_PI * 220.0 * s_t / RATE));
+            }
+            tape_process(b, strips, BLOCK, RATE);
+        }
+        tape_play(false);
+        tape_record(false);
+        run(0.3, 0, NULL);
+        tape_mute(0, true);
+        tape_rewind();
+        tape_play(true);
+        double hz;
+        double rms = run(0.8, 0, &hz);
+        tape_play(false);
+        run(0.3, 0, NULL);
+        printf("  strip take: rms %.3f  pitch %.0f Hz\n", rms, hz);
+        check(fabs(hz - 220) < 15 && fabs(rms - 0.2 / sqrt(2)) < 0.03, "a track set to one strip records just that strip");
+        check(tape_status().source[1] == 2 && tape_status().source[0] == TAPE_SRC_ALL, "each track keeps its own source");
+        tape_set_source(1, 9);
+        check(tape_status().source[1] == TAPE_SRC_ALL, "a bad source falls back to ALL");
+    }
 
     tape_exit();
     printf(fails ? "\n%d tape problem(s)\n" : "\nall tape OK\n", fails);

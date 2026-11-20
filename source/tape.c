@@ -21,6 +21,7 @@ static volatile bool s_playing, s_rec_armed, s_scrubbing;
 static volatile int s_armed_track;
 static volatile float s_speed = 1.0f, s_scrub_speed;
 static volatile bool s_muted[TAPE_TRACKS];
+static volatile int s_source[TAPE_TRACKS] = {TAPE_SRC_ALL, TAPE_SRC_ALL, TAPE_SRC_ALL, TAPE_SRC_ALL};
 static volatile bool s_rewind;
 
 static double s_head;          // tape position in tape frames
@@ -65,6 +66,11 @@ void tape_scrub(bool active, float speed) {
 }
 void tape_mute(int track, bool muted) {
     if (track >= 0 && track < TAPE_TRACKS) s_muted[track] = muted;
+}
+
+void tape_set_source(int track, int source) {
+    if (track < 0 || track >= TAPE_TRACKS) return;
+    s_source[track] = source >= 0 && source < TAPE_SOURCES ? source : TAPE_SRC_ALL;
 }
 
 void tape_clear(int track) {
@@ -127,6 +133,7 @@ TapeStatus tape_status(void) {
         st.muted[t] = s_muted[t];
         st.level[t] = s_level[t];
         st.used[t] = s_used[t];
+        st.source[t] = s_source[t];
     }
     return st;
 }
@@ -156,7 +163,7 @@ static float soft(float v) {
     return v < 0 ? -k : k;
 }
 
-void tape_process(int16_t *io, int frames, int rate) {
+void tape_process(int16_t *io, const float *const *strips, int frames, int rate) {
     if (!s_ok) return;
     if (s_rewind) {
         s_rewind = false;
@@ -170,6 +177,8 @@ void tape_process(int16_t *io, int frames, int rate) {
     }
     const bool recording = s_playing && s_rec_armed && !s_scrubbing;
     const int rt = s_armed_track;
+    const int src = s_source[rt];
+    const float *strip = src >= 0 && strips ? strips[src] : NULL;  // NULL: record everything
     float target = s_scrubbing ? s_scrub_speed : !s_playing ? 0.0f : recording ? 1.0f : s_speed;
     const float step = (float)TAPE_RATE / (float)rate;  // tape frames per output frame at speed 1
     const int decim = rate / TAPE_RATE > 0 ? rate / TAPE_RATE : 1;
@@ -180,7 +189,7 @@ void tape_process(int16_t *io, int frames, int rate) {
         // motor spinning up rather than a click.
         s_cur_speed += (target - s_cur_speed) * (s_scrubbing ? 0.02f : 0.004f);
 
-        float live = (io[2 * n] + io[2 * n + 1]) * 0.5f / 32768.0f;
+        float live = strip ? strip[n] : (io[2 * n] + io[2 * n + 1]) * 0.5f / 32768.0f;
         if (recording) {
             s_rec_acc += live;
             if (++s_rec_n >= decim) {

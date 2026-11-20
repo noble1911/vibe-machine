@@ -510,6 +510,8 @@ static void capture(SaveState *st) {
     st->muted = seq.muted;
     memcpy(st->mix, s_app.mix, sizeof(st->mix));
     st->solo = s_app.mix_solo;
+    const TapeStatus tp = tape_status();
+    for (int t = 0; t < TAPE_TRACKS; t++) st->tape_source[t] = (int8_t)tp.source[t];
     memcpy(st->params, s_app.params, sizeof(st->params));
     st->octave = s_app.octave;
     st->bpm = seq.bpm;
@@ -540,6 +542,7 @@ static void restore(const SaveState *st) {
     memcpy(s_app.mix, st->mix, sizeof(s_app.mix));
     s_app.mix_solo = st->solo;
     mix_apply_all();
+    for (int t = 0; t < TAPE_TRACKS; t++) tape_set_source(t, st->tape_source[t]);
     s_app.octave = st->octave < MUSIC_OCTAVE_MIN || st->octave > MUSIC_OCTAVE_MAX ? 0 : st->octave;
     seq_set_bpm(st->bpm);
     for (int i = 0; i < SEQ_SLOTS; i++) seq_put_slot(i, &st->slots[i]);
@@ -590,6 +593,43 @@ static bool s_force_dirty;
 static void notice(const char *msg) {
     snprintf(s_app.notice, sizeof(s_app.notice), "%s", msg);
     s_app.notice_frames = 150;
+}
+
+static void strip_name(int strip, char *out, size_t len) {
+    if (strip == MIX_DRUMS)
+        snprintf(out, len, "DRUMS");
+    else
+        snprintf(out, len, "PART %c", '1' + strip);
+}
+
+// Once a frame. A take of one strip is that strip "printed" to tape: when
+// it ends, the live strip is muted so you hear it once, from the tape (unmute
+// it on MIX to hear both, or to record it again). And a take of a muted
+// strip would be silence, so say so when one starts.
+static void watch_takes(void) {
+    static bool was_recording;
+    static int track;
+    const bool rec = s_app.tape.recording;
+    if (rec && !was_recording) {
+        track = s_app.tape.track;
+        const int src = s_app.tape.source[track];
+        if (src >= 0 && !mix_audible(src)) {
+            char name[8], msg[sizeof(s_app.notice)];
+            strip_name(src, name, sizeof(name));
+            snprintf(msg, sizeof(msg), "%s IS MUTED: UNMUTE ON MIX", name);
+            notice(msg);
+        }
+    } else if (!rec && was_recording) {
+        const int src = s_app.tape.source[track];
+        if (src >= 0 && mix_audible(src)) {
+            seq_set_part_mute(src, true);
+            char name[8], msg[sizeof(s_app.notice)];
+            strip_name(src, name, sizeof(name));
+            snprintf(msg, sizeof(msg), "%s ON TAPE %c: LIVE ONE MUTED", name, '1' + track);
+            notice(msg);
+        }
+    }
+    was_recording = rec;
 }
 
 static bool file_exists(const char *path) {
@@ -752,6 +792,7 @@ static void new_song(void) {
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
     default_parts();
     mix_default();
+    for (int t = 0; t < TAPE_TRACKS; t++) tape_set_source(t, TAPE_SRC_ALL);
     s_app.octave = 0;
     for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
     s_app.song_name[0] = '\0';
@@ -1152,7 +1193,14 @@ static void touch_begin(int x, int y) {
     if (s_app.page == PAGE_TAPE) {
         int hit = ui_hit_tape(x, y);
         s_touch = TOUCH_IGNORE;
-        if (hit >= TAPE_HIT_MUTE) {
+        // A track's source chip changes the source once that track is
+        // picked; until then it's just part of the sticker (pick / hold to wipe).
+        if (hit >= TAPE_HIT_SOURCE && hit - TAPE_HIT_SOURCE != s_app.tape.track)
+            hit = TAPE_HIT_TRACK + (hit - TAPE_HIT_SOURCE);
+        if (hit >= TAPE_HIT_SOURCE) {  // ALL -> DRUMS -> PART 1 -> 2 -> 3 -> ALL
+            int k = hit - TAPE_HIT_SOURCE, src = s_app.tape.source[k];
+            tape_set_source(k, src == TAPE_SRC_ALL ? MIX_DRUMS : src == MIX_DRUMS ? 0 : src + 1 < PARTS ? src + 1 : TAPE_SRC_ALL);
+        } else if (hit >= TAPE_HIT_MUTE) {
             int k = hit - TAPE_HIT_MUTE;
             tape_mute(k, !s_app.tape.muted[k]);
         } else if (hit >= TAPE_HIT_TRACK) {
@@ -1560,6 +1608,7 @@ int main(void) {
         fx_set_tempo((float)s_app.seq.bpm);
         s_app.fx = fx_state();
         s_app.tape = tape_status();
+        watch_takes();
         ui_tape_ui_state(s_tape_armed, s_tape_speed);
 
 #ifdef VM_DEMO

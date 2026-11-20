@@ -150,6 +150,8 @@
 #define TAPE_TRK_H 24
 #define TAPE_TRK_PITCH 27
 #define TAPE_MUTE_W 20
+#define TAPE_SRC_DX 15   // source chip (ALL / DRUMS / PART n), from the sticker's left
+#define TAPE_SRC_W 37
 #define TAPE_LINK_Y 136
 #define TAPE_LINK_H 22
 #define TAPE_WIN_X 82
@@ -247,6 +249,7 @@ typedef enum {
     TAPE_HIT_SPEED,
     TAPE_HIT_TRACK,  // + track index
     TAPE_HIT_MUTE = TAPE_HIT_TRACK + TAPE_TRACKS,  // + track index
+    TAPE_HIT_SOURCE = TAPE_HIT_MUTE + TAPE_TRACKS,  // + track index
 } TapeHit;
 
 typedef enum {

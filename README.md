@@ -27,7 +27,7 @@ play.
 | | **MIX**: a channel strip for each part and the drums: fader, LED meter, DRIVE, CRUSH, TONE and PAN knobs, MUTE and SOLO. |
 | ![FX page, STUTTER](docs/images/fx-stutter.png) | **FX**: CRUSH, SWEEP, STUTTER and TAPE STOP, played on an XY pad. HOLD lets them stack. |
 | ![FX page, CRUSH with the top screen pixelating](docs/images/fx-crush.png) | The top screen reacts to the effects: it pixelates, freezes, glitches and slows down with the tape. |
-| ![TAPE page](docs/images/tape.png) | **TAPE**: four 60-second tracks that record what you play. Scratch the tape, play it in reverse, vary its speed. |
+| ![TAPE page](docs/images/tape.png) | **TAPE**: four 60-second tracks that record everything, or one part or the drums at a time (which then mute live, so you hear them once). Scratch the tape, play it in reverse, vary its speed. |
 | ![SONGS page](docs/images/songs.png) | **SONGS**: save, load and manage named songs, with tapes and MIC takes included. |
 
 ## Quick start
@@ -92,7 +92,7 @@ runs seven probes:
 | sound | Every sound makes a note, at a matched level, and both of its macros audibly change it |
 | fx | Bypass is bit-exact; sweep darkens and brightens; crush quantises; stutter repeats at exactly the tempo-synced length; tape stops and recovers |
 | seq | 16ths land on time, to the sample; swing gaps are right; accents hit harder; a queued pattern switches on the bar line; song mode chains the right slots; piano-roll notes hold for their length (over the bar line too), chords sound together, live notes keep the length you held; muted parts and drums stay silent |
-| tape | Playback at pitch, an octave up at 2×, reverse, mute, wipe |
+| tape | Playback at pitch, an octave up at 2×, reverse, mute, wipe; a track set to one strip records just that strip |
 | logic | Save files, WAV files, dice grooves (always in key), MIC take tidying |
 | songs | Song names, listing (sorted, hundreds of songs), save, load, overwrite, delete |
 | mix | Each part reaches only its own strip; level, mute and pan are exact; DRIVE squares the wave off and CRUSH steps it while the level stays within a few dB; another strip's effects leave a part bit-for-bit alone; the master echo still reaches every part |

@@ -148,6 +148,27 @@ int main(void) {
     check("drums sound through the DRUMS strip", drum.peak[MIX_DRUMS] > 0 && mono(&drum) > 0.002, "peak %.3f rms %.4f",
           drum.peak[MIX_DRUMS], mono(&drum));
 
+    // The copy of a strip the tape records matches what you hear of it.
+    {
+        mixer_set_master_volume(1.0f);
+        note(saw, 57, 0.8f);
+        double heard = 0, copy = 0, other = 0;
+        for (int b = 0; b < BLOCKS(0.5); b++) {
+            const int16_t *blk = amy_simple_fill_buffer();
+            const float *st = mixer_strip_block(1), *st0 = mixer_strip_block(0);
+            for (int i = 0; i < AMY_BLOCK_SIZE; i++) {
+                double h = (blk[2 * i] + blk[2 * i + 1]) / 2.0 / 32768.0;
+                heard += h * h;
+                copy += (double)st[i] * st[i];
+                other += (double)st0[i] * st0[i];
+            }
+        }
+        note(saw, 57, 0.0f);
+        render(1.5);
+        check("the tape's copy of a strip is as loud as you hear it", fabs(db(sqrt(copy), sqrt(heard))) < 0.3,
+              "%+.2f dB, other strip %.1g", db(sqrt(copy), sqrt(heard)), other);
+    }
+
     // Repatching keeps the bus.
     load(1, 6);
     render(0.05);

@@ -12,8 +12,11 @@
 
 #include "engine.h"
 #include "fx.h"
+#include "mixer.h"
 #include "seq.h"
 #include "tape.h"
+
+_Static_assert(TAPE_SOURCES == MIX_STRIPS, "each MIX strip is a tape source");
 
 #define CHANNEL 0
 #define NUM_WAVEBUFS 4
@@ -83,7 +86,9 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
         uint64_t t1 = svcGetSystemTick();
         memcpy(dst, block, (size_t)frames * 2 * sizeof(int16_t));
         fx_process(dst, frames);                         // performance FX on the live sound
-        tape_process(dst, frames, engine_sample_rate());  // record it / add the tape
+        const float *strips[TAPE_SOURCES];  // each MIX strip on its own, for tracks that record one
+        for (int k = 0; k < TAPE_SOURCES; k++) strips[k] = mixer_strip_block(k);
+        tape_process(dst, strips, frames, engine_sample_rate());  // record it / add the tape
         record_block(dst, frames, t1 - t0);
 #ifdef VM_DEMO
         memset(dst, 0, (size_t)frames * 2 * sizeof(int16_t));  // attract mode: scope moves, speakers stay quiet
