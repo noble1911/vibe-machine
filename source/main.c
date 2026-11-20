@@ -53,6 +53,7 @@ static const u32 kKeyButtons[MUSIC_KEYS] = {
 typedef struct {
     int key;  // -1 when idle
     int synth;
+    bool arp;  // feeding the arpeggiator rather than sounding itself
     int part;  // the part it was played on (for live recording)
     int count;
     int notes[MUSIC_MAX_NOTES];
@@ -140,9 +141,25 @@ static void roll_show_pitch(int pitch) {
     if (row >= s_app.roll_scroll + ROLL_ROWS) s_app.roll_scroll = row - ROLL_ROWS + 1;
 }
 
+// The arpeggiator plays whatever is held for it, across every source.
+static void arp_update(void) {
+    int notes[NUM_SOURCES * MUSIC_MAX_NOTES], n = 0;
+    for (int s = 0; s < NUM_SOURCES; s++)
+        if (s_held[s].key >= 0 && s_held[s].arp)
+            for (int i = 0; i < s_held[s].count; i++) notes[n++] = s_held[s].notes[i];
+    seq_arp_hold(s_app.part, notes, n);
+}
+
 static void source_release(int src) {
     Held *h = &s_held[src];
     if (h->key < 0) return;
+    if (h->arp) {  // it was the arpeggiator's to play
+        h->key = -1;
+        h->count = 0;
+        h->arp = false;
+        arp_update();
+        return;
+    }
     for (int i = 0; i < h->count; i++) engine_note_off(h->synth, h->notes[i]);
     if (h->synth != SYNTH_DRUMS) {  // a live-recorded note is as long as you held it
         SeqNote n = {(int8_t)h->key, (uint8_t)h->count, {0}};
@@ -160,6 +177,16 @@ static void source_press(int src, int key) {
     h->synth = s_app.mode == PLAY_DRUM ? SYNTH_DRUMS : part_synth(s_app.part);
     h->part = s_app.part;
     h->count = music_key_notes(key, s_app.mode, s_app.octave, h->notes);
+    h->arp = s_app.arp.on && s_app.mode != PLAY_DRUM;
+    if (h->arp) {  // the arpeggiator plays it (and records it, if recording)
+        arp_update();
+        if (s_app.roll_view && s_app.page == PAGE_SEQ && h->count > 0) roll_show_pitch(h->notes[0]);
+        ui_key_struck(key, s_app.mode);
+        SeqNote n = {(int8_t)key, (uint8_t)h->count, {0}};
+        for (int i = 0; i < h->count; i++) n.notes[i] = (uint8_t)h->notes[i];
+        s_last_note = n;
+        return;
+    }
     float velocity = s_app.mode == PLAY_DRUM ? 1.0f : 0.8f;
     for (int i = 0; i < h->count; i++) engine_note_on(h->synth, h->notes[i], velocity);
     if (s_app.roll_view && s_app.page == PAGE_SEQ && h->synth != SYNTH_DRUMS && h->count > 0)
@@ -191,6 +218,40 @@ static void set_macro(int m, float v) {
     if (fabsf(v - s_app.macro[m]) < 0.01f) return;
     s_app.macro[m] = v;
     engine_set_macro(s_app.part, s_app.sound, m, v);
+}
+
+// The song's key, and the arpeggiator's settings.
+static void release_all(void);
+static void set_key(int root, int scale) {
+    release_all();  // held notes belong to the old key
+    music_set_key(root, scale);
+    s_app.key_root = music_root();
+    s_app.key_scale = music_scale();
+}
+
+static void set_arp(const SeqArp *a) {
+    release_all();
+    seq_arp_hold(s_app.part, NULL, 0);
+    s_app.arp = *a;
+    if (s_app.arp.mode >= ARP_MODES) s_app.arp.mode = ARP_UP;
+    if (s_app.arp.rate >= ARP_RATES) s_app.arp.rate = ARP_16TH;
+    if (s_app.arp.octaves < 1 || s_app.arp.octaves > 2) s_app.arp.octaves = 1;
+    seq_set_arp(&s_app.arp);
+}
+
+static void sound_row(int hit) {
+    SeqArp a = s_app.arp;
+    switch (hit) {
+        case SND_HIT_ROOT_DOWN: set_key(s_app.key_root + 11, s_app.key_scale); break;
+        case SND_HIT_ROOT_UP: set_key(s_app.key_root + 1, s_app.key_scale); break;
+        case SND_HIT_SCALE_PREV: set_key(s_app.key_root, (s_app.key_scale + MUSIC_SCALES - 1) % MUSIC_SCALES); break;
+        case SND_HIT_SCALE_NEXT: set_key(s_app.key_root, (s_app.key_scale + 1) % MUSIC_SCALES); break;
+        case SND_HIT_ARP_ON: a.on = !a.on; set_arp(&a); break;
+        case SND_HIT_ARP_MODE: a.mode = (uint8_t)((a.mode + 1) % ARP_MODES); set_arp(&a); break;
+        case SND_HIT_ARP_RATE: a.rate = (uint8_t)((a.rate + 1) % ARP_RATES); set_arp(&a); break;
+        case SND_HIT_ARP_OCT: a.octaves = a.octaves == 1 ? 2 : 1; set_arp(&a); break;
+        default: break;
+    }
 }
 
 static void select_sound(int index) {
@@ -564,6 +625,9 @@ static void capture(SaveState *st) {
     const TapeStatus tp = tape_status();
     for (int t = 0; t < TAPE_TRACKS; t++) st->tape_source[t] = (int8_t)tp.source[t];
     st->sample_edit = s_app.sample_edit;
+    st->key_root = (uint8_t)s_app.key_root;
+    st->key_scale = (uint8_t)s_app.key_scale;
+    st->arp = s_app.arp;
     seq_get_arrangement(&st->arr);
     for (int t = 0; t < TAPE_TRACKS; t++)
         if (tp.muted[t]) st->tape_muted |= (uint8_t)(1u << t);
@@ -586,6 +650,8 @@ static void restore(const SaveState *st) {
     ui_set_theme(s_theme);
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = st->params[i];
     s_app.sample_edit = st->sample_edit;
+    set_key(st->key_root, st->key_scale);
+    set_arp(&st->arp);
     for (int k = PARTS - 1; k >= 0; k--) {
         float macro[SOUND_MACROS];
         memcpy(macro, st->parts[k].macro, sizeof(macro));
@@ -1008,6 +1074,8 @@ static void new_song(void) {
     seq_set_bpm(112);
     for (int t = 0; t < TAPE_TRACKS; t++) tape_clear(t);
     sampler_edit_default(&s_app.sample_edit);
+    set_key(0, 0);
+    set_arp(&(SeqArp){false, ARP_UP, ARP_16TH, 1});
     load_boing();
     s_mic_gen++;
     sync_scratch_mic();
@@ -1397,9 +1465,6 @@ static void audition(int pitch) {
 
 // --------------------------------------------------- MIC sample editor ----
 
-// The pitch whose key plays slice k (C D E F G A B C).
-static const int kSlicePitch[SAMPLER_MAX_SLICES] = {60, 62, 64, 65, 67, 69, 71, 72};
-
 static void sampler_drag(int x) {
     SampleEdit *e = &s_app.sample_edit;
     const float min_len = 0.02f;
@@ -1436,7 +1501,9 @@ static bool sampler_begin(int x, int y) {
             int k = -1;
             if (e->slices && pos >= e->start && pos < e->end)
                 k = (int)((pos - e->start) / (e->end - e->start) * e->slices);
-            audition(k >= 0 ? kSlicePitch[k] : 60);
+            int pitch[MUSIC_MAX_NOTES];
+            music_key_notes(k >= 0 ? k : 0, PLAY_NOTE, 0, pitch);  // the key that plays slice k
+            audition(pitch[0]);
             s_app.smp_flash = k;
             s_app.smp_flash_frames = 12;
         }
@@ -1841,6 +1908,12 @@ static void touch_begin(int x, int y) {
         return;
     }
     if (s_app.page == PAGE_SOUND) {
+        const int row = ui_hit_sound_rows(x, y);
+        if (row != SND_HIT_NONE) {
+            sound_row(row);
+            s_touch = TOUCH_IGNORE;
+            return;
+        }
         if (ui_hit_theme(x, y)) {
             ui_set_theme(next_theme());
             s_touch = TOUCH_IGNORE;
@@ -1929,7 +2002,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             seq_set_song(on);
             SeqArrangement a;
             seq_get_arrangement(&a);
-            if (on && a.count == 0 && !s_app.arr_view) notice("SONG CHAINS A-H. HOLD SONG TO ARRANGE");
+            if (on && a.count == 0 && !s_app.arr_view) notice("SONG ON: HOLD SONG TO ARRANGE");
         }
         s_app.song_btn_hold = -1;
         if (s_touch == TOUCH_BAR_BTN && s_app.bar_hold >= 0)
@@ -2138,7 +2211,7 @@ static void update_lit_keys(void) {
 // and holds that go through the real touch handlers (so it's an end-to-end
 // test of the UI as well as the demo video). Captions say what's happening.
 
-typedef enum { S_CAP, S_WAIT, S_WAITSEC, S_TAP, S_HOLD, S_DRAG, S_ROLL, S_CALL } StoryKind;
+typedef enum { S_CAP, S_WAIT, S_WAITSEC, S_TAP, S_HOLD, S_DRAG, S_ROLL, S_CALL, S_KEYS } StoryKind;
 typedef struct {
     StoryKind k;
     int a, b, c, d, n;  // TAP/HOLD: x y; DRAG: x y x2 y2 frames; ROLL: step pitch len
@@ -2151,9 +2224,11 @@ typedef struct {
 #define WAITSEC(s) {S_WAITSEC, 0, 0, 0, 0, s, NULL, NULL}  // seconds of (emulated) time, whatever the frame rate
 #define TAP(x, y) {S_TAP, x, y, 0, 0, 5, NULL, NULL}
 #define HOLD(x, y, f) {S_HOLD, x, y, 0, 0, f, NULL, NULL}
+#define HOLDMS(x, y, ms) {S_HOLD, x, y, ms, 0, 0, NULL, NULL}  // held for real (emulated) time
 #define DRAG(x, y, x2, y2, f) {S_DRAG, x, y, x2, y2, f, NULL, NULL}
 #define ROLL(step, pitch, len) {S_ROLL, step, pitch, len, 0, 0, NULL, NULL}
 #define CALL(f) {S_CALL, 0, 0, 0, 0, 0, NULL, f}
+#define KEYS(mask) {S_KEYS, (int)(mask), 0, 0, 0, 0, NULL, NULL}  // buttons held from now on
 
 // Where things are (the middles of the stickers the hit tests answer for).
 #define TABX(p) (TAB_X0 + (p) * TAB_PITCH + TAB_W / 2)
@@ -2183,6 +2258,11 @@ typedef struct {
 #define CELLY(i) (ARR_Y0 + ((i) / ARR_COLS) * ARR_PITCH_Y + ARR_CELL_H / 2)
 #define CHIPX(k) (ARR_MUTE_X0 + (k) * ARR_MUTE_PITCH + ARR_MUTE_W / 2)
 #define CHIPY (ARR_HEAD_Y + ARR_HEAD_H / 2)
+#define ROOTX(up) (ROW_X0 + ((up) ? ROOT_W * 3 / 4 : ROOT_W / 4))
+#define SCALEX(next) (SCALE_X + ((next) ? SCALE_W * 3 / 4 : SCALE_W / 4))
+#define KEYROWY (KEYROW_Y + ROW_H / 2)
+#define ARPX(i) (ROW_X0 + (i) * ARP_PITCH + ARP_W / 2)
+#define ARPROWY (ARPROW_Y + ROW_H / 2)
 
 enum { SND_JUNO = 0, SND_SQUELCH = 3, SND_BELL = 4 };
 
@@ -2248,6 +2328,11 @@ static const StoryEv kStory[] = {
     CALL(rec_start),
     WAIT(150),
 
+    CAP(0, "FIRST, A KEY: A MINOR (SOUND PAGE)"),
+    TAP(ROOTX(0), KEYROWY), TAP(ROOTX(0), KEYROWY), TAP(ROOTX(0), KEYROWY),
+    TAP(SCALEX(1), KEYROWY),
+    WAIT(60),
+
     CAP(1, "DRUMS: TAP THE GRID, DRAG FOR HATS"),
     TAP(TABX(PAGE_SEQ), TABY),
     TAP(GX(0), DY(0)), TAP(GX(4), DY(0)), TAP(GX(8), DY(0)), TAP(GX(10), DY(0)), TAP(GX(12), DY(0)),
@@ -2278,10 +2363,20 @@ static const StoryEv kStory[] = {
     ROLL(12, 59, 4), ROLL(12, 62, 4), ROLL(12, 67, 4),
     WAIT(90),
 
-    CAP(4, "LEAD: PART 3, A BELL ON TOP"),
+    CAP(4, "LEAD: PART 3, A BELL, ARPEGGIATED"),
     TAP(PICKX(2), PICKY),
-    ROLL(2, 76, 1), ROLL(3, 74, 1), ROLL(4, 72, 2), ROLL(10, 69, 2), ROLL(13, 71, 1), ROLL(14, 72, 2),
-    WAIT(120),
+    TAP(TABX(PAGE_SOUND), TABY),
+    TAP(ARPX(0), ARPROWY),               // ARP on (UP, 1/16)
+    TAP(TABX(PAGE_SEQ), TABY),
+    TAP(RECX, TABY),                     // record...
+    KEYS(KEY_L),                         // ...an Am chord held for a bar
+    HOLDMS(KEYX(0), KEYY, 2150),  // one bar at 108 BPM: the arpeggio fills it once
+    KEYS(0),
+    TAP(RECX, TABY),
+    TAP(TABX(PAGE_SOUND), TABY),
+    TAP(ARPX(0), ARPROWY),               // ARP off again
+    TAP(TABX(PAGE_SEQ), TABY),
+    WAIT(90),
 
     CAP(5, "MIX: CRUSH DRUMS, DRIVE BASS, PAN CHORDS"),
     TAP(TABX(PAGE_MIX), TABY),
@@ -2344,12 +2439,21 @@ static const StoryEv kStory[] = {
 #define STORY_GAP 10   // frames between gestures
 
 static int s_story_i, s_story_t;
+static u32 s_story_keys, s_story_keys_was;  // buttons the script is holding
 static float s_story_x = 160, s_story_y = 120;
 
 // Fills in this frame's input from the script. Returns nothing: it just
 // replaces what the hardware said.
+static void story_touch(u32 *down, u32 *held, u32 *up, touchPosition *tp);
 static void story_input(u32 *down, u32 *held, u32 *up, touchPosition *tp) {
-    *down = *held = *up = 0;
+    *down = s_story_keys & ~s_story_keys_was;  // buttons first; the stylus adds KEY_TOUCH below
+    *held = s_story_keys;
+    *up = s_story_keys_was & ~s_story_keys;
+    s_story_keys_was = s_story_keys;
+    story_touch(down, held, up, tp);
+}
+
+static void story_touch(u32 *down, u32 *held, u32 *up, touchPosition *tp) {
     while (s_story_i < (int)(sizeof(kStory) / sizeof(kStory[0]))) {
         const StoryEv *e = &kStory[s_story_i];
         if (e->k == S_CAP) {
@@ -2360,6 +2464,11 @@ static void story_input(u32 *down, u32 *held, u32 *up, touchPosition *tp) {
         }
         if (e->k == S_CALL) {
             e->fn();
+            s_story_i++;
+            continue;
+        }
+        if (e->k == S_KEYS) {
+            s_story_keys = (u32)e->a;
             s_story_i++;
             continue;
         }
@@ -2409,11 +2518,16 @@ static void story_input(u32 *down, u32 *held, u32 *up, touchPosition *tp) {
             return;
         }
         const int p = t - STORY_MOVE;
+        if (e->k == S_HOLD && e->c > 0) {  // a timed hold: down until the time is up
+            static uint64_t until;
+            if (p == 0) until = svcGetSystemTick() + (uint64_t)e->c * (SYSCLOCK_ARM11 / 1000);
+            press = svcGetSystemTick() < until ? p + 1 : p;
+        }
         if (p <= press) {  // stylus down (dragging along, if it's a drag)
             const float f = press > 0 ? (float)p / press : 1.0f;
             const float cx = x + (x2 - x) * f, cy = y + (y2 - y) * f;
-            *held = KEY_TOUCH;
-            if (p == 0) *down = KEY_TOUCH;
+            *held |= KEY_TOUCH;
+            if (p == 0) *down |= KEY_TOUCH;
             tp->px = (u16)cx;
             tp->py = (u16)cy;
             s_app.cursor_x = cx;
@@ -2422,7 +2536,7 @@ static void story_input(u32 *down, u32 *held, u32 *up, touchPosition *tp) {
             return;
         }
         if (p == press + 1) {  // lift
-            *up = KEY_TOUCH;
+            *up |= KEY_TOUCH;
             s_story_x = x2;
             s_story_y = y2;
             s_app.cursor_down = false;
@@ -2467,6 +2581,8 @@ int main(void) {
     s_app.arr_sel = -1;
     s_app.song_btn_hold = -1;
     s_app.bar_hold = -1;
+    set_key(0, 0);
+    set_arp(&(SeqArp){false, ARP_UP, ARP_16TH, 1});
     sampler_edit_default(&s_app.sample_edit);
     mkdir("sdmc:/3ds", 0777);
     mkdir(STORAGE_DIR, 0777);

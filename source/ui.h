@@ -34,7 +34,28 @@
 #define SLIDER_GAP 16
 #define SLIDER_LABEL_Y 26
 #define SLIDER_Y0 46
-#define SLIDER_H 94
+#define SLIDER_H 54
+// ...then the KEY row (root, scale) and the ARP row (on, mode, rate, octaves).
+#define KEYROW_Y 124
+#define ARPROW_Y 144
+#define ROW_H 16
+#define ROW_X0 8
+#define ROOT_W 54     // KEY: tap the left half to go down a semitone, the right half up
+#define SCALE_X 66
+#define SCALE_W 174   // the scale: left half back, right half on
+#define ARP_W 54      // ARP stickers: on/off, mode, rate, octaves
+#define ARP_PITCH 58
+typedef enum {
+    SND_HIT_NONE = -1,
+    SND_HIT_ROOT_DOWN,
+    SND_HIT_ROOT_UP,
+    SND_HIT_SCALE_PREV,
+    SND_HIT_SCALE_NEXT,
+    SND_HIT_ARP_ON,
+    SND_HIT_ARP_MODE,
+    SND_HIT_ARP_RATE,
+    SND_HIT_ARP_OCT,
+} SoundRowHit;
 #define THEME_X 262
 #define THEME_Y 46
 #define THEME_W 52
@@ -348,6 +369,7 @@ void ui_seq_struck(int key, bool drum);
 int ui_hit_slider(int x, int y);
 int ui_hit_key(int x, int y);
 bool ui_hit_theme(int x, int y);
+int ui_hit_sound_rows(int x, int y);  // the SOUND page's KEY / ARP rows: a SoundRowHit
 int ui_hit_tab(int x, int y);  // a Page, or -1
 SeqButton ui_hit_seq_button(int x, int y);
 // row 0 is the synth row, rows 1..8 are drum lanes 0..7, SEQ_ROW_ACCENT accents.

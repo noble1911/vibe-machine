@@ -23,6 +23,7 @@ static SaveState make(int bpm, int filled, const char *name) {
     for (int i = 0; i < filled; i++) dice_groove(&st.slots[i], 99u + i, 0);
     strcpy(st.name, name);
     sampler_edit_default(&st.sample_edit);
+    st.arp = (SeqArp){false, ARP_UP, ARP_16TH, 1};
     return st;
 }
 

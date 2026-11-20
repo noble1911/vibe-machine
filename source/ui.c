@@ -116,6 +116,19 @@ int ui_hit_key(int x, int y) {
     return (k >= 0 && k < MUSIC_KEYS) ? k : -1;
 }
 
+int ui_hit_sound_rows(int x, int y) {
+    if (y >= KEYROW_Y - 3 && y < KEYROW_Y + ROW_H + 2) {
+        if (x >= ROW_X0 - 2 && x < ROW_X0 + ROOT_W + 2) return x < ROW_X0 + ROOT_W / 2 ? SND_HIT_ROOT_DOWN : SND_HIT_ROOT_UP;
+        if (x >= SCALE_X - 2 && x < SCALE_X + SCALE_W + 2) return x < SCALE_X + SCALE_W / 2 ? SND_HIT_SCALE_PREV : SND_HIT_SCALE_NEXT;
+        return SND_HIT_NONE;
+    }
+    if (y >= ARPROW_Y - 2 && y < ARPROW_Y + ROW_H + 4) {
+        for (int i = 0; i < 4; i++)
+            if (x >= ROW_X0 + i * ARP_PITCH - 2 && x < ROW_X0 + i * ARP_PITCH + ARP_W + 2) return SND_HIT_ARP_ON + i;
+    }
+    return SND_HIT_NONE;
+}
+
 bool ui_hit_theme(int x, int y) {
     return x >= THEME_X - 4 && x < THEME_X + THEME_W + 4 && y >= THEME_Y - 4 && y < THEME_Y + THEME_H + 30;
 }

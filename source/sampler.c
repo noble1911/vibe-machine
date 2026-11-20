@@ -2,6 +2,8 @@
 
 #include "sampler.h"
 
+#include "music.h"
+
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -84,10 +86,7 @@ int sampler_region(const SampleEdit *e, int frames, int slice, int *first) {
 
 int sampler_slice_of_pitch(int pitch, int slices) {
     if (slices <= 0) return 0;
-    // Scale degree of each semitone in C major (sharps take the one below).
-    static const int degree[12] = {0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6};
-    int semis = pitch - 60, oct = semis >= 0 ? semis / 12 : -((11 - semis) / 12);
-    int d = oct * 7 + degree[semis - oct * 12];
+    const int d = music_degree(pitch);  // the keys walk up the song's scale
     return ((d % slices) + slices) % slices;
 }
 

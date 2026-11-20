@@ -30,6 +30,7 @@ static float s_cur_speed;      // slewed speed actually applied
 static float s_level[TAPE_TRACKS];
 static float s_rec_acc;        // decimation: sum of input frames for one tape frame
 static int s_rec_n;
+static int32_t s_rec_w;        // the tape frame being averaged into
 static bool s_ok;
 
 bool tape_init(void) {
@@ -173,6 +174,8 @@ static int s_block_rt, s_block_frames, s_block_decim;
 
 void tape_play_block(int16_t *io, int frames, int rate) {
     s_block_rec = false;
+    // Not recording: a take's last half-averaged frame mustn't leak into the next one.
+    if (!(s_playing && s_rec_armed && !s_scrubbing)) s_rec_n = 0;
     if (!s_ok || frames > MAX_BLOCK) return;
     if (s_rewind) {
         s_rewind = false;
@@ -241,11 +244,15 @@ void tape_record_block(const int16_t *io, const float *const *strips, int frames
     if (!s_block_rec || frames != s_block_frames) return;
     const int rt = s_block_rt, src = s_source[rt], decim = s_block_decim;
     const float *strip = src >= 0 && strips ? strips[src] : NULL;  // NULL: record everything
+    (void)decim;
     for (int n = 0; n < frames; n++) {
         if (s_wpos[n] < 0) continue;
-        s_rec_acc += strip ? strip[n] : (io[2 * n] + io[2 * n + 1]) * 0.5f / 32768.0f;
-        if (++s_rec_n >= decim) {
-            int32_t w = s_wpos[n] % TAPE_FRAMES;
+        // Every output frame that lands on the same tape frame is averaged
+        // into it (whatever the output rate: 44.1 kHz is 2 a frame, 32.7 kHz
+        // 1 or 2), and written once the head moves on.
+        const int32_t w0 = s_wpos[n] % TAPE_FRAMES;
+        if (s_rec_n > 0 && w0 != s_rec_w) {
+            int32_t w = s_rec_w;
             float v = s_rec_acc / s_rec_n;
             s_track[rt][w] = (int16_t)(soft(v) * 32767.0f);
             int b = w / TAPE_PEAK_BLOCK;
@@ -259,6 +266,9 @@ void tape_record_block(const int16_t *io, const float *const *strips, int frames
             s_rec_acc = 0.0f;
             s_rec_n = 0;
         }
+        s_rec_w = w0;
+        s_rec_acc += strip ? strip[n] : (io[2 * n] + io[2 * n + 1]) * 0.5f / 32768.0f;
+        s_rec_n++;
     }
     s_gen++;
     s_track_gen[rt]++;

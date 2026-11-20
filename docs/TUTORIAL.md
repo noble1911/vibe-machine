@@ -37,8 +37,8 @@ STORY=1` runs exactly these steps through the real touchscreen code.)*
 The whole journey, in the order you'd do it. Each step links to the part of
 this tutorial that explains it in depth.
 
-1. **Drums.** SOUND → SONGS → **NEW** (hold) for an empty song, then go to
-   **SEQ**. Tap kicks on the first drum lane, under the thin accent row
+1. **Drums.** SOUND → SONGS → **NEW** (hold) for an empty song, and set
+   the **KEY** on the SOUND page (say A MINOR). Then go to **SEQ**. Tap kicks on the first drum lane, under the thin accent row
    (steps 1, 5, 9, 11, 13), snares on the next one down (5 and 13), and
    **drag along the third (hats)** to fill all 16.
    Press **START**. ([The SEQ page](#5-the-seq-page-making-beats))
@@ -48,7 +48,9 @@ this tutorial that explains it in depth.
 3. **Chords.** In the roll's header tap part **2**; on SYNTH pick **JUNO**.
    Draw three notes stacked on the same step and stretch them across 4–8
    steps: that's a chord. ([Parts](#6-parts-three-instruments-at-once))
-4. **Lead.** Part **3** (BELL by default): a few high notes on top.
+4. **Lead.** Part **3** (BELL by default): a few high notes on top, or turn
+   on **ARP** (SOUND page), record (●) and hold a chord with **L** for a bar:
+   the arpeggiator writes the lead for you.
 5. **Mix.** **MIX** page: drag the drums' **CRSH** knob up a little, the
    bass's **DRV** up, the chords' **PAN** a bit to one side and their fader
    down a touch. ([MIX](#9-the-mix-page-balancing-the-parts))
@@ -63,7 +65,8 @@ this tutorial that explains it in depth.
 9. **Save.** SOUND → SONGS → **SAVE AS**, and give it a name.
    ([Songs](#12-songs-saving-your-work))
 10. **Mix it down.** MIX → **MIXDOWN**. The song plays from the top and is
-    recorded, as you hear it, to `sdmc:/3ds/vibe-machine/mixes/<NAME>.wav`.
+    recorded, as you hear it, to `sdmc:/3ds/vibe-machine/mixes/<NAME>.wav`
+   (stereo, at the 3DS's own 32.7 kHz).
     It stops by itself at the end. Copy the file off the SD card: done.
     ([MIXDOWN](#mixdown-your-song-as-a-wav))
 
@@ -144,6 +147,21 @@ glide from note to note.
   - **VOL**: master volume.
   These four work on the whole mix. To change one part, use its strip on
   the [MIX page](#9-the-mix-page-balancing-the-parts).
+- **KEY** (under the sliders): the song's **key**. Tap the left or right
+  half of the note to go down or up a semitone, and of the scale to step
+  through **MAJOR, MINOR, DORIAN, MIXOLYDIAN, HARMONIC MIN, MAJOR PENTA,
+  MINOR PENTA, BLUES**. The 8 keys then play that scale from its root
+  (shorter scales carry on into the next octave), chords are built from it
+  (the keys show their names: Am, Bdim, F…), the piano roll's scale view
+  shows only its notes, and the dice stay in it. Notes you've already
+  written stay as they are.
+- **ARP**: the **arpeggiator**. Tap **ARP** to turn it on; then whatever you
+  hold on the keys (a note, or a chord with **L**) is played one note at a
+  time. The stickers after it set the order (**UP, DOWN, UP-DN, RAND**),
+  the speed (**1/8, 1/16, 1/32**, locked to the tempo) and the range (**1**
+  or **2 OCT**). With the sequencer recording (●), the notes it plays go
+  into the pattern, so you can hold a chord for a bar and get an arpeggio
+  written for you. The top screen's mode sticker says **ARP** while it's on.
 - **THEME**: tap to cycle the nine colour themes (more in
   [section 13](#13-themes-and-3d)).
 - **SONGS** (the floppy disk): the song browser

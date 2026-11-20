@@ -40,6 +40,8 @@ typedef struct {
     SampleEdit sample_edit;  // the MIC sound's START / END / CHOP
     SeqArrangement arr;      // the SONG sheet
     uint8_t tape_muted;      // bit t = tape track t muted
+    uint8_t key_root, key_scale;  // the song's key
+    SeqArp arp;
     bool old_mic_macros;     // loaded from before MIC's first macro became DECAY (not saved)
     float params[PARAM_COUNT];
     int octave;

@@ -95,6 +95,19 @@ typedef struct {
     uint8_t slot_bars[SEQ_SLOTS];  // each slot's length in bars
 } SeqStatus;
 
+// The arpeggiator: plays the notes you hold one at a time, on the
+// sequencer's clock (locked to the beat while it plays, free-running at the
+// tempo while it doesn't). While recording, what it plays goes into the
+// pattern.
+typedef enum { ARP_UP, ARP_DOWN, ARP_UPDOWN, ARP_RANDOM, ARP_MODES } ArpMode;
+typedef enum { ARP_8TH, ARP_16TH, ARP_32ND, ARP_RATES } ArpRate;
+typedef struct {
+    bool on;
+    uint8_t mode;     // ArpMode
+    uint8_t rate;     // ArpRate
+    uint8_t octaves;  // 1 or 2
+} SeqArp;
+
 // velocity 0 means note-off. `synth` is SYNTH_DRUMS or part_synth(part).
 typedef void (*SeqNoteFn)(int synth, int note, float velocity);
 
@@ -121,6 +134,11 @@ void seq_set_pattern(const SeqPattern *p);  // the current slot
 // there into the new bars (ready to vary); shrinking hides the bars past
 // the end (they come back if it grows again).
 void seq_set_bars(int bars);
+
+void seq_set_arp(const SeqArp *a);
+// The notes held for the arpeggiator, for `part` (replaces the last set;
+// n = 0 lets go).
+void seq_arp_hold(int part, const int *pitches, int n);
 
 // Switch pattern: immediately when stopped, at the next bar while playing.
 void seq_select_slot(int slot);

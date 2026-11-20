@@ -39,8 +39,9 @@ void sampler_edit_clamp(SampleEdit *e);
 // `slice` covers. Returns the length and sets *first.
 int sampler_region(const SampleEdit *e, int frames, int slice, int *first);
 
-// CHOP: the slice a MIDI note plays. C4 is slice 0, then up the C major
-// scale (the keys), wrapping round; sharps play the slice below.
+// CHOP: the slice a MIDI note plays. The root above middle C is slice 0,
+// then up the song's scale (the keys), wrapping round; notes outside the
+// scale play the slice below.
 int sampler_slice_of_pitch(int pitch, int slices);
 
 // Linear-interpolating resample of `n` frames at in_rate to out_rate.

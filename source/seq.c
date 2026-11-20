@@ -78,6 +78,18 @@ static uint32_t s_fired;
 static Active s_active[MAX_ACTIVE];
 static int s_nactive;
 
+// The arpeggiator (see seq.h).
+#define ARP_MAX 16
+static SeqArp s_arp = {false, ARP_UP, ARP_16TH, 1};
+static uint8_t s_arp_notes[ARP_MAX];  // held, sorted
+static int s_arp_n, s_arp_part;
+static int s_arp_idx = -1, s_arp_dir = 1;
+static int s_arp_cur = -1, s_arp_cur_part;  // sounding, or -1
+static double s_arp_clock;  // samples to the next free-running tick
+static double s_arp_off;    // samples until the sounding note stops
+static uint32_t s_arp_rng = 0x9E3779B9u;
+static bool s_arp_mid_done;  // 1/32 while playing: the mid-step tick has fired
+
 static bool slot_used(int slot) {
     const SeqPattern *p = &s_pats[slot];
     if (p->count) return true;
@@ -136,6 +148,72 @@ static void arr_enter(int row) {
     s_arr_rep = 0;
     s_cur = s_arr.rows[row].slot;
 }
+
+// --- arpeggiator -----------------------------------------------------------
+
+static int add_locked(SeqPattern *p, int part, int step, int pitch, int len, int vel);
+
+static double arp_interval(void) {  // samples between ticks
+    const double step = s_rate * 60.0 / s_bpm / 4.0;
+    return s_arp.rate == ARP_8TH ? step * 2 : s_arp.rate == ARP_32ND ? step / 2 : step;
+}
+
+static int arp_off_event(Event *ev, int n) {
+    if (s_arp_cur >= 0 && n < MAX_EVENTS) ev[n++] = (Event){part_synth(s_arp_cur_part), s_arp_cur, 0.0f};
+    s_arp_cur = -1;
+    return n;
+}
+
+// The next note: the held notes (over 1 or 2 octaves) walked in the mode.
+static int arp_next(void) {
+    const int len = s_arp_n * (s_arp.octaves >= 2 ? 2 : 1);
+    if (len <= 0) return -1;
+    switch (s_arp.mode) {
+        case ARP_DOWN: s_arp_idx = s_arp_idx <= 0 ? len - 1 : s_arp_idx - 1; break;
+        case ARP_UPDOWN:
+            if (len == 1) {
+                s_arp_idx = 0;
+                break;
+            }
+            if (s_arp_idx < 0) {
+                s_arp_idx = 0;
+                s_arp_dir = 1;
+                break;
+            }
+            if (s_arp_idx + s_arp_dir >= len || s_arp_idx + s_arp_dir < 0) s_arp_dir = -s_arp_dir;
+            s_arp_idx += s_arp_dir;
+            break;
+        case ARP_RANDOM:
+            s_arp_rng = s_arp_rng * 1664525u + 1013904223u;
+            s_arp_idx = (int)((s_arp_rng >> 8) % (uint32_t)len);
+            break;
+        case ARP_UP:
+        default: s_arp_idx = s_arp_idx + 1 >= len ? 0 : s_arp_idx + 1; break;
+    }
+    if (s_arp_idx >= len) s_arp_idx = 0;
+    return s_arp_notes[s_arp_idx % s_arp_n] + 12 * (s_arp_idx / s_arp_n);
+}
+
+// One arpeggiator step. `step` is the pattern step it lands on (recorded
+// there while recording), or -1 off the grid (free-running, or a 1/32 in
+// between).
+static int arp_tick(int step, Event *ev, int n) {
+    n = arp_off_event(ev, n);
+    const int pitch = arp_next();
+    if (pitch < 0 || pitch > 127) return n;
+    const float vel = 0.75f;
+    if (n < MAX_EVENTS) ev[n++] = (Event){part_synth(s_arp_part), pitch, vel};
+    s_arp_cur = pitch;
+    s_arp_cur_part = s_arp_part;
+    s_arp_off = arp_interval() * 0.6;  // a little gap between notes
+    if (step >= 0 && s_playing && s_recording && !((s_muted >> s_arp_part) & 1u)) {
+        SeqPattern *p = &s_pats[s_cur];
+        add_locked(p, s_arp_part, step, pitch, s_arp.rate == ARP_8TH ? 2 : 1, (int)(vel * 255));
+    }
+    return n;
+}
+
+static bool arp_active(void) { return s_arp.on && s_arp_n > 0; }
 
 // The bar is over: switch to the queued slot, or the next one in a song.
 static void bar_end(void) {
@@ -251,6 +329,8 @@ void seq_advance(int frames, int rate) {
             s_ticks = 0;
             if (arranging()) arr_enter(0);  // a song plays from its first row
             n = fire_step(0, ev, n);
+            s_arp_mid_done = false;
+            if (arp_active()) n = arp_tick(0, ev, n);
         } else {
             s_pos += frames;
             double len;
@@ -268,11 +348,31 @@ void seq_advance(int frames, int rate) {
                     break;
                 }
                 n = fire_step(next, ev, n);
+                s_arp_mid_done = false;
+                // The arpeggiator, locked to the steps: every 2nd for 1/8.
+                if (arp_active() && (s_arp.rate != ARP_8TH || (s_ticks & 1) == 0)) n = arp_tick(next, ev, n);
+            }
+            if (arp_active() && s_arp.rate == ARP_32ND && !s_arp_mid_done && s_pos >= step_len_after(s_step) / 2.0) {
+                s_arp_mid_done = true;  // 1/32: one more between the steps
+                n = arp_tick(-1, ev, n);
             }
             n = release_due(now_steps(), ev, n);
         }
     } else {
         n = release_all(ev, n);  // stopped: let go of anything still held
+        if (arp_active()) {  // free-running at the tempo
+            s_arp_clock -= frames;
+            if (s_arp_clock <= 0) {
+                n = arp_tick(-1, ev, n);
+                s_arp_clock += arp_interval();
+                if (s_arp_clock < 0) s_arp_clock = arp_interval();
+            }
+        }
+    }
+    // The sounding arp note ends after its gate.
+    if (s_arp_cur >= 0) {
+        s_arp_off -= frames;
+        if (s_arp_off <= 0) n = arp_off_event(ev, n);
     }
     UNLOCK(&s_lock);
 
@@ -361,6 +461,45 @@ void seq_clear(void) {  // everything but the length
     s_pats[s_cur].len = len;
     normalise_len(&s_pats[s_cur]);
     s_nrec = 0;
+    UNLOCK(&s_lock);
+}
+
+void seq_set_arp(const SeqArp *a) {
+    LOCK(&s_lock);
+    s_arp = *a;
+    if (s_arp.mode >= ARP_MODES) s_arp.mode = ARP_UP;
+    if (s_arp.rate >= ARP_RATES) s_arp.rate = ARP_16TH;
+    if (s_arp.octaves < 1 || s_arp.octaves > 2) s_arp.octaves = 1;
+    UNLOCK(&s_lock);
+}
+
+void seq_arp_hold(int part, const int *pitches, int n) {
+    if (n > ARP_MAX) n = ARP_MAX;
+    LOCK(&s_lock);
+    const bool was = s_arp_n > 0;
+    // Sorted, no repeats.
+    int c = 0;
+    for (int i = 0; i < n; i++) {
+        if (pitches[i] < 0 || pitches[i] > 127) continue;
+        int j = c;
+        bool dup = false;
+        for (int k = 0; k < c; k++) dup |= s_arp_notes[k] == pitches[i];
+        if (dup) continue;
+        while (j > 0 && s_arp_notes[j - 1] > pitches[i]) {
+            s_arp_notes[j] = s_arp_notes[j - 1];
+            j--;
+        }
+        s_arp_notes[j] = (uint8_t)pitches[i];
+        c++;
+    }
+    s_arp_n = c;
+    s_arp_part = part;
+    if (c == 0) {
+        s_arp_idx = -1;  // the next hold starts from the beginning
+        s_arp_dir = 1;
+    } else if (!was) {
+        s_arp_clock = 0;  // stopped: the first note comes straight away
+    }
     UNLOCK(&s_lock);
 }
 

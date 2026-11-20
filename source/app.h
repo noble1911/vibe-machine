@@ -35,6 +35,8 @@ typedef struct {
     int patch;                  // AMY patch number (BANK sounds), PATCH_FIRST..PATCH_LAST
     float macro[SOUND_MACROS];  // CUSTOM sound macros, 0..1
     int octave;                 // MUSIC_OCTAVE_MIN..MUSIC_OCTAVE_MAX
+    int key_root, key_scale;    // the song's key (music.h)
+    SeqArp arp;                 // the arpeggiator's settings
     PlayMode mode;              // live mode from the shoulder buttons
     float params[PARAM_COUNT];  // slider positions, 0..1
     bool key_lit[MUSIC_KEYS];   // keys currently sounding (any source)

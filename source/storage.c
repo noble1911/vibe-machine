@@ -9,9 +9,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 13 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+#define VERSION 14 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
                    // 9: tape sources; 10: sample edit; 11: arrangement, tape mutes;
-                   // 12: FX automation; 13: patterns of 1-4 bars, 128 notes
+                   // 12: FX automation; 13: patterns of 1-4 bars, 128 notes; 14: key, arp
 #define MAX_PAYLOAD 12288
 
 typedef struct {
@@ -165,6 +165,8 @@ static void encode(Writer *w, const SaveState *st) {
         put(w, st->slots[i].fx_x, SEQ_STEPS_MAX);
         put(w, st->slots[i].fx_y, SEQ_STEPS_MAX);
     }
+    const uint8_t extra[6] = {st->key_root, st->key_scale, st->arp.on, st->arp.mode, st->arp.rate, st->arp.octaves};
+    put(w, extra, sizeof(extra));  // version 14
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -276,9 +278,20 @@ static void decode(Reader *r, SaveState *st, int version) {
             get(r, st->slots[i].fx, (size_t)n);
             get(r, st->slots[i].fx_x, (size_t)n);
             get(r, st->slots[i].fx_y, (size_t)n);
-            for (int s = 0; s < n; s++)
+            for (int s = 0; s < n; s++)  // (FX kinds)
                 if (st->slots[i].fx[s] > 4) r->ok = false;  // FX_COUNT kinds
         }
+    }
+    st->arp = (SeqArp){false, ARP_UP, ARP_16TH, 1};
+    if (version >= 14) {
+        uint8_t extra[6];
+        get(r, extra, sizeof(extra));
+        st->key_root = extra[0];
+        st->key_scale = extra[1];
+        st->arp = (SeqArp){extra[2] != 0, extra[3], extra[4], extra[5]};
+        if (extra[0] > 11 || extra[1] >= MUSIC_SCALES || extra[3] >= ARP_MODES || extra[4] >= ARP_RATES || extra[5] < 1 ||
+            extra[5] > 2)
+            r->ok = false;
     }
 }
 

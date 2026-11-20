@@ -43,6 +43,9 @@ int main(void) {
     a.arr.rows[1] = (SeqArrRow){1, 2, 1u << PARTS};
     a.arr.rows[2] = (SeqArrRow){7, 8, 0x5};
     a.tape_muted = 0x9;
+    a.key_root = 9;   // A
+    a.key_scale = 6;  // minor pentatonic
+    a.arp = (SeqArp){true, ARP_UPDOWN, ARP_32ND, 2};
     a.slots[2].fx[5] = 3;  // a stutter on step 6 of slot C
     a.slots[2].fx_x[5] = 200;
     a.slots[2].fx_y[5] = 40;
@@ -196,6 +199,37 @@ int main(void) {
         check(loaded && old.bpm == 99 && strcmp(old.name, "OLD SONG") == 0 && p->count == 4 && chord_at_4 == 3 &&
                   d_at_9 == 1 && p->accents == 0x0101 && p->drums[0] == 1,
               "a song saved before the piano roll loads with its notes");
+    }
+
+    // --- keys and scales ------------------------------------------------------
+    {
+        music_set_key(9, 1);  // A minor
+        int n[3], ok = 1;
+        static const int want[8] = {69, 71, 72, 74, 76, 77, 79, 81};
+        for (int k = 0; k < 8; k++) {
+            music_key_notes(k, PLAY_NOTE, 0, n);
+            ok &= n[0] == want[k];
+        }
+        check(ok, "A minor: the keys play A B C D E F G A");
+        static const char *const chords[8] = {"Am", "Bdim", "C", "Dm", "Em", "F", "G", "Am"};
+        ok = 1;
+        for (int k = 0; k < 8; k++) ok &= strcmp(music_key_label(k, PLAY_CHORD), chords[k]) == 0;
+        check(ok, "A minor's chords are named Am Bdim C Dm Em F G Am");
+        check(music_in_scale(70) == false && music_in_scale(72) && music_key_of_pitch(74) == 3 && music_key_of_pitch(70) == -1,
+              "the roll and the key flashes follow the scale");
+        music_set_key(4, 6);  // E minor pentatonic: E G A B D, then on up
+        static const int penta[8] = {64, 67, 69, 71, 74, 76, 79, 81};
+        ok = 1;
+        for (int k = 0; k < 8; k++) {
+            music_key_notes(k, PLAY_NOTE, 0, n);
+            ok &= n[0] == penta[k];
+        }
+        check(ok && strcmp(music_key_label(5, PLAY_NOTE), "E+") == 0, "a 5-note scale carries on up the keys");
+        music_key_notes(0, PLAY_NOTE, -1, n);
+        check(n[0] == 52 && music_degree(52) == -5 && music_degree(63) == -1, "octaves down count degrees down");
+        check(sampler_slice_of_pitch(64, 4) == 0 && sampler_slice_of_pitch(67, 4) == 1 && sampler_slice_of_pitch(76, 4) == 1,
+              "CHOP slices follow the scale's keys");
+        music_set_key(0, 0);
     }
 
     // --- sample edits ---------------------------------------------------------

@@ -23,7 +23,7 @@ build/amy/%.o: $(AMY)/%.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -w -c $< -o $@
 
-build/sound_probe: sound_probe.c probe_platform.c ../source/sounds.c ../source/sampler.c $(AMY_OBJ)
+build/sound_probe: sound_probe.c probe_platform.c ../source/sounds.c ../source/sampler.c ../source/music.c $(AMY_OBJ)
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
@@ -47,15 +47,15 @@ build/songs_probe: songs_probe.c ../source/samples.c ../source/sampler.c ../sour
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
-build/mix_probe: mix_probe.c probe_platform.c ../source/mixer.c ../source/sounds.c ../source/sampler.c $(AMY_OBJ)
+build/mix_probe: mix_probe.c probe_platform.c ../source/mixer.c ../source/sounds.c ../source/sampler.c ../source/music.c $(AMY_OBJ)
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
-build/inspect_song: inspect_song.c ../source/storage.c ../source/sampler.c
+build/inspect_song: inspect_song.c ../source/storage.c ../source/sampler.c ../source/music.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
-build/bench_probe: bench_probe.c probe_platform.c ../source/mixer.c ../source/sounds.c ../source/sampler.c $(AMY_OBJ)
+build/bench_probe: bench_probe.c probe_platform.c ../source/mixer.c ../source/sounds.c ../source/sampler.c ../source/music.c $(AMY_OBJ)
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
@@ -68,7 +68,7 @@ build/amy-dual/%.o: $(AMY_DUAL)/amy.h
 	@mkdir -p $(dir $@)
 	$(CC) $(subst -I$(AMY),-I$(AMY_DUAL),$(CFLAGS)) -DVM_AMY_DUALCORE -w -c $(AMY_DUAL)/$*.c -o $@
 
-build/dual_probe: dual_probe.c probe_platform.c ../source/amy_split.c ../source/mixer.c ../source/sounds.c ../source/sampler.c $(AMY_DUAL_OBJ)
+build/dual_probe: dual_probe.c probe_platform.c ../source/amy_split.c ../source/mixer.c ../source/sounds.c ../source/sampler.c ../source/music.c $(AMY_DUAL_OBJ)
 	@mkdir -p build
 	$(CC) $(subst -I$(AMY),-I$(AMY_DUAL),$(CFLAGS)) -DVM_AMY_DUALCORE -Wall -Wextra $^ $(LIBS) -o $@
 

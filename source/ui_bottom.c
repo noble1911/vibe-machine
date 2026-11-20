@@ -324,8 +324,42 @@ static void draw_songs_button(void) {
     ui_text(SONGS_BTN_X + 34, SONGS_BTN_Y + 3, 0.36f, rgba(ink_on(t, t->pal[2]), 0xFF), C2D_AlignCenter, "SONGS");
 }
 
+// The KEY row (root, scale) and the ARP row (on, mode, rate, octaves).
+static void draw_sound_rows(const AppState *app) {
+    const Theme *t = ui_theme();
+    // KEY: the root, with arrows either side (tap a half to go down / up).
+    const uint32_t kf = colourful(t, 3);
+    sticker(ROW_X0, KEYROW_Y, ROOT_W, ROW_H, kf, false, 0);
+    const u32 kc = rgba(ink_on(t, kf), 0xFF);
+    sh_tri(ROW_X0 + 6, KEYROW_Y + ROW_H / 2.0f, 3.5f, 3.14159f, kc);
+    sh_tri(ROW_X0 + ROOT_W - 6, KEYROW_Y + ROW_H / 2.0f, 3.5f, 0, kc);
+    ui_text(ROW_X0 + ROOT_W / 2.0f, KEYROW_Y + 0.5f, 0.42f, kc, C2D_AlignCenter, "%s", music_root_name(app->key_root));
+    const uint32_t sf = colourful(t, 1);
+    sticker(SCALE_X, KEYROW_Y, SCALE_W, ROW_H, sf, false, 0);
+    const u32 sc = rgba(ink_on(t, sf), 0xFF);
+    sh_tri(SCALE_X + 7, KEYROW_Y + ROW_H / 2.0f, 3.5f, 3.14159f, sc);
+    sh_tri(SCALE_X + SCALE_W - 7, KEYROW_Y + ROW_H / 2.0f, 3.5f, 0, sc);
+    ui_text(SCALE_X + SCALE_W / 2.0f, KEYROW_Y + 0.5f, 0.42f, sc, C2D_AlignCenter, "%s %s", music_root_name(app->key_root),
+            music_scale_name(app->key_scale));
+    // ARP: on/off, then its settings (dimmed while it's off).
+    static const char *const modes[ARP_MODES] = {"UP", "DOWN", "UP-DN", "RAND"};
+    static const char *const rates[ARP_RATES] = {"1/8", "1/16", "1/32"};
+    char oct[8];
+    snprintf(oct, sizeof(oct), "%d OCT", app->arp.octaves);
+    const char *labels[4] = {"ARP", modes[app->arp.mode % ARP_MODES], rates[app->arp.rate % ARP_RATES], oct};
+    for (int i = 0; i < 4; i++) {
+        const float x = ROW_X0 + i * ARP_PITCH;
+        const uint32_t f = i == 0 ? (app->arp.on ? t->pal[0] : t->card) : app->arp.on ? colourful(t, 2 + i) : t->card;
+        sticker(x, ARPROW_Y, ARP_W, ROW_H, f, i == 0 && app->arp.on, 0);
+        const float o = i == 0 && app->arp.on ? 2.0f : 0.0f;
+        ui_text(x + ARP_W / 2.0f + o, ARPROW_Y + 0.5f + o, 0.4f, rgba(ink_on(t, f), i == 0 || app->arp.on ? 0xFF : 0x70),
+                C2D_AlignCenter, "%s", labels[i]);
+    }
+}
+
 static void draw_sound_page(const AppState *app) {
     for (int i = 0; i < PARAM_COUNT; i++) draw_slider(app, i);
+    draw_sound_rows(app);
     draw_theme_button();
     draw_songs_button();
 }
@@ -1305,8 +1339,9 @@ void ui_draw_bottom(const AppState *app) {
         sh_tri(cx + 2.5f, cy + 2.5f, 4, 3.927f, rgba(t->ink, 0xFF));
     }
     if (app->notice_frames > 0 && !app->busy) {  // something went wrong (or needs saying)
-        sh_card(40, 84, 240, 40, rgba(t->pal[0], 0xFF), rgba(t->ink, 0xFF), 4);
-        ui_text(160, 96, 0.45f, rgba(ink_on(t, t->pal[0]), 0xFF), C2D_AlignCenter, "%s", app->notice);
+        // Wide enough for the longest (39-character) notice.
+        sh_card(8, 84, BOTTOM_W - 16, 40, rgba(t->pal[0], 0xFF), rgba(t->ink, 0xFF), 4);
+        ui_text(BOTTOM_W / 2.0f, 96, 0.42f, rgba(ink_on(t, t->pal[0]), 0xFF), C2D_AlignCenter, "%s", app->notice);
     }
     if (app->busy) {  // a slow job is about to run: say so
         sh_card(70, 80, 180, 50, rgba(t->pal[1], 0xFF), rgba(t->ink, 0xFF), 4);

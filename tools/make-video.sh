@@ -17,12 +17,13 @@ FPS=15
 mkdir -p "$OUT"
 TMP=$(mktemp -d)
 python3 - "$REC" "$TMP" "$FPS" <<'PY'
-import struct, sys, os
+import struct, sys, os, wave
 rec, tmp, fps = sys.argv[1], sys.argv[2], int(sys.argv[3])
+rate = wave.open(os.path.join(rec, "audio.wav")).getframerate()  # the frame times are in its samples
 times = open(os.path.join(rec, "times.bin"), "rb").read()
 t = struct.unpack("<%dI" % (len(times) // 4), times)
 sizes = {"top": 240 * 400 * 3, "bottom": 240 * 320 * 3}
-step = 44100 / fps
+step = rate / fps
 for name, size in sizes.items():
     src = open(os.path.join(rec, name + ".raw"), "rb")
     dst = open(os.path.join(tmp, name + ".raw"), "wb")

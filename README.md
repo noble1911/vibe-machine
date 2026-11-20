@@ -31,7 +31,7 @@ mixed down to a WAV. The ten steps are written out in the
 
 | | |
 |---|---|
-| ![SOUND page](docs/images/sound.png) | **SOUND**: tone, echo, reverb and volume, nine colour themes, and the SONGS browser. |
+| ![SOUND page](docs/images/sound.png) | **SOUND**: tone, echo, reverb and volume; the song's **key** (any root, major, minor, modes, pentatonics, blues); the **arpeggiator** (up, down, up-down, random; 1/8 to 1/32; 1–2 octaves; records into patterns); nine colour themes, and the SONGS browser. |
 | ![SEQ page](docs/images/seq.png) | **SEQ**: a 16-step sequencer with a synth row, accents and eight drum lanes, plus a **piano roll** for melodies, chords and long notes. Eight pattern slots (A–H) of 1, 2 or 4 bars each, arranged into a song. Swing, live recording, and a dice that rolls new grooves. |
 | ![SYNTH creature pad](docs/images/synth-creature.png) | **SYNTH**: ten sounds, each with a googly-eyed mascot. Drag the mascot around the pad to play its two macros. |
 | ![SYNTH patch dots](docs/images/synth-bank.png) | The **Juno-6** and **DX7** banks: 128 patches each, as dots to tap or slide across. |
@@ -79,7 +79,7 @@ The [tutorial](docs/TUTORIAL.md) explains every page in detail.
 - **Autosave:** whatever you're working on is also saved as you go, and is
   there again next time you start.
 - **Mixdowns** (MIX → MIXDOWN) go in `sdmc:/3ds/vibe-machine/mixes/`:
-  the whole song, stereo, 44.1 kHz, as you heard it.
+  the whole song, stereo, at the 3DS's own 32.7 kHz, as you heard it.
 - **Samples** live in `sdmc:/3ds/vibe-machine/samples/`; copy your own WAVs
   in there too.
 - The WAVs are ordinary files: copy them off the SD card into any audio

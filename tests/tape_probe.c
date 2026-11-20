@@ -194,6 +194,63 @@ int main(void) {
         tape_clear(3);
     }
 
+    // At the 3DS's own 32728 Hz (what the app renders at): still at pitch.
+    {
+        const int R2 = 32728;
+        tape_clear(2);
+        tape_set_source(2, TAPE_SRC_ALL);
+        for (int m = 0; m < TAPE_TRACKS; m++) tape_mute(m, true);  // just the tone going in
+        tape_select(2);
+        tape_rewind();
+        tape_record(true);
+        tape_play(true);
+        int16_t b[BLOCK * 2];
+        long t2 = 0;
+        for (int done = 0; done < R2; done += BLOCK) {
+            for (int i = 0; i < BLOCK; i++, t2++) b[2 * i] = b[2 * i + 1] = (int16_t)(0.5 * 32767 * sin(2 * M_PI * 440.0 * t2 / R2));
+            tape_process(b, NULL, BLOCK, R2);
+        }
+        tape_play(false);
+        tape_record(false);
+        for (int k = 0; k < 40; k++) {
+            memset(b, 0, sizeof(b));
+            tape_process(b, NULL, BLOCK, R2);
+        }
+        {
+            int len2 = 0;
+            const int16_t *d2 = tape_track_data(2, &len2);
+            double q = 0;
+            int zeros = 0;
+            for (int i = 1000; i < len2 - 1000; i++) {
+                q += (double)d2[i] * d2[i];
+                zeros += d2[i] == 0;
+            }
+            check(len2 > 21000 && len2 < 23500, "a 1-second take at 32728 Hz is 1 second of tape (nothing stray)");
+            (void)q;
+            (void)zeros;
+        }
+        for (int m = 0; m < TAPE_TRACKS; m++) tape_mute(m, m != 2);
+        tape_rewind();
+        tape_play(true);
+        long cross = 0, n2 = 0;
+        int prev = 0;
+        double sq = 0;
+        for (int done = 0; done < R2 * 3 / 4; done += BLOCK) {
+            memset(b, 0, sizeof(b));
+            tape_process(b, NULL, BLOCK, R2);
+            for (int i = 0; i < BLOCK; i++, n2++) {
+                if (n2 > R2 / 10 && (b[2 * i] >= 0) != (prev >= 0)) cross++;
+                prev = b[2 * i];
+                sq += (double)b[2 * i] * b[2 * i];
+            }
+        }
+        tape_play(false);
+        const double hz = cross / 2.0 / ((n2 - R2 / 10) / (double)R2);
+        printf("  at 32728 Hz: pitch %.0f Hz, rms %.3f\n", hz, sqrt(sq / n2) / 32768.0);
+        check(fabs(hz - 440) < 10 && sqrt(sq / n2) / 32768.0 > 0.2, "recording and playing at 32728 Hz keeps the pitch");
+        for (int m = 0; m < TAPE_TRACKS; m++) tape_mute(m, false);
+    }
+
     tape_exit();
     printf(fails ? "\n%d tape problem(s)\n" : "\nall tape OK\n", fails);
     return fails ? 1 : 0;

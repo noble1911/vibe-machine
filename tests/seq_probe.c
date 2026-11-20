@@ -381,6 +381,80 @@ int main(void) {
         seq_set_song(false);
     }
 
+    // --- arpeggiator ---------------------------------------------------------
+    {
+        SeqPattern empty;
+        memset(&empty, 0, sizeof(empty));
+        seq_put_slot(0, &empty);
+        seq_select_slot(0);
+        seq_set_song(false);
+        seq_set_bpm(120);  // a 16th is 0.125 s
+        SeqArp arp = {true, ARP_UP, ARP_16TH, 1};
+        seq_set_arp(&arp);
+        const int chord[3] = {64, 60, 67};  // held in any order
+        // Stopped: it free-runs at the tempo, low to high.
+        s_nhits = 0;
+        seq_arp_hold(1, chord, 3);
+        run(0.55);
+        seq_arp_hold(1, NULL, 0);
+        run(0.3);
+        int got[8], ng = 0;
+        long when[8];
+        for (int i = 0; i < s_nhits && ng < 8; i++)
+            if (s_hits[i].vel > 0 && s_hits[i].synth == part_synth(1)) {
+                when[ng] = s_hits[i].t;
+                got[ng++] = s_hits[i].note;
+            }
+        printf("  arp up: %d %d %d %d %d\n", got[0], got[1], got[2], got[3], got[4]);
+        check(ng == 5 && got[0] == 60 && got[1] == 64 && got[2] == 67 && got[3] == 60 && labs(when[1] - when[0] - 5512) < 200,
+              "the arpeggiator walks the held chord upwards, in 16ths");
+        int offs = 0;
+        for (int i = 0; i < s_noffs; i++) offs += s_offs[i].synth == part_synth(1);
+        check(offs >= 5, "...and each of its notes ends");
+
+        // Down over two octaves.
+        arp = (SeqArp){true, ARP_DOWN, ARP_8TH, 2};
+        seq_set_arp(&arp);
+        s_nhits = 0;
+        seq_arp_hold(1, chord, 3);
+        run(1.4);
+        seq_arp_hold(1, NULL, 0);
+        run(0.3);
+        ng = 0;
+        for (int i = 0; i < s_nhits && ng < 8; i++)
+            if (s_hits[i].vel > 0 && s_hits[i].synth == part_synth(1)) {
+                when[ng] = s_hits[i].t;
+                got[ng++] = s_hits[i].note;
+            }
+        check(ng >= 5 && got[0] == 79 && got[1] == 76 && got[2] == 72 && got[3] == 67 && labs(when[1] - when[0] - 11025) < 200,
+              "DOWN over 2 octaves in 8ths starts at the top");
+
+        // Playing and recording: it lands on the steps and goes into the pattern.
+        arp = (SeqArp){true, ARP_UP, ARP_16TH, 1};
+        seq_set_arp(&arp);
+        seq_set_recording(true);
+        seq_toggle_play();
+        run(0.01);
+        seq_arp_hold(2, chord, 3);
+        run(0.9);
+        seq_arp_hold(2, NULL, 0);
+        seq_set_recording(false);
+        seq_toggle_play();
+        run(0.3);
+        SeqPattern rec;
+        seq_get_slot(0, &rec);
+        int on_part3 = 0, steps_ok = 1;
+        for (int i = 0; i < rec.count; i++)
+            if (rec.notes[i].part == 2) {
+                on_part3++;
+                steps_ok &= rec.notes[i].len == 1;
+            }
+        printf("  recorded %d arp notes\n", on_part3);
+        check(on_part3 >= 6 && steps_ok, "recording, the arpeggio goes into the pattern, a step per note");
+        arp.on = false;
+        seq_set_arp(&arp);
+    }
+
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);
     return fails ? 1 : 0;
 }
