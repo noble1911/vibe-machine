@@ -44,6 +44,16 @@ int main(void) {
         ok &= strcmp(r, c) == 0 && strlen(r) > 3;
     }
     check(ok, "random names are already clean");
+    ok = 1;
+    for (uint32_t s = 1; s <= 200000; s++) {
+        char r[SONG_NAME_MAX + 1], c[SONG_NAME_MAX + 1];
+        song_random_name(s, r);
+        song_clean_name(r, c);
+        ok &= r[strlen(r) - 1] != ' ' && strcmp(r, c) == 0;
+    }
+    check(ok, "no random name (of 200,000) ends in a space");
+    song_clean_name("ABCDEFGHIJKLMNO PQ", name);
+    check(strcmp(name, "ABCDEFGHIJKLMNO") == 0, "a word that would start at the limit is dropped whole");
 
     SaveState a = make(120, 3, "ZEBRA DISCO"), b = make(90, 1, "ACID TAPE 4");
     check(song_save_state(root, "ZEBRA DISCO", &a) && song_save_state(root, "ACID TAPE 4", &b), "two songs save");
@@ -67,6 +77,20 @@ int main(void) {
     check(song_delete(root, "ACID TAPE 4") && !song_exists(root, "ACID TAPE 4"), "delete removes the song and its tapes");
     n = song_list(root, list, SONGS_MAX);
     check(n == 1, "the list no longer shows it");
+
+    // More songs than a directory read would return in one go, and more than
+    // the old 64 limit: every one is listed, sorted.
+    for (int i = 0; i < 70; i++) {
+        char nm[SONG_NAME_MAX + 1];
+        snprintf(nm, sizeof(nm), "SONG %02d", 69 - i);
+        SaveState st = make(100 + i, 1, nm);
+        song_save_state(root, nm, &st);
+    }
+    n = song_list(root, list, SONGS_MAX);
+    int sorted = 1;
+    for (int i = 1; i < n; i++) sorted &= strcmp(list[i - 1].name, list[i].name) < 0;
+    check(n == 71 && sorted && strcmp(list[n - 1].name, "ZEBRA DISCO") == 0, "71 songs are all listed, in order");
+    for (int i = 0; i < n; i++) song_delete(root, list[i].name);
 
     printf(fails ? "\n%d song problem(s)\n" : "\nall songs OK\n", fails);
     return fails ? 1 : 0;

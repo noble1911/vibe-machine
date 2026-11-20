@@ -18,8 +18,14 @@ void song_clean_name(const char *in, char *out) {
     for (const char *p = in; *p && n < SONG_NAME_MAX; p++) {
         char c = (char)toupper((unsigned char)*p);
         if (isalnum((unsigned char)c) || c == '-') {
-            if (space && n > 0) out[n++] = ' ';
-            if (n < SONG_NAME_MAX) out[n++] = c;
+            if (space && n > 0) {
+                // A space only goes in if the next word's first letter fits
+                // too: a name must never end in a space (FAT drops it, and
+                // the list would no longer match the folder).
+                if (n + 1 >= SONG_NAME_MAX) break;
+                out[n++] = ' ';
+            }
+            out[n++] = c;
             space = false;
         } else {
             space = true;  // anything else becomes a single space
@@ -81,24 +87,41 @@ bool song_delete(const char *root, const char *name) {
     return rmdir(path) == 0;
 }
 
-static int by_name(const void *a, const void *b) {
-    return strcmp(((const SongInfo *)a)->name, ((const SongInfo *)b)->name);
-}
+typedef struct {
+    char name[SONG_NAME_MAX + 1];
+} Name;
+
+static int by_plain_name(const void *a, const void *b) { return strcmp(((const Name *)a)->name, ((const Name *)b)->name); }
 
 int song_list(const char *root, SongInfo *out, int max) {
+    // Gather every song folder first, sort, and only then keep the first
+    // `max`: stopping at `max` in directory order would hide arbitrary songs.
     DIR *d = opendir(root);
     if (!d) return 0;
-    int n = 0;
+    int cap = 64, count = 0;
+    Name *names = malloc(sizeof(Name) * (size_t)cap);
     struct dirent *e;
-    while ((e = readdir(d)) != NULL && n < max) {
+    while (names && (e = readdir(d)) != NULL) {
         if (e->d_name[0] == '.') continue;
         char clean[SONG_NAME_MAX + 1];
         song_clean_name(e->d_name, clean);
         if (strcmp(clean, e->d_name) != 0) continue;  // not one of ours
+        if (count == cap) {
+            Name *bigger = realloc(names, sizeof(Name) * (size_t)(cap *= 2));
+            if (!bigger) break;
+            names = bigger;
+        }
+        strcpy(names[count++].name, clean);
+    }
+    closedir(d);
+    if (!names) return 0;
+    qsort(names, (size_t)count, sizeof(Name), by_plain_name);
+    int n = 0;
+    for (int k = 0; k < count && n < max; k++) {
         SaveState st;
-        if (!song_load_state(root, clean, &st)) continue;  // clean == d_name, and short
+        if (!song_load_state(root, names[k].name, &st)) continue;
         SongInfo *s = &out[n++];
-        strcpy(s->name, clean);
+        strcpy(s->name, names[k].name);
         s->bpm = st.bpm;
         s->patterns = 0;
         for (int i = 0; i < SEQ_SLOTS; i++) {
@@ -110,7 +133,6 @@ int song_list(const char *root, SongInfo *out, int max) {
                 }
         }
     }
-    closedir(d);
-    qsort(out, (size_t)n, sizeof(SongInfo), by_name);
+    free(names);
     return n;
 }

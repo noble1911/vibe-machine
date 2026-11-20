@@ -172,8 +172,13 @@ typedef enum {
     SONG_HIT_NEW,
     SONG_HIT_UP,
     SONG_HIT_DOWN,
-    SONG_HIT_ROW,  // + visible row index
+    SONG_HIT_CONFIRM,  // the "replace?" card while it is up
+    SONG_HIT_ROW,      // + visible row index
 } SongHit;
+#define SONG_CONFIRM_X 10
+#define SONG_CONFIRM_Y 44
+#define SONG_CONFIRM_W 184
+#define SONG_CONFIRM_H 70
 
 typedef enum {
     TAPE_HIT_NONE = -1,
@@ -235,7 +240,7 @@ int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
 int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
 bool ui_in_fx_pad(int x, int y);
 bool ui_hit_songs_button(int x, int y);  // on the SOUND page
-int ui_hit_songs(int x, int y);          // a SongHit (rows offset by index)
+int ui_hit_songs(int x, int y, bool confirming);  // a SongHit (rows offset by index)
 int ui_hit_tape(int x, int y);  // a TapeHit (tracks / mutes offset by index)
 float ui_tape_speed_at(int x);  // speed strip position -> -2..2 (snaps to -1, 0, 1)
 // The TAPE page shows REC armed and the speed knob from these.

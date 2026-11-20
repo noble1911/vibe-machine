@@ -168,7 +168,7 @@ static void draw_theme_button(void) {
 static void draw_songs_button(void) {
     const Theme *t = ui_theme();
     sticker(SONGS_BTN_X, SONGS_BTN_Y, SONGS_BTN_W, SONGS_BTN_H, t->pal[2], false, 0);
-    sh_floppy(SONGS_BTN_X + 4, SONGS_BTN_Y + 4, 14, rgba(t->pal[4], 0xFF), rgba(0xFFFFFF, 0xFF), rgba(t->ink, 0xFF));
+    sh_floppy(SONGS_BTN_X + 4, SONGS_BTN_Y + 4, 14, rgba(t->pal[4], 0xFF), rgba(t->card, 0xFF), rgba(t->ink, 0xFF));
     ui_text(SONGS_BTN_X + 34, SONGS_BTN_Y + 3, 0.36f, rgba(ink_on(t, t->pal[2]), 0xFF), C2D_AlignCenter, "SONGS");
 }
 
@@ -185,7 +185,7 @@ static void draw_songs_page(const AppState *app) {
     const u32 ink = rgba(t->ink, 0xFF);
     if (app->song_count == 0) {
         sh_card(SONG_LIST_X, SONG_LIST_Y0, SONG_LIST_W, SONG_ROWS * SONG_ROW_PITCH - 4, rgba(t->card, 0xFF), ink, 3);
-        sh_floppy(SONG_LIST_X + SONG_LIST_W / 2.0f - 14, SONG_LIST_Y0 + 22, 28, rgba(t->pal[1], 0xFF), rgba(0xFFFFFF, 0xFF), ink);
+        sh_floppy(SONG_LIST_X + SONG_LIST_W / 2.0f - 14, SONG_LIST_Y0 + 22, 28, rgba(t->pal[1], 0xFF), rgba(t->card, 0xFF), ink);
         ui_text(SONG_LIST_X + SONG_LIST_W / 2.0f, SONG_LIST_Y0 + 60, 0.45f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter, "no songs yet");
         ui_text(SONG_LIST_X + SONG_LIST_W / 2.0f, SONG_LIST_Y0 + 78, 0.36f, rgba(ink_on(t, t->card), 0xA0), C2D_AlignCenter,
                 "tap SAVE AS to keep this one");
@@ -198,7 +198,7 @@ static void draw_songs_page(const AppState *app) {
         const float y = SONG_LIST_Y0 + r * SONG_ROW_PITCH;
         const uint32_t face = sel ? t->pal[i % THEME_PALETTE] : t->card;
         sticker(SONG_LIST_X, y, SONG_LIST_W, SONG_ROW_H, face, false, 0);
-        sh_floppy(SONG_LIST_X + 4, y + 4, 14, rgba(t->pal[(i + 1) % THEME_PALETTE], 0xFF), rgba(0xFFFFFF, 0xFF), ink);
+        sh_floppy(SONG_LIST_X + 4, y + 4, 14, rgba(t->pal[(i + 1) % THEME_PALETTE], 0xFF), rgba(t->card, 0xFF), ink);
         const uint32_t txt = ink_on(t, face);
         ui_text(SONG_LIST_X + 24, y + 3, 0.42f, rgba(txt, 0xFF), 0, "%s%s", s->name, cur ? " <" : "");
         ui_text(SONG_LIST_X + SONG_LIST_W - 5, y + 5, 0.32f, rgba(txt, 0xB0), C2D_AlignRight, "%d BPM  %dP", s->bpm, s->patterns);
@@ -210,6 +210,17 @@ static void draw_songs_page(const AppState *app) {
     const float dy = SONG_LIST_Y0 + SONG_SCROLL_H + 4;
     sticker(SONG_SCROLL_X, dy, SONG_SCROLL_W, SONG_SCROLL_H, down ? t->pal[3] : t->card, false, 0);
     sh_tri(SONG_SCROLL_X + SONG_SCROLL_W / 2.0f, dy + SONG_SCROLL_H / 2.0f, 6, 1.5708f, rgba(t->ink, down ? 0xFF : 0x40));
+
+    if (app->confirm_name[0]) {  // SAVE AS would replace an existing song
+        sh_card(SONG_CONFIRM_X, SONG_CONFIRM_Y, SONG_CONFIRM_W, SONG_CONFIRM_H, rgba(t->pal[0], 0xFF), ink, 4);
+        const u32 txt = rgba(ink_on(t, t->pal[0]), 0xFF);
+        ui_text(SONG_CONFIRM_X + SONG_CONFIRM_W / 2.0f, SONG_CONFIRM_Y + 6, 0.45f, txt, C2D_AlignCenter, "REPLACE");
+        ui_text(SONG_CONFIRM_X + SONG_CONFIRM_W / 2.0f, SONG_CONFIRM_Y + 22, 0.5f, txt, C2D_AlignCenter, "%s?", app->confirm_name);
+        ui_text(SONG_CONFIRM_X + SONG_CONFIRM_W / 2.0f, SONG_CONFIRM_Y + 42, 0.36f, txt, C2D_AlignCenter,
+                "hold here to replace, tap elsewhere to cancel");
+        if (app->song_hold == SONG_HIT_CONFIRM && app->song_hold_t > 0.0f)
+            sh_rect(SONG_CONFIRM_X + 3, SONG_CONFIRM_Y + SONG_CONFIRM_H - 7, (SONG_CONFIRM_W - 6) * app->song_hold_t, 4, ink);
+    }
 
     // Buttons. DELETE and NEW (and LOAD over unsaved changes) are held:
     // a bar fills across the sticker while you hold.
@@ -779,9 +790,13 @@ void ui_draw_bottom(const AppState *app) {
         default: draw_sound_page(app); break;
     }
     for (int k = 0; k < MUSIC_KEYS; k++) draw_key(app, k);
+    if (app->notice_frames > 0 && !app->busy) {  // something went wrong (or needs saying)
+        sh_card(40, 84, 240, 40, rgba(t->pal[0], 0xFF), rgba(t->ink, 0xFF), 4);
+        ui_text(160, 95, 0.5f, rgba(ink_on(t, t->pal[0]), 0xFF), C2D_AlignCenter, "%s", app->notice);
+    }
     if (app->busy) {  // a slow job is about to run: say so
         sh_card(70, 80, 180, 50, rgba(t->pal[1], 0xFF), rgba(t->ink, 0xFF), 4);
-        sh_floppy(84, 92, 26, rgba(t->pal[4], 0xFF), rgba(0xFFFFFF, 0xFF), rgba(t->ink, 0xFF));
+        sh_floppy(84, 92, 26, rgba(t->pal[4], 0xFF), rgba(t->card, 0xFF), rgba(t->ink, 0xFF));
         ui_text(180, 94, 0.6f, rgba(ink_on(t, t->pal[1]), 0xFF), C2D_AlignCenter, "%s", app->busy);
     }
 }

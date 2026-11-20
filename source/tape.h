@@ -62,6 +62,8 @@ void tape_set_dirty(int track);  // force a re-save (after loading a song's tape
 void tape_load_track(int track, const int16_t *data, int frames);
 // Bumps whenever any track is recorded on, wiped or loaded (for "unsaved").
 uint32_t tape_generation(void);
+// Per-track version of the same counter.
+uint32_t tape_track_generation(int track);
 
 // --- audio thread --------------------------------------------------------
 // io: interleaved stereo int16 at `rate` Hz (the live, post-FX mix). Records

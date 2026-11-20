@@ -322,7 +322,7 @@ static void draw_song_name(const AppState *app) {
     const char *name = app->song_name[0] ? app->song_name : "NEW SONG";
     float w = 34.0f + strlen(name) * 7.4f + (app->song_dirty ? 8.0f : 0.0f);
     sh_card(6, 24, w, 17, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
-    sh_floppy(10, 26, 13, rgba(t->pal[2], 0xFF), rgba(0xFFFFFF, 0xFF), rgba(t->ink, 0xFF));
+    sh_floppy(10, 26, 13, rgba(t->pal[2], 0xFF), rgba(t->card, 0xFF), rgba(t->ink, 0xFF));
     ui_text(28, 24.5f, 0.42f, rgba(ink_on(t, t->card), 0xFF), 0, "%s%s", name, app->song_dirty ? " *" : "");
 }
 

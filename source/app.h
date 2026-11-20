@@ -59,6 +59,9 @@ typedef struct {
     int song_hold;              // SONGS button being held, or -1
     float song_hold_t;
     const char *busy;           // "SAVING..." etc. while a slow job runs, else NULL
+    char confirm_name[SONG_NAME_MAX + 1];  // SAVE AS would replace this song: hold to confirm
+    char notice[40];            // a short message ("SAVE FAILED"), shown while notice_frames > 0
+    int notice_frames;
 
     bool pad_touch;             // stylus is on the SYNTH or FX pad
     float pad_x, pad_y;         // where (0..1, y up)

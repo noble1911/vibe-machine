@@ -16,6 +16,7 @@
 
 typedef struct {
     char name[17];  // the song this state belongs to ("" = unnamed)
+    bool unsaved;   // the song had changes not yet saved to its folder (autosave only)
     int theme;
     int sound;
     int patch;

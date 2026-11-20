@@ -358,6 +358,7 @@ static unsigned s_changed_at;
 static void autosave(bool force) {
     SaveState now;
     capture(&now);
+    now.unsaved = s_app.song_dirty;  // so "unsaved" survives a restart
     if (memcmp(&now, &s_seen, sizeof(now)) != 0) {
         s_seen = now;
         s_changed_at = s_app.frame;
@@ -373,19 +374,52 @@ static void autosave(bool force) {
 // What the current song looked like when it was last saved or loaded.
 static SaveState s_song_base;
 static uint32_t s_song_tape_gen, s_song_mic_gen;
+// Set at startup when the autosave says the song had unsaved changes: they
+// are in the autosave, not in the song's folder, so it stays "unsaved".
+static bool s_force_dirty;
+
+// Files a load could not read are left alone by SAVE until you replace
+// them (record a new take on that track): never overwrite what we failed
+// to read with nothing.
+static bool s_tape_protect[TAPE_TRACKS];
+static uint32_t s_tape_protect_gen[TAPE_TRACKS];
+static bool s_mic_protect;
+static uint32_t s_mic_protect_gen;
+
+static void notice(const char *msg) {
+    snprintf(s_app.notice, sizeof(s_app.notice), "%s", msg);
+    s_app.notice_frames = 150;
+}
+
+static bool file_exists(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (f) fclose(f);
+    return f != NULL;
+}
 
 static void song_mark_clean(void) {
     capture(&s_song_base);
     s_song_tape_gen = tape_generation();
     s_song_mic_gen = s_mic_gen;
+    s_force_dirty = false;
     s_app.song_dirty = false;
 }
 
 static void update_song_dirty(void) {
     SaveState now;
     capture(&now);
-    s_app.song_dirty = memcmp(&now, &s_song_base, sizeof(now)) != 0 || tape_generation() != s_song_tape_gen ||
-                       s_mic_gen != s_song_mic_gen;
+    s_app.song_dirty = s_force_dirty || memcmp(&now, &s_song_base, sizeof(now)) != 0 ||
+                       tape_generation() != s_song_tape_gen || s_mic_gen != s_song_mic_gen;
+}
+
+// The autosaved MIC take should always be the current song's.
+static void sync_scratch_mic(void) {
+#ifndef VM_DEMO
+    if (s_take_user)
+        wav_write(STORAGE_DIR "/mic.wav", s_take_buf, s_take_frames, SAMPLER_RATE);
+    else
+        remove(STORAGE_DIR "/mic.wav");
+#endif
 }
 
 static void refresh_songs(void) {
@@ -409,11 +443,12 @@ static void stop_transports(void) {
 static bool save_song(const char *name) {
     char clean[SONG_NAME_MAX + 1], path[160];
     song_clean_name(name, clean);
-    memcpy(s_app.song_name, clean, sizeof(clean));
     SaveState st;
     capture(&st);
+    memcpy(st.name, clean, sizeof(st.name));  // the song takes this name only if the save works
     bool ok = song_save_state(SONGS_ROOT, clean, &st);
-    for (int t = 0; t < TAPE_TRACKS; t++) {
+    for (int t = 0; ok && t < TAPE_TRACKS; t++) {
+        if (s_tape_protect[t] && tape_track_generation(t) == s_tape_protect_gen[t]) continue;
         char file[16];
         snprintf(file, sizeof(file), "tape%d.wav", t + 1);
         song_path(SONGS_ROOT, clean, file, path, sizeof(path));
@@ -425,46 +460,76 @@ static bool save_song(const char *name) {
             remove(path);
     }
     song_path(SONGS_ROOT, clean, "mic.wav", path, sizeof(path));
-    if (s_take_user)
-        ok &= wav_write(path, s_take_buf, s_take_frames, SAMPLER_RATE);
-    else
-        remove(path);
-    if (ok) song_mark_clean();
+    if (ok && !(s_mic_protect && s_mic_gen == s_mic_protect_gen)) {
+        if (s_take_user)
+            ok &= wav_write(path, s_take_buf, s_take_frames, SAMPLER_RATE);
+        else
+            remove(path);
+    }
+    if (ok) {
+        memcpy(s_app.song_name, clean, sizeof(clean));
+        song_mark_clean();
+    } else {
+        notice("SAVE FAILED - SD CARD FULL?");
+    }
     refresh_songs();
     return ok;
 }
 
 static bool load_song(const char *name) {
     SaveState st;
-    if (!song_load_state(SONGS_ROOT, name, &st)) return false;
+    if (!song_load_state(SONGS_ROOT, name, &st)) {
+        notice("COULD NOT READ THAT SONG");
+        return false;
+    }
+    int16_t *buf = malloc(TAPE_FRAMES * sizeof(int16_t));
+    if (!buf) {  // nothing has changed yet: better to refuse than half-load
+        notice("NOT ENOUGH MEMORY TO LOAD");
+        return false;
+    }
     stop_transports();
     restore(&st);
     memcpy(s_app.song_name, name, SONG_NAME_MAX + 1);
     char path[160];
-    int16_t *buf = malloc(TAPE_FRAMES * sizeof(int16_t));
+    bool trouble = false;
     for (int t = 0; t < TAPE_TRACKS; t++) {
         char file[16];
         snprintf(file, sizeof(file), "tape%d.wav", t + 1);
         song_path(SONGS_ROOT, name, file, path, sizeof(path));
-        int rate = 0, frames = buf ? wav_read(path, buf, TAPE_FRAMES, &rate) : -1;
-        if (frames > 0 && rate == TAPE_RATE)
+        s_tape_protect[t] = false;
+        int rate = 0, frames = wav_read(path, buf, TAPE_FRAMES, &rate);
+        if (frames > 0 && rate == TAPE_RATE) {
             tape_load_track(t, buf, frames);
-        else
+        } else {
             tape_clear(t);
+            if (file_exists(path)) {  // there, but unreadable: protect it
+                s_tape_protect[t] = true;
+                s_tape_protect_gen[t] = tape_track_generation(t);
+                trouble = true;
+            }
+        }
         tape_set_dirty(t);  // the autosaved copy should follow this song now
     }
     free(buf);
     song_path(SONGS_ROOT, name, "mic.wav", path, sizeof(path));
     int rate = 0, frames = wav_read(path, s_take_buf, SAMPLER_MAX_FRAMES, &rate);
+    s_mic_gen++;
+    s_mic_protect = false;
     if (frames > 0 && rate == SAMPLER_RATE && engine_load_sample(s_take_buf, frames, rate)) {
         show_take(s_take_buf, frames);
         s_take_user = true;
     } else {
         load_boing();
+        if (file_exists(path)) {
+            s_mic_protect = true;
+            s_mic_protect_gen = s_mic_gen;
+            trouble = true;
+        }
     }
-    s_mic_gen++;
+    sync_scratch_mic();
     song_mark_clean();
     refresh_songs();
+    if (trouble) notice("SOME AUDIO FILES WOULD NOT LOAD");
     return true;
 }
 
@@ -472,9 +537,14 @@ static void new_song(void) {
     stop_transports();
     seq_reset();
     seq_set_bpm(112);
-    for (int t = 0; t < TAPE_TRACKS; t++) tape_clear(t);
+    for (int t = 0; t < TAPE_TRACKS; t++) {
+        tape_clear(t);
+        s_tape_protect[t] = false;
+    }
     load_boing();
     s_mic_gen++;
+    s_mic_protect = false;
+    sync_scratch_mic();
     const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
     select_sound(0);
@@ -513,6 +583,9 @@ static char s_job_name[SONG_NAME_MAX + 1];
 static int s_job_wait;
 
 static void start_job(Job job, const char *name, const char *msg) {
+    if (s_job != JOB_NONE) return;  // one at a time: never drop a pending save
+    // Stop the tape now so it is still by the time the save reads it.
+    if (job == JOB_SAVE) tape_play(false);
     s_job = job;
     snprintf(s_job_name, sizeof(s_job_name), "%s", name ? name : "");
     s_app.busy = msg;
@@ -532,6 +605,7 @@ static void run_job(void) {
 }
 
 static unsigned s_song_hold_frames;
+static bool s_restored_unsaved;
 
 static void song_hold_done(int button) {
     const bool has_sel = s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count;
@@ -542,13 +616,37 @@ static void song_hold_done(int button) {
         refresh_songs();
     }
     if (button == SONG_HIT_NEW) start_job(JOB_NEW, NULL, "NEW SONG...");
+    if (button == SONG_HIT_CONFIRM) {
+        start_job(JOB_SAVE, s_app.confirm_name, "SAVING...");
+        s_app.confirm_name[0] = '\0';
+    }
+}
+
+// SAVE AS with a name: ask first if it would replace a different song.
+static void save_as(const char *name) {
+    if (song_exists(SONGS_ROOT, name) && strcmp(name, s_app.song_name) != 0)
+        snprintf(s_app.confirm_name, sizeof(s_app.confirm_name), "%s", name);
+    else
+        start_job(JOB_SAVE, name, "SAVING...");
 }
 
 static void songs_touch(int x, int y) {
-    const int hit = ui_hit_songs(x, y);
+    s_touch = TOUCH_IGNORE;
+    if (s_job != JOB_NONE) return;  // busy: ignore taps until it's done
+    const bool confirming = s_app.confirm_name[0] != '\0';
+    const int hit = ui_hit_songs(x, y, confirming);
+    if (confirming) {
+        if (hit == SONG_HIT_CONFIRM) {
+            s_app.song_hold = SONG_HIT_CONFIRM;
+            s_song_hold_frames = 0;
+            s_touch = TOUCH_SONG_HOLD;
+        } else {
+            s_app.confirm_name[0] = '\0';  // tapped elsewhere: cancelled
+        }
+        return;
+    }
     const bool has_sel = s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count;
     char name[SONG_NAME_MAX + 1];
-    s_touch = TOUCH_IGNORE;
     if (hit >= SONG_HIT_ROW) {
         int i = s_app.song_scroll + (hit - SONG_HIT_ROW);
         if (i < s_app.song_count) s_app.song_sel = i;
@@ -562,13 +660,13 @@ static void songs_touch(int x, int y) {
             if (s_app.song_scroll + SONG_ROWS < s_app.song_count) s_app.song_scroll++;
             break;
         case SONG_HIT_SAVE_AS:
-            if (ask_song_name(name)) start_job(JOB_SAVE, name, "SAVING...");
+            if (ask_song_name(name)) save_as(name);
             break;
         case SONG_HIT_SAVE:
             if (s_app.song_name[0])
                 start_job(JOB_SAVE, s_app.song_name, "SAVING...");
             else if (ask_song_name(name))
-                start_job(JOB_SAVE, name, "SAVING...");
+                save_as(name);
             break;
         case SONG_HIT_LOAD:
             if (!has_sel) break;
@@ -1003,7 +1101,10 @@ int main(void) {
     mkdir(STORAGE_DIR, 0777);
     {
         SaveState st;
-        if (storage_load(STORAGE_PATH, &st)) restore(&st);
+        if (storage_load(STORAGE_PATH, &st)) {
+            restore(&st);
+            s_restored_unsaved = st.unsaved;
+        }
         load_boing();  // the MIC placeholder, unless a saved take replaces it
 #ifndef VM_DEMO
         int rate = 0, frames = wav_read(STORAGE_DIR "/mic.wav", s_take_buf, SAMPLER_MAX_FRAMES, &rate);
@@ -1027,7 +1128,9 @@ int main(void) {
     s_app.mic_ok = mic_init();
     mkdir(SONGS_ROOT, 0777);
     s_app.song_hold = -1;
-    song_mark_clean();  // what was restored counts as "saved"
+    song_mark_clean();  // what was restored matches the song's folder...
+    s_force_dirty = s_restored_unsaved;  // ...unless the autosave says it didn't
+    s_app.song_dirty = s_force_dirty;
     refresh_songs();
 
     hidSetRepeatParameters(18, 5);
@@ -1097,6 +1200,7 @@ int main(void) {
 #endif
         handle_buttons(down, held, up, repeat);
         handle_touch(down, held, up);
+        if (s_app.notice_frames > 0) s_app.notice_frames--;
 #ifndef VM_DEMO
         if (s_app.frame % 30 == 0) {
             autosave(false);

@@ -220,7 +220,9 @@ bool ui_hit_songs_button(int x, int y) {
     return in_box(x, y, SONGS_BTN_X - 3, SONGS_BTN_Y - 2, SONGS_BTN_W + 6, SONGS_BTN_H + 4);
 }
 
-int ui_hit_songs(int x, int y) {
+int ui_hit_songs(int x, int y, bool confirming) {
+    if (confirming)  // only the card answers; any other tap cancels
+        return in_box(x, y, SONG_CONFIRM_X, SONG_CONFIRM_Y, SONG_CONFIRM_W, SONG_CONFIRM_H) ? SONG_HIT_CONFIRM : SONG_HIT_NONE;
     for (int i = 0; i < 5; i++)
         if (in_box(x, y, SONG_BTN_X - 2, SONG_BTN_Y0 + i * SONG_BTN_PITCH - 1, SONG_BTN_W + 4, SONG_BTN_H + 2)) return i;
     if (in_box(x, y, SONG_SCROLL_X - 2, SONG_LIST_Y0, SONG_SCROLL_W + 4, SONG_SCROLL_H)) return SONG_HIT_UP;

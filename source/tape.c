@@ -12,8 +12,10 @@ static volatile bool s_used[TAPE_TRACKS];
 static volatile bool s_dirty[TAPE_TRACKS];
 static volatile int32_t s_len[TAPE_TRACKS];  // furthest frame written + 1
 static volatile uint32_t s_gen;
+static volatile uint32_t s_track_gen[TAPE_TRACKS];
 
 uint32_t tape_generation(void) { return s_gen; }
+uint32_t tape_track_generation(int track) { return track >= 0 && track < TAPE_TRACKS ? s_track_gen[track] : 0; }
 
 static volatile bool s_playing, s_rec_armed, s_scrubbing;
 static volatile int s_armed_track;
@@ -73,6 +75,7 @@ void tape_clear(int track) {
     s_len[track] = 0;
     s_dirty[track] = true;
     s_gen++;
+    s_track_gen[track]++;
 }
 
 bool tape_dirty(int track) { return track >= 0 && track < TAPE_TRACKS && s_dirty[track]; }
@@ -107,6 +110,7 @@ void tape_load_track(int track, const int16_t *data, int frames) {
     s_used[track] = frames > 0;
     s_dirty[track] = false;
     s_gen++;
+    s_track_gen[track]++;
 }
 
 TapeStatus tape_status(void) {
@@ -219,5 +223,8 @@ void tape_process(int16_t *io, int frames, int rate) {
         if (s_head < 0.0) s_head += TAPE_FRAMES;
     }
     for (int t = 0; t < TAPE_TRACKS; t++) s_level[t] = lvl[t] > s_level[t] ? lvl[t] : s_level[t] * 0.9f;
-    if (recording) s_gen++;
+    if (recording) {
+        s_gen++;
+        s_track_gen[rt]++;
+    }
 }

@@ -13,7 +13,7 @@
 #include "storage.h"
 
 #define SONG_NAME_MAX 16  // characters, not counting the terminator
-#define SONGS_MAX 64
+#define SONGS_MAX 256  // the browser shows the first 256 by name
 
 typedef struct {
     char name[SONG_NAME_MAX + 1];
