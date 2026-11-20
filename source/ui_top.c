@@ -307,7 +307,13 @@ static void draw_steps(const AppState *app) {
     ui_text(33, y - 0.5f, 0.38f, icon, C2D_AlignCenter, "%d", st->bpm);
 
     // The bar that's playing (or the one on the bottom screen).
-    const int off = (st->playing ? st->step / SEQ_STEPS : app->bar_page) * SEQ_STEPS;
+    const int bar = st->playing ? st->step / SEQ_STEPS : app->bar_page, off = bar * SEQ_STEPS;
+    const int bars = seq_bars(&app->pattern);
+    if (bars > 1) {  // which bar of the pattern the strip is showing: one segment a bar
+        const float x0 = 52, w = SEQ_STEPS * 21.5f - 3.5f, seg = w / bars;
+        for (int b = 0; b < bars; b++)
+            sh_rect(x0 + b * seg + 1, y - 8, seg - 2, 4, rgba(b == bar ? t->pal[0] : t->ink, b == bar ? 0xFF : 0x50));
+    }
     for (int c = 0; c < SEQ_STEPS; c++) {
         const int s = off + c;
         const bool head = st->playing && s == st->step;

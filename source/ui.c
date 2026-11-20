@@ -280,8 +280,9 @@ int ui_hit_mix(int x, int y, int *strip) {
     if (y < MIX_HEAD_Y + MIX_HEAD_H + 2 || y >= MIX_BTN_Y - 3) return MIX_HIT_NONE;
     if (lx < MIX_FADER_DX + MIX_FADER_W + 3) return MIX_HIT_FADER;
     const int col = lx < (MIX_KNOB_DX0 + MIX_KNOB_DX1) / 2 ? 0 : 1;
-    const int row = y < (MIX_KNOB_Y0 + MIX_KNOB_Y1) / 2 ? 0 : 1;
-    return MIX_HIT_KNOB + row * 2 + col;  // DRIVE CRUSH / TONE PAN
+    int row = (y - MIX_KNOB_Y0 + MIX_KNOB_PITCH_Y / 2) / MIX_KNOB_PITCH_Y;
+    row = row < 0 ? 0 : row > 2 ? 2 : row;
+    return MIX_HIT_KNOB + mix_knob_at(row, col);  // DRIVE CRUSH / ECHO VERB / TONE PAN
 }
 
 bool ui_hit_songs_button(int x, int y) {

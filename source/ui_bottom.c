@@ -167,7 +167,7 @@ static bool strip_audible(const AppState *app, int k) {
     return app->mix_solo == 0 || ((app->mix_solo >> k) & 1u);
 }
 
-static const char *const kKnobShort[MIX_KNOBS] = {"DRV", "CRSH", "TONE", "PAN"};
+static const char *const kKnobShort[MIX_KNOBS] = {"DRV", "CRSH", "TONE", "PAN", "ECHO", "VERB"};
 
 static void draw_knob(const AppState *app, int k, int i, float cx, float cy, uint32_t col) {
     const Theme *t = ui_theme();
@@ -264,7 +264,7 @@ static void draw_mix_page(const AppState *app) {
         }
         draw_fader(app, k, x, col);
         for (int i = 0; i < MIX_KNOBS; i++)
-            draw_knob(app, k, i, x + ((i & 1) ? MIX_KNOB_DX1 : MIX_KNOB_DX0), (i < 2) ? MIX_KNOB_Y0 : MIX_KNOB_Y1, col);
+            draw_knob(app, k, i, x + MIX_KNOB_X(i), MIX_KNOB_Y(i), col);
         if (!strip_audible(app, k))  // silenced (muted, or someone else soloed): fade it back
             sh_rect(x - 1, MIX_HEAD_Y + MIX_HEAD_H + 3, MIX_W + 2, MIX_BTN_Y - MIX_HEAD_Y - MIX_HEAD_H - 6,
                     rgba(t->bg_a, 0x90));

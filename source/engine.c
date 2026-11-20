@@ -107,12 +107,18 @@ void engine_init(void) {
     snprintf(lvl, sizeof(lvl), "i%diV%.3f", SYNTH_DRUMS, mixer_synth_level(1.0f));
     wire_locked(lvl);
 
-    // The master bus. Echo character is fixed for now; the ECHO slider only
-    // sets the level.
-    amy_event e = amy_default_event();
-    e.bus = MIX_MASTER_BUS;
-    e.volume = 1.0f;
+    // The master bus (dry), the echo bus and the reverb bus (see mixer.h),
+    // all at full volume to start with. Echo character is fixed for now;
+    // the ECHO slider only sets the level.
     mixer_set_master_volume(1.0f);
+    for (int bus = MIX_MASTER_BUS; bus <= MIX_VERB_BUS; bus++) {
+        amy_event v = amy_default_event();
+        v.bus = (uint16_t)bus;
+        v.volume = 1.0f;
+        send_locked(&v);
+    }
+    amy_event e = amy_default_event();
+    e.bus = MIX_ECHO_BUS;
     e.echo_level = 0.0f;
     e.echo_delay_ms = 375.0f;
     e.echo_max_delay_ms = 750.0f;
@@ -242,20 +248,28 @@ void engine_set_param(EngineParam param, float v) {
     amy_event e = amy_default_event();
     e.bus = MIX_MASTER_BUS;
     switch (param) {
-        case PARAM_TONE:
+        case PARAM_TONE:  // on the dry mix (the echo and reverb returns keep their own colour)
             // Tilt EQ around the middle: 0 = dark, 0.5 = flat, 1 = bright (dB).
             e.eq_l = (0.5f - v) * 24.0f;
             e.eq_h = (v - 0.5f) * 24.0f;
             break;
-        case PARAM_ECHO:
+        case PARAM_ECHO:  // how loud the echo comes back (the strips' sends feed it)
+            e.bus = MIX_ECHO_BUS;
             e.echo_level = v;
             break;
         case PARAM_REVERB:
+            e.bus = MIX_VERB_BUS;
             e.reverb_level = v;
             break;
-        case PARAM_VOLUME:
+        case PARAM_VOLUME:  // the dry mix and both returns together
             e.volume = v * 2.5f;
             mixer_set_master_volume(e.volume);
+            for (int bus = MIX_ECHO_BUS; bus <= MIX_VERB_BUS; bus++) {
+                amy_event r = amy_default_event();
+                r.bus = (uint16_t)bus;
+                r.volume = e.volume;
+                send_locked(&r);
+            }
             break;
         default:
             return;

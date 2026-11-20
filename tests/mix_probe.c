@@ -8,6 +8,7 @@
 
 #include "amy.h"
 #include "mixer.h"
+#include "mix_setup.h"
 #include "sounds.h"
 
 #define BLOCKS(s) ((int)((s) * AMY_SAMPLE_RATE / AMY_BLOCK_SIZE))
@@ -114,15 +115,8 @@ int main(void) {
     c.amy_external_bus_postprocess_hook = mixer_hook;
     amy_start(c);
 
-    // The master bus: flat, volume 1, no echo yet.
-    amy_event m = amy_default_event();
-    m.bus = MIX_MASTER_BUS;
-    m.volume = 1.0f;
-    m.echo_level = 0.0f;
-    m.echo_delay_ms = 300.0f;
-    m.echo_max_delay_ms = 750.0f;
-    m.echo_feedback = 0.4f;
-    amy_add_event(&m);
+    // The master, echo and reverb buses: no echo or reverb yet.
+    mix_setup(0.0f, 0.0f);
     route(SYNTH_DRUMS, MIX_DRUMS);
     {
         char buf[64];
@@ -295,10 +289,7 @@ int main(void) {
     note(bell, 69, 0.0f);
     render(0.9);
     Measure dry_tail = render(0.6);
-    m = amy_default_event();
-    m.bus = MIX_MASTER_BUS;
-    m.echo_level = 0.8f;
-    amy_add_event(&m);
+    mix_echo(0.8f);
     render(0.1);
     note(bell, 69, 0.8f);
     render(0.3);
@@ -307,6 +298,36 @@ int main(void) {
     Measure wet_tail = render(0.6);
     check("master echo still reaches the parts", mono(&wet_tail) > mono(&dry_tail) * 2 + 1e-4, "tail %.5f vs %.5f",
           mono(&wet_tail), mono(&dry_tail));
+
+    // A strip's ECHO send at 0: no echo from it, though the echo is on.
+    s_strip[2].knob[MIX_ECHO] = 0.0f;
+    apply(2, true);
+    render(1.0);
+    note(bell, 69, 0.8f);
+    render(0.3);
+    note(bell, 69, 0.0f);
+    render(0.9);
+    Measure dry_send = render(0.6);
+    check("ECHO send at 0: that strip stays dry", mono(&dry_send) < mono(&wet_tail) * 0.1, "tail %.5f vs %.5f",
+          mono(&dry_send), mono(&wet_tail));
+    s_strip[2].knob[MIX_ECHO] = 1.0f;
+    apply(2, true);
+    // The returns hold only the effect: with the echo and reverb levels at 0
+    // the mix is exactly the dry strips (the sends are taken back out).
+    mix_echo(0.0f);
+    mix_verb(0.0f);
+    Measure sent[2];
+    for (int k = 0; k < 2; k++) {
+        s_strip[1].knob[MIX_ECHO] = s_strip[1].knob[MIX_VERB] = k ? 1.0f : 0.0f;
+        apply(1, true);
+        render(1.5);
+        note(saw, 57, 0.8f);
+        sent[k] = render(0.5);
+        note(saw, 57, 0.0f);
+    }
+    render(1.5);
+    check("full sends with the effects off change nothing", fabs(db(mono(&sent[1]), mono(&sent[0]))) < 0.05, "%+.3f dB",
+          db(mono(&sent[1]), mono(&sent[0])), 0);
 
     // How high the meters go for a loud part, so the UI can scale them.
     s_strip[1].level = 1.0f;

@@ -356,8 +356,18 @@ static void mix_apply_all(void) {
     }
 }
 
+// A new song's strip: as mixer_strip_default(), except that the drums stay
+// out of the echo and get just a little reverb.
+static void strip_default(int k, MixStrip *s) {
+    mixer_strip_default(s);
+    if (k == MIX_DRUMS) {
+        s->knob[MIX_ECHO] = 0.0f;
+        s->knob[MIX_VERB] = 0.3f;
+    }
+}
+
 static void mix_default(void) {
-    for (int k = 0; k < MIX_STRIPS; k++) mixer_strip_default(&s_app.mix[k]);
+    for (int k = 0; k < MIX_STRIPS; k++) strip_default(k, &s_app.mix[k]);
     s_app.mix_solo = 0;
     seq_set_part_mute(MIX_DRUMS, false);
     mix_apply_all();
@@ -379,9 +389,9 @@ static void mix_update(void) {
     }
 }
 
-static float mix_default_value(int grab) {
+static float mix_default_value(int k, int grab) {
     MixStrip d;
-    mixer_strip_default(&d);
+    strip_default(k, &d);
     return grab == MIX_GRAB_FADER ? d.level : d.knob[grab - MIX_GRAB_KNOB];
 }
 
@@ -409,7 +419,7 @@ static void mix_begin(int x, int y) {
     const int grab = hit == MIX_HIT_FADER ? MIX_GRAB_FADER : MIX_GRAB_KNOB + (hit - MIX_HIT_KNOB);
     const int tap = k * 8 + grab + 1;
     if (tap == s_mix_last_tap && s_app.frame - s_mix_last_tap_frame < MIX_DOUBLE_TAP_FRAMES) {
-        *mix_value(k, grab) = mix_default_value(grab);  // double tap: back to the start
+        *mix_value(k, grab) = mix_default_value(k, grab);  // double tap: back to the start
         mix_apply(k);
         s_mix_last_tap = -1;
         return;
@@ -2248,8 +2258,8 @@ typedef struct {
 #define KEYX(k) ((k) * KEY_W + KEY_W / 2)
 #define KEYY (KEYS_Y0 + 30)
 #define STRIPX(k) (MIX_X0 + (k) * MIX_PITCH)
-#define KNOBX(k, i) (STRIPX(k) + (((i) & 1) ? MIX_KNOB_DX1 : MIX_KNOB_DX0))
-#define KNOBY(i) ((i) < 2 ? MIX_KNOB_Y0 : MIX_KNOB_Y1)
+#define KNOBX(k, i) (STRIPX(k) + MIX_KNOB_X(i))
+#define KNOBY(i) MIX_KNOB_Y(i)
 #define CAPY(level) ((int)(MIX_FADER_Y + MIX_FADER_H - 5 - (level) * (MIX_FADER_H - 10)))
 #define FADERX(k) (STRIPX(k) + MIX_FADER_DX + MIX_FADER_W / 2)
 #define FXSX (FX_STICK_X + FX_STICK_W / 2)

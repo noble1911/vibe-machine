@@ -264,8 +264,15 @@ typedef enum {
 #define MIX_FADER_H 90
 #define MIX_KNOB_DX0 42     // knob centres, from the strip's left edge
 #define MIX_KNOB_DX1 65
-#define MIX_KNOB_Y0 60
-#define MIX_KNOB_Y1 102
+#define MIX_KNOB_Y0 58      // three rows: DRV CRSH / ECHO VERB / TONE PAN
+#define MIX_KNOB_PITCH_Y 30
+// Where each MixKnob sits: its column (0, 1) and row (0..2).
+static inline int mix_knob_col(int knob) { return knob & 1; }
+static inline int mix_knob_row(int knob) { return knob < 2 ? 0 : knob < 4 ? 2 : 1; }
+static inline int mix_knob_at(int row, int col) { return row == 0 ? col : row == 1 ? 4 + col : 2 + col; }
+// (Plain expressions, so the story build's script can use them as constants.)
+#define MIX_KNOB_X(knob) (((knob) & 1) ? MIX_KNOB_DX1 : MIX_KNOB_DX0)
+#define MIX_KNOB_Y(knob) (MIX_KNOB_Y0 + ((knob) < 2 ? 0 : (knob) < 4 ? 2 : 1) * MIX_KNOB_PITCH_Y)
 #define MIX_KNOB_R 8
 #define MIX_BTN_Y 142
 #define MIX_BTN_H 19

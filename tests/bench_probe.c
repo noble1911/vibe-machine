@@ -7,6 +7,7 @@
 
 #include "amy.h"
 #include "mixer.h"
+#include "mix_setup.h"
 #include "sampler.h"
 #include "sounds.h"
 
@@ -77,15 +78,7 @@ int main(void) {
     c.max_buses = MIX_BUSES;
     c.amy_external_bus_postprocess_hook = mixer_hook;
     amy_start(c);
-    amy_event m = amy_default_event();
-    m.bus = MIX_MASTER_BUS;
-    m.volume = 1.0f;
-    m.echo_level = 0.15f;
-    m.echo_delay_ms = 375;
-    m.echo_max_delay_ms = 750;
-    m.echo_feedback = 0.45f;
-    m.reverb_level = 0.25f;
-    amy_add_event(&m);
+    mix_setup(0.15f, 0.25f);
     static MixStrip st[MIX_STRIPS];
     for (int k = 0; k < MIX_STRIPS; k++) {
         mixer_strip_default(&st[k]);
@@ -132,27 +125,15 @@ int main(void) {
     note(3, 72, 0.8f); note(3, 76, 0.8f); note(3, 79, 0.8f);
     cost("BELL: 3-note chord", B);
     silence();
-    m = amy_default_event();
-    m.bus = MIX_MASTER_BUS;
-    m.reverb_level = 0.0f;
-    m.echo_level = 0.0f;
-    amy_add_event(&m);
+    mix_echo(0.0f);
+    mix_verb(0.0f);
     double dry = cost("idle, echo + reverb off", B);
-    m = amy_default_event();
-    m.bus = MIX_MASTER_BUS;
-    m.echo_level = 0.15f;
-    amy_add_event(&m);
+    mix_echo(0.15f);
     cost("idle, echo only", B);
-    m = amy_default_event();
-    m.bus = MIX_MASTER_BUS;
-    m.echo_level = 0.0f;
-    m.reverb_level = 0.25f;
-    amy_add_event(&m);
+    mix_echo(0.0f);
+    mix_verb(0.25f);
     cost("idle, reverb only", B);
-    m = amy_default_event();
-    m.bus = MIX_MASTER_BUS;
-    m.reverb_level = 0.0f;
-    amy_add_event(&m);
+    mix_verb(0.0f);
     load(0, 0, 0);
     note(1, 60, 0.8f); note(1, 64, 0.8f); note(1, 67, 0.8f);
     note(1, 72, 0.8f); note(1, 76, 0.8f); note(1, 79, 0.8f);

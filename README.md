@@ -5,8 +5,8 @@
 Three instrument parts plus drums, eight original synth engines plus the
 Juno-6 and DX7 banks, a sampler (microphone, tape or WAV; trim it, chop it
 into slices across the keys), a 16-step sequencer and piano
-roll with 8 pattern slots and song mode, a mixer with drive, crush, tone
-and pan on every part, four performance effects you play with the stylus,
+roll with 8 pattern slots and song mode, a mixer with drive, crush, tone, pan and
+echo / reverb sends on every part, four performance effects you play with the stylus,
 and a 4-track tape recorder,
 all on an original 3DS, with stereoscopic 3D visuals that dance to what you
 play.
@@ -36,7 +36,7 @@ mixed down to a WAV. The ten steps are written out in the
 | ![SYNTH creature pad](docs/images/synth-creature.png) | **SYNTH**: ten sounds, each with a googly-eyed mascot. Drag the mascot around the pad to play its two macros. |
 | ![SYNTH patch dots](docs/images/synth-bank.png) | The **Juno-6** and **DX7** banks: 128 patches each, as dots to tap or slide across. |
 | ![SONG sheet](docs/images/song-sheet.png) | **SONG sheet**: arrange patterns into a song: rows of slots, repeated ×1–8, with parts dropped out for intros and breakdowns, and an ending. |
-| ![MIX page](docs/images/mix.png) | **MIX**: a channel strip for each part and the drums: fader, LED meter, DRIVE, CRUSH, TONE and PAN knobs, MUTE and SOLO. **MIXDOWN** records the finished song to a stereo WAV. |
+| ![MIX page](docs/images/mix.png) | **MIX**: a channel strip for each part and the drums: fader, LED meter, DRIVE, CRUSH, ECHO and VERB sends, TONE and PAN knobs, MUTE and SOLO. **MIXDOWN** records the finished song to a stereo WAV. |
 | ![FX page, STUTTER](docs/images/fx-stutter.png) | **FX**: CRUSH, SWEEP, STUTTER and TAPE STOP, played on an XY pad. HOLD lets them stack. |
 | ![FX automation playing a recorded sweep](docs/images/fx-auto.png) | Record your FX moves into a pattern and it plays them back: the strip along the pad shows which steps have one. |
 | ![FX page, CRUSH with the top screen pixelating](docs/images/fx-crush.png) | The top screen reacts to the effects: it pixelates, freezes, glitches and slows down with the tape. |

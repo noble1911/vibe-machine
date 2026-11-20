@@ -9,9 +9,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 14 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+#define VERSION 15 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
                    // 9: tape sources; 10: sample edit; 11: arrangement, tape mutes;
-                   // 12: FX automation; 13: patterns of 1-4 bars, 128 notes; 14: key, arp
+                   // 12: FX automation; 13: patterns of 1-4 bars, 128 notes; 14: key, arp;
+                   // 15: mixer ECHO / VERB sends
 #define MAX_PAYLOAD 12288
 
 typedef struct {
@@ -145,7 +146,7 @@ static void encode(Writer *w, const SaveState *st) {
     }
     for (int k = 0; k < MIX_STRIPS; k++) {  // version 8
         put(w, &st->mix[k].level, sizeof(float));
-        put(w, st->mix[k].knob, sizeof(st->mix[k].knob));
+        put(w, st->mix[k].knob, sizeof(float) * MIX_KNOBS);
     }
     put(w, &st->solo, 1);
     put(w, st->tape_source, sizeof(st->tape_source));  // version 9
@@ -237,7 +238,10 @@ static void decode(Reader *r, SaveState *st, int version) {
     if (version >= 8) {
         for (int k = 0; k < MIX_STRIPS; k++) {
             get(r, &st->mix[k].level, sizeof(float));
-            get(r, st->mix[k].knob, sizeof(st->mix[k].knob));
+            // Version 15 added the ECHO / VERB sends (the last two knobs);
+            // older songs keep the full sends they effectively had.
+            const int knobs = version >= 15 ? MIX_KNOBS : MIX_ECHO;
+            get(r, st->mix[k].knob, sizeof(float) * (size_t)knobs);
             if (!(st->mix[k].level >= 0.0f && st->mix[k].level <= 1.0f)) r->ok = false;  // NaN fails too
             for (int i = 0; i < MIX_KNOBS; i++)
                 if (!(st->mix[k].knob[i] >= 0.0f && st->mix[k].knob[i] <= 1.0f)) r->ok = false;

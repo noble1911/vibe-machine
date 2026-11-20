@@ -10,6 +10,7 @@
 #include "amy.h"
 #include "amy_split.h"
 #include "mixer.h"
+#include "mix_setup.h"
 #include "sounds.h"
 
 #ifndef AMY_DUALCORE
@@ -86,14 +87,7 @@ static void scene(int split_mode, int *splits_min, int *splits_max) {
     c.max_buses = MIX_BUSES;
     c.amy_external_bus_postprocess_hook = mixer_hook;
     amy_start(c);
-    amy_event m = amy_default_event();
-    m.bus = MIX_MASTER_BUS;
-    m.volume = 1.0f;
-    m.echo_level = 0.2f;
-    m.echo_delay_ms = 300;
-    m.echo_max_delay_ms = 750;
-    m.reverb_level = 0.3f;
-    amy_add_event(&m);
+    mix_setup(0.2f, 0.3f);
     static MixStrip st[MIX_STRIPS];
     for (int k = 0; k < MIX_STRIPS; k++) {
         mixer_strip_default(&st[k]);

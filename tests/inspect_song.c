@@ -43,8 +43,9 @@ int main(int argc, char **argv) {
         }
     }
     for (int k = 0; k < MIX_STRIPS; k++)
-        printf("strip %d: level %.2f drive %.2f crush %.2f tone %.2f pan %.2f\n", k + 1, st.mix[k].level,
-               st.mix[k].knob[MIX_DRIVE], st.mix[k].knob[MIX_CRUSH], st.mix[k].knob[MIX_TONE], st.mix[k].knob[MIX_PAN]);
+        printf("strip %d: level %.2f drive %.2f crush %.2f tone %.2f pan %.2f echo %.2f verb %.2f\n", k + 1, st.mix[k].level,
+               st.mix[k].knob[MIX_DRIVE], st.mix[k].knob[MIX_CRUSH], st.mix[k].knob[MIX_TONE], st.mix[k].knob[MIX_PAN],
+               st.mix[k].knob[MIX_ECHO], st.mix[k].knob[MIX_VERB]);
     printf("key %d scale %d; arp %s mode %d rate %d octaves %d\n", st.key_root, st.key_scale, st.arp.on ? "on" : "off",
            st.arp.mode, st.arp.rate, st.arp.octaves);
     printf("arrangement: %d rows, %s\n", st.arr.count, st.arr.loop ? "LOOP" : "STOP");

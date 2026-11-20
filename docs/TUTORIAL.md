@@ -107,7 +107,10 @@ In the Azahar emulator, the 3DS buttons are on your keyboard (see
   brings it down.
 - The scene: a live waveform, layers of triangles that swell with the music,
   and a burst of shapes for every note.
-- The **step strip**: 16 stickers; the playing step jumps up.
+- The **step strip**: 16 stickers, one bar; the playing step jumps up.
+  With a 2- or 4-bar pattern it shows the bar that's playing (or, when
+  stopped, the bar on the bottom screen), and a thin row of segments above
+  it, one per bar, lights the one it's on.
 - The **patch card**: the current sound and its settings, the tape counter,
   and a reminder of the buttons.
 
@@ -142,8 +145,9 @@ glide from note to note.
 
 - Four sliders, dragged up and down:
   - **TONE**: tilts the sound dark (down) or bright (up). 50 is neutral.
-  - **ECHO**: how much echo.
-  - **VERB**: how much reverb.
+  - **ECHO**: how much echo (each MIX strip's ECHO knob decides how much of
+    that part goes into it, e.g. none of the drums).
+  - **VERB**: how much reverb (likewise per strip).
   - **VOL**: master volume.
   These four work on the whole mix. To change one part, use its strip on
   the [MIX page](#9-the-mix-page-balancing-the-parts).
@@ -414,13 +418,16 @@ A strip, top to bottom:
   starts; the top is about 5 dB louder. Drag the cap up or down. The
   **meter** inside the fader lights up as the part plays, and the top two
   segments run hot.
-- **Four knobs**. Drag up to turn one up, down to turn it down. Its value
-  shows underneath while you turn it.
+- **Six knobs**, in three rows: DRV CRSH / ECHO VERB / TONE PAN. Drag up to
+  turn one up, down to turn it down. Its value shows underneath while you
+  turn it.
 
   | Knob | Does |
   |---|---|
   | **DRV** (drive) | Soft clipping: warm, then fuzzy. It's levelled, so it gets dirtier rather than much louder. |
   | **CRSH** (crush) | Fewer bits and a lower sample rate: gritty, then a broken toy. |
+  | **ECHO** | How much of this strip goes into the echo (a *send*): turn it down for drums, up for a lead. |
+  | **VERB** | How much goes into the reverb. |
   | **TONE** | Dark ← middle → bright, like the SOUND page's TONE but for this strip only. |
   | **PAN** | Left ← centre → right. Clearest on headphones. |
 
@@ -433,8 +440,12 @@ Good to know:
 
 - MUTE here and holding a part sticker on the SYNTH page are the same
   switch: either one turns it on or off. The drums can only be muted here.
-- The SOUND page's TONE, ECHO, VERB and VOL work on the **whole mix**,
-  after the strips. The FX page's effects come after that, on everything.
+- There's **one echo and one reverb** for the whole song: each strip's ECHO
+  and VERB knobs choose how much of that strip goes into them, and the
+  SOUND page's ECHO and VERB sliders set how loud they come back. A new
+  song starts with the drums out of the echo and only a little in the
+  reverb; everything else fully in. TONE and VOL on the SOUND page work on
+  the whole mix, and the FX page's effects come after that, on everything.
 - The mixer is saved with the song.
 
 ### MIXDOWN: your song as a WAV
