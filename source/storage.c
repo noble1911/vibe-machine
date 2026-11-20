@@ -9,8 +9,9 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 11 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
-                   // 9: tape sources; 10: sample edit; 11: arrangement, tape mutes
+#define VERSION 12 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+                   // 9: tape sources; 10: sample edit; 11: arrangement, tape mutes;
+                   // 12: FX automation
 #define MAX_PAYLOAD 4096
 
 typedef struct {
@@ -139,6 +140,11 @@ static void encode(Writer *w, const SaveState *st) {
         put(w, row, 3);
     }
     put(w, &st->tape_muted, 1);
+    for (int i = 0; i < SEQ_SLOTS; i++) {  // version 12
+        put(w, st->slots[i].fx, SEQ_STEPS);
+        put(w, st->slots[i].fx_x, SEQ_STEPS);
+        put(w, st->slots[i].fx_y, SEQ_STEPS);
+    }
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -243,6 +249,15 @@ static void decode(Reader *r, SaveState *st, int version) {
             if (i < st->arr.count && (row[0] >= SEQ_SLOTS || row[1] < 1 || row[1] > SEQ_ARR_REPS_MAX)) r->ok = false;
         }
         get(r, &st->tape_muted, 1);
+    }
+    if (version >= 12) {
+        for (int i = 0; i < SEQ_SLOTS; i++) {
+            get(r, st->slots[i].fx, SEQ_STEPS);
+            get(r, st->slots[i].fx_x, SEQ_STEPS);
+            get(r, st->slots[i].fx_y, SEQ_STEPS);
+            for (int s = 0; s < SEQ_STEPS; s++)
+                if (st->slots[i].fx[s] > 4) r->ok = false;  // FX_COUNT kinds
+        }
     }
 }
 

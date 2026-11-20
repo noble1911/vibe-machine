@@ -43,6 +43,9 @@ int main(void) {
     a.arr.rows[1] = (SeqArrRow){1, 2, 1u << PARTS};
     a.arr.rows[2] = (SeqArrRow){7, 8, 0x5};
     a.tape_muted = 0x9;
+    a.slots[2].fx[5] = 3;  // a stutter on step 6 of slot C
+    a.slots[2].fx_x[5] = 200;
+    a.slots[2].fx_y[5] = 40;
     for (int i = 0; i < PARAM_COUNT; i++) a.params[i] = 0.1f * (i + 1);
     a.octave = -2;
     a.bpm = 137;
@@ -70,6 +73,25 @@ int main(void) {
     SaveState c = b;
     check(!storage_load(path, &c) && memcmp(&c, &b, sizeof(b)) == 0, "a damaged file is rejected and changes nothing");
     check(!storage_load("build/does_not_exist.vms", &c), "a missing file is reported");
+
+    {   // The biggest song there can be still fits the file.
+        SaveState big = a;
+        for (int i = 0; i < SEQ_SLOTS; i++) {
+            big.slots[i].count = SEQ_NOTES;
+            for (int n = 0; n < SEQ_NOTES; n++) big.slots[i].notes[n] = (SeqRollNote){(uint8_t)(n % 16), 60, 1, 200, 0};
+            for (int st = 0; st < SEQ_STEPS; st++) {
+                big.slots[i].drums[st] = 0xFF;
+                big.slots[i].fx[st] = 1 + st % 4;
+                big.slots[i].fx_x[st] = big.slots[i].fx_y[st] = (uint8_t)(st * 16);
+            }
+        }
+        big.arr.count = SEQ_ARR_ROWS;
+        for (int i = 0; i < SEQ_ARR_ROWS; i++) big.arr.rows[i] = (SeqArrRow){(uint8_t)(i % 8), 8, 0xF};
+        SaveState back;
+        check(storage_save("build/big.vms", &big) && storage_load("build/big.vms", &back) &&
+                  memcmp(&big, &back, sizeof(big)) == 0,
+              "the biggest possible song saves and loads (fits the file)");
+    }
 
     // --- dice -----------------------------------------------------------------
     int one = 1, backbeat = 0, in_key = 1, busy = 0;

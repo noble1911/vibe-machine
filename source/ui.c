@@ -287,6 +287,12 @@ int ui_hit_songs(int x, int y, bool confirming) {
     return SONG_HIT_NONE;
 }
 
+int ui_hit_fx_auto(int x, int y) {
+    if (y < FX_AUTO_Y - 3 || y > FX_AUTO_Y + FX_AUTO_H + 3 || x < FX_AUTO_X0) return -1;
+    int s = (int)((x - FX_AUTO_X0) / FX_AUTO_PITCH);
+    return s < SEQ_STEPS ? s : -1;
+}
+
 bool ui_in_fx_pad(int x, int y) { return in_box(x, y, FX_PAD_X, FX_PAD_Y, FX_PAD_W, FX_PAD_H); }
 
 static void pad_pos(int x, int y, int px, int py, int pw, int ph, float *nx, float *ny) {

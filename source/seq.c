@@ -479,6 +479,16 @@ void seq_roll_set(int index, int step, int pitch, int len) {
     UNLOCK(&s_lock);
 }
 
+void seq_set_fx(int step, int kind1, float x, float y) {
+    if (step < 0 || step >= SEQ_STEPS) return;
+    LOCK(&s_lock);
+    SeqPattern *p = &s_pats[s_cur];
+    p->fx[step] = (uint8_t)(kind1 < 0 ? 0 : kind1);
+    p->fx_x[step] = (uint8_t)(x <= 0.0f ? 0 : x >= 1.0f ? 255 : x * 255.0f + 0.5f);
+    p->fx_y[step] = (uint8_t)(y <= 0.0f ? 0 : y >= 1.0f ? 255 : y * 255.0f + 0.5f);
+    UNLOCK(&s_lock);
+}
+
 void seq_roll_set_vel(int index, int vel) {
     LOCK(&s_lock);
     SeqPattern *p = &s_pats[s_cur];

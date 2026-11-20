@@ -383,6 +383,24 @@ the axes do.
   turn HOLD off to drop them all.
 - A dot on a sticker means that effect is running.
 
+### Recording FX moves (automation)
+
+Your bitcrusher sweep can be part of the pattern:
+
+1. On SEQ, turn on **●** (record) and press **START**.
+2. Go to **FX** and play the pad: **REC MOVES** shows in its corner, and
+   every step you hold the pad over remembers the effect and where your
+   stylus was. A strip of 16 cells along the bottom of the pad shows which
+   steps have a move, in the effect's colour.
+3. Turn ● off. From now on that pattern plays your moves back by itself:
+   the effect comes on at those steps and goes off at the first step
+   without one. Touch the pad at any time to take over.
+4. **Tap a cell** in the strip to erase that step's move. ✕ on the grid
+   clears the moves along with everything else in the pattern.
+
+Moves belong to the pattern (slot), so a chorus slot can have its own
+filter sweep, and they're saved with the song.
+
 ![CRUSH pixelating the top screen](images/fx-crush.png)
 
 ## 11. The TAPE page: recording tracks

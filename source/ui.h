@@ -189,6 +189,11 @@ typedef enum {
 #define FX_PAD_W 234
 #define FX_PAD_H 132
 #define FX_HIT_HOLD FX_COUNT  // ui_hit_fx_sticker() result for HOLD
+// FX automation: 16 step cells along the bottom of the pad (tap one: erase it).
+#define FX_AUTO_Y (FX_PAD_Y + FX_PAD_H - 11)
+#define FX_AUTO_H 7
+#define FX_AUTO_X0 (FX_PAD_X + 8)
+#define FX_AUTO_PITCH ((FX_PAD_W - 16) / 16.0f)
 
 // TAPE page: track stickers (tap: arm, M: mute, hold: wipe) and SEQ LINK on
 // the left; the scrolling 4-lane tape window (drag to scratch), transport
@@ -366,6 +371,7 @@ float ui_sampler_slider(int x, int m);  // slider m's value for a touch at x
 int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
 int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
 bool ui_in_fx_pad(int x, int y);
+int ui_hit_fx_auto(int x, int y);  // an automation step cell, or -1
 bool ui_hit_songs_button(int x, int y);  // on the SOUND page
 // MIX page: a MixHit (knobs offset by MixKnob), and the strip it is on.
 int ui_hit_mix(int x, int y, int *strip);

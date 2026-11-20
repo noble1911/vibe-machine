@@ -1038,9 +1038,30 @@ static void draw_fx_pad(const AppState *app) {
     }
 }
 
+// FX automation: what each step of the pattern does to the FX, along the
+// bottom of the pad.
+static void draw_fx_auto(const AppState *app) {
+    const Theme *t = ui_theme();
+    const SeqPattern *p = &app->pattern;
+    bool any = false;
+    for (int s = 0; s < SEQ_STEPS; s++) any |= p->fx[s] != 0;
+    if (!any && !app->seq.recording) return;
+    for (int s = 0; s < SEQ_STEPS; s++) {
+        const float x = FX_AUTO_X0 + s * FX_AUTO_PITCH;
+        const int k1 = p->fx[s];
+        const bool now = app->seq.playing && app->seq.step == s;
+        sh_rect(x + 0.5f, FX_AUTO_Y, FX_AUTO_PITCH - 1.5f, FX_AUTO_H,
+                k1 ? rgba(t->pal[k1 % THEME_PALETTE], 0xFF) : rgba(t->ink, (s & 3) == 0 ? 0x30 : 0x18));
+        if (now) sh_rect(x + 0.5f, FX_AUTO_Y - 3, FX_AUTO_PITCH - 1.5f, 2, rgba(t->ink, 0xFF));
+    }
+    if (app->seq.recording && app->seq.playing)
+        ui_text(FX_PAD_X + FX_PAD_W - 6, FX_PAD_Y + 4, 0.34f, rgba(t->pal[0], 0xFF), C2D_AlignRight, "REC MOVES");
+}
+
 static void draw_fx_page(const AppState *app) {
     draw_fx_stickers(app);
     draw_fx_pad(app);
+    draw_fx_auto(app);
 }
 
 // -------------------------------------------------------- TAPE page ----

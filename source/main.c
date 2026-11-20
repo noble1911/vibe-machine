@@ -1262,6 +1262,44 @@ static void fx_pad_release(void) {
     }
 }
 
+// FX automation. Recording (the sequencer's ● on, playing): wherever the pad
+// is held, the effect and its position go into the steps passing by.
+// Playing: each step's recorded move is applied, and the effect it turned
+// on is let go at the next step without one. Your stylus always wins.
+static int s_auto_fx = -1;  // the FxKind automation turned on, or -1
+static int s_auto_step = -1;
+
+static void auto_release(void) {
+    const int k = s_auto_fx;
+    if (k >= 0 && !s_app.fx_latched[k] && !(s_touch == TOUCH_FX_PAD && s_app.fx_sel == k))
+        fx_set((FxKind)k, false, s_app.fx_x[k], s_app.fx_y[k]);
+    s_auto_fx = -1;
+}
+
+static void fx_automation(void) {
+    const SeqStatus *st = &s_app.seq;
+    if (!st->playing) {
+        auto_release();
+        s_auto_step = -1;
+        return;
+    }
+    const bool held = s_touch == TOUCH_FX_PAD;
+    const int step = st->step, k = s_app.fx_sel;
+    if (st->recording && held) seq_set_fx(step, k + 1, s_app.fx_x[k], s_app.fx_y[k]);
+    if (step == s_auto_step) return;
+    s_auto_step = step;
+    if (held) return;
+    const SeqPattern *p = &s_app.pattern;
+    if (p->fx[step]) {
+        const int kk = p->fx[step] - 1;
+        if (s_auto_fx >= 0 && s_auto_fx != kk) auto_release();
+        fx_set((FxKind)kk, true, p->fx_x[step] / 255.0f, p->fx_y[step] / 255.0f);
+        s_auto_fx = kk;
+    } else {
+        auto_release();
+    }
+}
+
 static void fx_sticker(int hit) {
     if (hit == FX_HIT_HOLD) {
         s_app.fx_hold = !s_app.fx_hold;
@@ -1711,9 +1749,12 @@ static void touch_begin(int x, int y) {
         return;
     }
     if (s_app.page == PAGE_FX) {
-        int hit = ui_hit_fx_sticker(x, y);
+        int hit = ui_hit_fx_sticker(x, y), step = ui_hit_fx_auto(x, y);
         if (hit >= 0) {
             fx_sticker(hit);
+            s_touch = TOUCH_IGNORE;
+        } else if (step >= 0 && s_app.pattern.fx[step]) {  // tap a recorded step: erase it
+            seq_set_fx(step, 0, 0.0f, 0.0f);
             s_touch = TOUCH_IGNORE;
         } else {
             s_touch = ui_in_fx_pad(x, y) ? TOUCH_FX_PAD : TOUCH_IGNORE;
@@ -2210,6 +2251,7 @@ int main(void) {
         update_lit_keys();
         mix_update();
         if (s_app.smp_flash_frames > 0) s_app.smp_flash_frames--;
+        fx_automation();
         mixdown_tick();
 
         AudioStats stats = audio_out_stats();

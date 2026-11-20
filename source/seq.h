@@ -50,6 +50,9 @@ typedef struct {
     uint16_t accents;          // bit s = step s is accented
     uint8_t count;             // notes in use
     SeqRollNote notes[SEQ_NOTES];
+    // FX automation: the FX page's pad, recorded per step. fx[s] is 0 for
+    // nothing, else FxKind + 1; fx_x / fx_y its position (0..255).
+    uint8_t fx[SEQ_STEPS], fx_x[SEQ_STEPS], fx_y[SEQ_STEPS];
 } SeqPattern;
 
 // The song's arrangement (SONG mode): rows played in order, each a slot
@@ -125,6 +128,9 @@ int seq_roll_add(int part, int step, int pitch, int len, int vel);  // index, or
 void seq_roll_set(int index, int step, int pitch, int len);
 void seq_roll_remove(int index);
 void seq_roll_set_vel(int index, int vel);  // 1..255
+// FX automation on `step` of the current slot: kind1 = FxKind + 1, or 0 to
+// erase; x, y 0..1.
+void seq_set_fx(int step, int kind1, float x, float y);
 // The part's note covering (step, pitch), i.e. starting at or before step
 // and still sounding there; -1 if none.
 int seq_roll_find(int part, int step, int pitch);
