@@ -9,6 +9,11 @@ animated graphics, built to fit the original 3DS.
 > the buttons and touchscreen, with chords, drums, four effect sliders, a
 > live waveform and a DSP load meter. No sequencer or tape yet.
 
+**The look:** 90s vaporwave. A striped sunset over wireframe mountains and a
+neon grid that speeds up as you play louder; every note launches spinning
+triangles; Win95-style windows and bevelled keys. Turn up the **3D slider**:
+the sun sits deep behind the screen and the triangles fly out of it.
+
 Sound comes from [AMY](https://github.com/shorepine/amy), a fixed-point
 synthesis library (MIT) that also runs on the ESP32 and RP2040.
 

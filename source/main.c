@@ -54,6 +54,7 @@ static void source_press(int src, int key) {
     h->count = music_key_notes(key, s_app.mode, s_app.octave, h->notes);
     float velocity = s_app.mode == PLAY_DRUM ? 1.0f : 0.8f;
     for (int i = 0; i < h->count; i++) engine_note_on(h->synth, h->notes[i], velocity);
+    ui_key_struck(key, s_app.mode);
 }
 
 static void release_all(void) {
@@ -126,10 +127,12 @@ static void update_lit_keys(void) {
 
 int main(void) {
     gfxInitDefault();
+    gfxSet3D(true);  // the top-screen scene has real depth; the slider scales it
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
     C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
     C2D_Prepare();
     C3D_RenderTarget *top = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
+    C3D_RenderTarget *top_right = C2D_CreateScreenTarget(GFX_TOP, GFX_RIGHT);
     C3D_RenderTarget *bottom = C2D_CreateScreenTarget(GFX_BOTTOM, GFX_LEFT);
     ui_init();
 
@@ -146,7 +149,7 @@ int main(void) {
     s_app.audio_ok = audio_out_init();
 
     hidSetRepeatParameters(18, 5);
-    u32 bg = C2D_Color32(0x12, 0x14, 0x1B, 0xFF);
+    u32 bg = C2D_Color32(0x12, 0x0A, 0x2A, 0xFF);
     int16_t scope[SCOPE_POINTS];
 
     while (aptMainLoop()) {
@@ -161,11 +164,18 @@ int main(void) {
         AudioStats stats = audio_out_stats();
         audio_out_scope(scope);
 
+        ui_update(&s_app, &stats);
+        float depth = osGet3DSliderState();
+
         C3D_FrameBegin(C3D_FRAME_SYNCDRAW);
-        ui_begin_frame();
         C2D_TargetClear(top, bg);
         C2D_SceneBegin(top);
-        ui_draw_top(&s_app, &stats, scope);
+        ui_draw_top(&s_app, &stats, scope, -depth);
+        if (depth > 0.0f) {
+            C2D_TargetClear(top_right, bg);
+            C2D_SceneBegin(top_right);
+            ui_draw_top(&s_app, &stats, scope, depth);
+        }
         C2D_TargetClear(bottom, bg);
         C2D_SceneBegin(bottom);
         ui_draw_bottom(&s_app);

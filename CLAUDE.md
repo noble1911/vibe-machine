@@ -44,5 +44,10 @@ uploads `clamshell.3dsx` as an artifact; `v*` tags publish a release.
   but needs an upstream change to AMY (`AMY_SAMPLE_RATE` cannot currently be
   overridden).
 - LOAD numbers from Azahar are not real-hardware numbers.
+- Visual style is 90s vaporwave: palette and helpers live in
+  `source/ui_style.h`. The top screen is stereoscopic; give every new layer
+  a depth constant in `ui_top.c` (positive = behind the screen).
+- Avoid citro2d's ellipse/circle primitive for large shapes: it fails to
+  draw at large radii in Azahar. Build big round shapes as triangle fans.
 - Original visual design only: no copying another product's graphics,
   characters or names.
