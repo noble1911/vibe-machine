@@ -201,7 +201,8 @@ static void draw_songs_page(const AppState *app) {
         sh_floppy(SONG_LIST_X + 4, y + 4, 14, rgba(t->pal[(i + 1) % THEME_PALETTE], 0xFF), rgba(t->card, 0xFF), ink);
         const uint32_t txt = ink_on(t, face);
         ui_text(SONG_LIST_X + 24, y + 3, 0.42f, rgba(txt, 0xFF), 0, "%s%s", s->name, cur ? " <" : "");
-        ui_text(SONG_LIST_X + SONG_LIST_W - 5, y + 5, 0.32f, rgba(txt, 0xB0), C2D_AlignRight, "%d BPM  %dP", s->bpm, s->patterns);
+        if (s->bpm >= 0)
+            ui_text(SONG_LIST_X + SONG_LIST_W - 5, y + 5, 0.32f, rgba(txt, 0xB0), C2D_AlignRight, "%d BPM  %dP", s->bpm, s->patterns);
     }
     // Scroll stickers (dimmed at either end).
     const bool up = app->song_scroll > 0, down = app->song_scroll + SONG_ROWS < app->song_count;
@@ -216,8 +217,7 @@ static void draw_songs_page(const AppState *app) {
         const u32 txt = rgba(ink_on(t, t->pal[0]), 0xFF);
         ui_text(SONG_CONFIRM_X + SONG_CONFIRM_W / 2.0f, SONG_CONFIRM_Y + 6, 0.45f, txt, C2D_AlignCenter, "REPLACE");
         ui_text(SONG_CONFIRM_X + SONG_CONFIRM_W / 2.0f, SONG_CONFIRM_Y + 22, 0.5f, txt, C2D_AlignCenter, "%s?", app->confirm_name);
-        ui_text(SONG_CONFIRM_X + SONG_CONFIRM_W / 2.0f, SONG_CONFIRM_Y + 42, 0.36f, txt, C2D_AlignCenter,
-                "hold here to replace, tap elsewhere to cancel");
+        ui_text(SONG_CONFIRM_X + SONG_CONFIRM_W / 2.0f, SONG_CONFIRM_Y + 42, 0.36f, txt, C2D_AlignCenter, "hold to replace");
         if (app->song_hold == SONG_HIT_CONFIRM && app->song_hold_t > 0.0f)
             sh_rect(SONG_CONFIRM_X + 3, SONG_CONFIRM_Y + SONG_CONFIRM_H - 7, (SONG_CONFIRM_W - 6) * app->song_hold_t, 4, ink);
     }
@@ -792,7 +792,7 @@ void ui_draw_bottom(const AppState *app) {
     for (int k = 0; k < MUSIC_KEYS; k++) draw_key(app, k);
     if (app->notice_frames > 0 && !app->busy) {  // something went wrong (or needs saying)
         sh_card(40, 84, 240, 40, rgba(t->pal[0], 0xFF), rgba(t->ink, 0xFF), 4);
-        ui_text(160, 95, 0.5f, rgba(ink_on(t, t->pal[0]), 0xFF), C2D_AlignCenter, "%s", app->notice);
+        ui_text(160, 96, 0.45f, rgba(ink_on(t, t->pal[0]), 0xFF), C2D_AlignCenter, "%s", app->notice);
     }
     if (app->busy) {  // a slow job is about to run: say so
         sh_card(70, 80, 180, 50, rgba(t->pal[1], 0xFF), rgba(t->ink, 0xFF), 4);

@@ -17,6 +17,8 @@
 typedef struct {
     char name[17];  // the song this state belongs to ("" = unnamed)
     bool unsaved;   // the song had changes not yet saved to its folder (autosave only)
+    uint8_t tape_changed;  // bit t: tape track t changed since the song was loaded/saved
+    bool mic_changed;      // the MIC take changed since then
     int theme;
     int sound;
     int patch;

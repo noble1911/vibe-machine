@@ -17,7 +17,7 @@
 
 typedef struct {
     char name[SONG_NAME_MAX + 1];
-    int bpm;
+    int bpm;       // -1 until song_info() has read it
     int patterns;  // filled pattern slots
 } SongInfo;
 
@@ -35,4 +35,7 @@ bool song_exists(const char *root, const char *name);
 // Removes the song's files and folder.
 bool song_delete(const char *root, const char *name);
 // Fills `out` with up to `max` songs, sorted by name. Returns the count.
-int song_list(const char *root, SongInfo *out, int max);
+// With with_info false only names are read (fast); fill in tempo and
+// pattern count later, for the rows on screen, with song_info().
+int song_list(const char *root, SongInfo *out, int max, bool with_info);
+bool song_info(const char *root, SongInfo *s);

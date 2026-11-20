@@ -26,7 +26,7 @@ int main(void) {
     const char *root = "build/songs";
     mkdir("build", 0777);
     SongInfo list[SONGS_MAX];
-    int n = song_list(root, list, SONGS_MAX);
+    int n = song_list(root, list, SONGS_MAX, true);
     for (int i = 0; i < n; i++) song_delete(root, list[i].name);  // start clean
 
     char name[SONG_NAME_MAX + 1];
@@ -57,7 +57,7 @@ int main(void) {
 
     SaveState a = make(120, 3, "ZEBRA DISCO"), b = make(90, 1, "ACID TAPE 4");
     check(song_save_state(root, "ZEBRA DISCO", &a) && song_save_state(root, "ACID TAPE 4", &b), "two songs save");
-    n = song_list(root, list, SONGS_MAX);
+    n = song_list(root, list, SONGS_MAX, true);
     check(n == 2 && strcmp(list[0].name, "ACID TAPE 4") == 0 && strcmp(list[1].name, "ZEBRA DISCO") == 0,
           "the list is sorted by name");
     check(list[1].bpm == 120 && list[1].patterns == 3 && list[0].patterns == 1, "each entry knows its tempo and patterns");
@@ -66,7 +66,7 @@ int main(void) {
     check(song_load_state(root, "ZEBRA DISCO", &back) && memcmp(&back, &a, sizeof(a)) == 0, "a song loads back exactly");
     SaveState a2 = make(150, 2, "ZEBRA DISCO");
     song_save_state(root, "ZEBRA DISCO", &a2);
-    n = song_list(root, list, SONGS_MAX);
+    n = song_list(root, list, SONGS_MAX, true);
     check(n == 2 && list[1].bpm == 150, "saving under the same name overwrites it");
 
     char wav[160];
@@ -75,7 +75,7 @@ int main(void) {
     fputs("x", f);
     fclose(f);
     check(song_delete(root, "ACID TAPE 4") && !song_exists(root, "ACID TAPE 4"), "delete removes the song and its tapes");
-    n = song_list(root, list, SONGS_MAX);
+    n = song_list(root, list, SONGS_MAX, true);
     check(n == 1, "the list no longer shows it");
 
     // More songs than a directory read would return in one go, and more than
@@ -86,7 +86,7 @@ int main(void) {
         SaveState st = make(100 + i, 1, nm);
         song_save_state(root, nm, &st);
     }
-    n = song_list(root, list, SONGS_MAX);
+    n = song_list(root, list, SONGS_MAX, true);
     int sorted = 1;
     for (int i = 1; i < n; i++) sorted &= strcmp(list[i - 1].name, list[i].name) < 0;
     check(n == 71 && sorted && strcmp(list[n - 1].name, "ZEBRA DISCO") == 0, "71 songs are all listed, in order");

@@ -9,7 +9,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 4  // 2: eight pattern slots, accents, song, swing; 3: song name; 4: unsaved flag
+#define VERSION 5  // 2: slots, accents, song, swing; 3: song name; 4: unsaved; 5: changed audio
 #define MAX_PAYLOAD 2048
 
 typedef struct {
@@ -84,8 +84,10 @@ static void encode(Writer *w, const SaveState *st) {
     put(w, &st->swing, sizeof(st->swing));
     for (int i = 0; i < SEQ_SLOTS; i++) put_pattern(w, &st->slots[i]);
     put(w, st->name, sizeof(st->name));
-    uint8_t unsaved = st->unsaved;
+    uint8_t unsaved = st->unsaved, mic = st->mic_changed;
     put(w, &unsaved, 1);
+    put(w, &st->tape_changed, 1);
+    put(w, &mic, 1);
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -125,6 +127,12 @@ static void decode(Reader *r, SaveState *st, int version) {
         uint8_t unsaved;
         get(r, &unsaved, 1);
         st->unsaved = unsaved != 0;
+    }
+    if (version >= 5) {
+        uint8_t mic;
+        get(r, &st->tape_changed, 1);
+        get(r, &mic, 1);
+        st->mic_changed = mic != 0;
     }
 }
 

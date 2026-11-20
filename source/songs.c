@@ -93,7 +93,23 @@ typedef struct {
 
 static int by_plain_name(const void *a, const void *b) { return strcmp(((const Name *)a)->name, ((const Name *)b)->name); }
 
-int song_list(const char *root, SongInfo *out, int max) {
+bool song_info(const char *root, SongInfo *s) {
+    SaveState st;
+    if (!song_load_state(root, s->name, &st)) return false;
+    s->bpm = st.bpm;
+    s->patterns = 0;
+    for (int i = 0; i < SEQ_SLOTS; i++) {
+        const SeqPattern *p = &st.slots[i];
+        for (int k = 0; k < SEQ_STEPS; k++)
+            if (p->drums[k] || p->synth[k].count) {
+                s->patterns++;
+                break;
+            }
+    }
+    return true;
+}
+
+int song_list(const char *root, SongInfo *out, int max, bool with_info) {
     // Gather every song folder first, sort, and only then keep the first
     // `max`: stopping at `max` in directory order would hide arbitrary songs.
     DIR *d = opendir(root);
@@ -118,20 +134,12 @@ int song_list(const char *root, SongInfo *out, int max) {
     qsort(names, (size_t)count, sizeof(Name), by_plain_name);
     int n = 0;
     for (int k = 0; k < count && n < max; k++) {
-        SaveState st;
-        if (!song_load_state(root, names[k].name, &st)) continue;
-        SongInfo *s = &out[n++];
+        SongInfo *s = &out[n];
         strcpy(s->name, names[k].name);
-        s->bpm = st.bpm;
+        s->bpm = -1;
         s->patterns = 0;
-        for (int i = 0; i < SEQ_SLOTS; i++) {
-            const SeqPattern *p = &st.slots[i];
-            for (int k = 0; k < SEQ_STEPS; k++)
-                if (p->drums[k] || p->synth[k].count) {
-                    s->patterns++;
-                    break;
-                }
-        }
+        if (with_info && !song_info(root, s)) continue;  // not a readable song
+        n++;
     }
     free(names);
     return n;
