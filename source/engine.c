@@ -5,6 +5,9 @@
 #include <3ds.h>
 
 #include "amy.h"
+#include "sounds.h"
+
+#include <stdio.h>
 
 static LightLock s_lock;
 
@@ -75,6 +78,36 @@ void engine_set_patch(int patch) {
     e.num_voices = LEAD_VOICES;
     e.patch_number = (uint16_t)patch;
     send_locked(&e);
+}
+
+static void wire_locked(const char *msg) {
+    char buf[512];  // amy_add_message wants a mutable string
+    snprintf(buf, sizeof(buf), "%s", msg);
+    LightLock_Lock(&s_lock);
+    amy_add_message(buf);
+    LightLock_Unlock(&s_lock);
+}
+
+void engine_load_sound(int sound, int patch) {
+    const Sound *s = sound_get(sound);
+    char msg[512];
+    if (s->kind == SOUND_BANK) {
+        amy_event e = amy_default_event();
+        e.synth = SYNTH_LEAD;
+        e.num_voices = (uint16_t)s->voices;
+        e.patch_number = (uint16_t)patch;
+        send_locked(&e);
+    } else {
+        snprintf(msg, sizeof(msg), "i%div%du%s", SYNTH_LEAD, s->voices, s->patch);
+        wire_locked(msg);
+    }
+    snprintf(msg, sizeof(msg), "i%diV%.2f", SYNTH_LEAD, s->level);
+    wire_locked(msg);
+}
+
+void engine_set_macro(int sound, int m, float value) {
+    char msg[128];
+    if (sound_macro_wire(sound, m, value, msg, sizeof(msg))) wire_locked(msg);
 }
 
 void engine_set_param(EngineParam param, float v) {

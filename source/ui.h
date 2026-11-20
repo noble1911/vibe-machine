@@ -17,13 +17,12 @@
 #define BOTTOM_W 320
 #define BOTTOM_H 240
 
-// Bottom screen, both pages: a tab row at the top...
+// Bottom screen, every page: a row of four icon tabs at the top...
 #define TAB_Y 2
 #define TAB_H 18
-#define TAB_SOUND_X 4
-#define TAB_SOUND_W 56
-#define TAB_SEQ_X 64
-#define TAB_SEQ_W 44
+#define TAB_X0 2
+#define TAB_W 28
+#define TAB_PITCH 30
 // ...and the eight-key strip at the bottom.
 #define KEYS_Y0 166
 #define KEYS_H 66
@@ -43,15 +42,16 @@
 
 // SEQ page: transport stickers in the tab row, then the step grid
 // (one synth row above eight drum lanes).
-#define SEQ_PLAY_X 114
-#define SEQ_REC_X 152
-#define SEQ_BTN_W 34
-#define SEQ_BPM_DOWN_X 190
-#define SEQ_BPM_VALUE_X 210
-#define SEQ_BPM_UP_X 254
-#define SEQ_BPM_BTN_W 18
-#define SEQ_CLEAR_X 278
-#define SEQ_CLEAR_W 38
+#define SEQ_PLAY_X 126
+#define SEQ_REC_X 160
+#define SEQ_BTN_W 30
+#define SEQ_BPM_DOWN_X 194
+#define SEQ_BPM_VALUE_X 212
+#define SEQ_BPM_VALUE_W 34
+#define SEQ_BPM_UP_X 248
+#define SEQ_BPM_BTN_W 16
+#define SEQ_CLEAR_X 270
+#define SEQ_CLEAR_W 46
 #define SEQ_GRID_X 22
 #define SEQ_CELL_W 18
 #define SEQ_SYNTH_Y 27
@@ -59,6 +59,39 @@
 #define SEQ_DRUM_Y 48
 #define SEQ_DRUM_PITCH 13
 #define SEQ_DRUM_H 12
+
+// SYNTH page: a 3x3 grid of sound tiles, and the pad (an XY creature pad
+// for CUSTOM sounds, a 16x8 patch-dot grid for BANK sounds).
+#define SYN_TILE_X0 4
+#define SYN_TILE_Y0 26
+#define SYN_TILE_W 32
+#define SYN_TILE_H 42
+#define SYN_TILE_PITCH_X 34
+#define SYN_TILE_PITCH_Y 44
+#define SYN_PAD_X 110
+#define SYN_PAD_Y 26
+#define SYN_PAD_W 206
+#define SYN_PAD_H 132
+#define BANK_COLS 16
+#define BANK_ROWS 8
+#define BANK_X0 (SYN_PAD_X + 6)
+#define BANK_Y0 (SYN_PAD_Y + 18)
+#define BANK_CELL_W 12
+#define BANK_CELL_H 13
+
+// FX page: four effect stickers and HOLD on the left, the pad on the right.
+#define FX_STICK_X 4
+#define FX_STICK_W 72
+#define FX_STICK_Y0 26
+#define FX_STICK_H 24
+#define FX_STICK_PITCH 27
+#define FX_HOLD_Y 136
+#define FX_HOLD_H 22
+#define FX_PAD_X 82
+#define FX_PAD_Y 26
+#define FX_PAD_W 234
+#define FX_PAD_H 132
+#define FX_HIT_HOLD FX_COUNT  // ui_hit_fx_sticker() result for HOLD
 
 typedef enum {
     SEQ_BTN_NONE = -1,
@@ -97,5 +130,13 @@ int ui_hit_tab(int x, int y);  // a Page, or -1
 SeqButton ui_hit_seq_button(int x, int y);
 // row 0 is the synth row, rows 1..8 are drum lanes 0..7.
 bool ui_hit_seq_cell(int x, int y, int *step, int *row);
+int ui_hit_sound_tile(int x, int y);
+bool ui_in_synth_pad(int x, int y);
+int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
+int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
+bool ui_in_fx_pad(int x, int y);
+// Normalised position on a pad (clamped; y is 0 at the bottom, 1 at the top).
+void ui_synth_pad_pos(int x, int y, float *nx, float *ny);
+void ui_fx_pad_pos(int x, int y, float *nx, float *ny);
 // Slider value (0..1) for a touch at height y.
 float ui_slider_value(int y);

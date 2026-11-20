@@ -11,6 +11,7 @@
 #include <string.h>
 
 #include "engine.h"
+#include "fx.h"
 #include "seq.h"
 
 #define CHANNEL 0
@@ -80,7 +81,11 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
         const int16_t *block = engine_render_block();
         uint64_t t1 = svcGetSystemTick();
         memcpy(dst, block, (size_t)frames * 2 * sizeof(int16_t));
-        record_block(block, frames, t1 - t0);
+        fx_process(dst, frames);  // performance FX on the master
+        record_block(dst, frames, t1 - t0);
+#ifdef VM_DEMO
+        memset(dst, 0, (size_t)frames * 2 * sizeof(int16_t));  // attract mode: scope moves, speakers stay quiet
+#endif
         dst += frames * 2;
     }
     DSP_FlushDataCache(wb->data_pcm16, (u32)s_frames_per_wavebuf * 2 * sizeof(int16_t));
@@ -115,6 +120,7 @@ bool audio_out_init(void) {
     LightEvent_Init(&s_event, RESET_ONESHOT);
     s_peak_window_start = svcGetSystemTick();
 
+    fx_init(engine_sample_rate());
     if (R_FAILED(ndspInit())) return false;
 
     ndspSetOutputMode(NDSP_OUTPUT_STEREO);

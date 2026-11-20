@@ -16,6 +16,7 @@
 #include "motif.h"
 #include "patch_names.h"
 #include "shapes.h"
+#include "sounds.h"
 #include "ui.h"
 #include "ui_style.h"
 
@@ -45,6 +46,8 @@ static Motif s_burst[MAX_BURST];
 static Rng s_rng = {0xBEEFu};
 static float s_level;
 static unsigned s_frame;
+static float s_anim;      // scene clock: runs at tape speed, stops while stuttering
+static float s_time_acc;  // whole motion steps owed at the current speed
 static int s_toast;
 static bool s_started;
 
@@ -97,6 +100,7 @@ static void spawn_burst(float x, float y, float speed, float size_lo, float size
 }
 
 void ui_key_struck(int key, PlayMode mode) {
+    ui_bump_kick();
     float x = TOP_W * (key + 1) / (float)(MUSIC_KEYS + 1);
     bool drum = mode == PLAY_DRUM;
     int n = drum ? 5 : mode == PLAY_CHORD ? 4 : 3;
@@ -104,6 +108,7 @@ void ui_key_struck(int key, PlayMode mode) {
 }
 
 void ui_seq_struck(int key, bool drum) {
+    ui_bump_kick();
     float x = TOP_W * (key + 1) / (float)(MUSIC_KEYS + 1);
     for (int i = 0; i < 2; i++) spawn_burst(x, 160.0f, drum ? 1.1f : 0.9f, 6.0f, drum ? 13.0f : 11.0f);
 }
@@ -113,13 +118,21 @@ void ui_top_update(const AppState *app, const AudioStats *stats) {
     s_level = s_level * 0.8f + stats->level * 0.2f;
     if (s_toast > 0) s_toast--;
 
-    for (int i = 0; i < BIG_TRIS; i++) s_big[i].angle += s_big[i].spin;
-    for (int i = 0; i < TOP_MOTIFS; i++) motif_step(&s_motifs[i], TOP_W, TOP_H);
-    for (int i = 0; i < MAX_BURST; i++)
-        if (s_burst[i].life > 0) motif_step(&s_burst[i], TOP_W, TOP_H);
+    // The scene obeys the time effects: STUTTER freezes it, TAPE slows it
+    // down with the tape. Motion runs in whole steps owed to the clock.
+    float speed = app->fx.on[FX_STUTTER] ? 0.0f : app->fx.tape_speed;
+    s_anim += speed;
+    s_time_acc += speed;
+    while (s_time_acc >= 1.0f) {
+        s_time_acc -= 1.0f;
+        for (int i = 0; i < BIG_TRIS; i++) s_big[i].angle += s_big[i].spin;
+        for (int i = 0; i < TOP_MOTIFS; i++) motif_step(&s_motifs[i], TOP_W, TOP_H);
+        for (int i = 0; i < MAX_BURST; i++)
+            if (s_burst[i].life > 0) motif_step(&s_burst[i], TOP_W, TOP_H);
+    }
 
     // A lazy ambient drift keeps the screen alive in silence.
-    if (s_frame % 50 == 0) spawn_burst(rng_f(&s_rng) * TOP_W, 162.0f, 0.4f, 6.0f, 11.0f);
+    if (speed > 0.5f && s_frame % 50 == 0) spawn_burst(rng_f(&s_rng) * TOP_W, 162.0f, 0.4f, 6.0f, 11.0f);
 }
 
 // --------------------------------------------------------- prism scene ----
@@ -147,7 +160,7 @@ static void draw_prism(float eye) {
 
     // Scanline bands drift down the screen.
     for (int i = 0; i < 3; i++) {
-        float y = fmodf(i * 90.0f + s_frame * (0.2f + 0.1f * i), TOP_H + 40.0f) - 30.0f;
+        float y = fmodf(i * 90.0f + s_anim * (0.2f + 0.1f * i), TOP_H + 40.0f) - 30.0f;
         sh_scanlines(0, y, TOP_W, 30, 3, 1, rgba(t->fleck, 0x38));
     }
     sh_speckles(shift(eye, DEPTH_NEAR), 0, TOP_W, TOP_H, 70, 0xF1EC5u + ui_theme_index(), rgba(t->fleck, 0xA0));
@@ -217,7 +230,7 @@ static void draw_sunset(float eye) {
     for (int i = -12; i <= 12; i++)
         C2D_DrawLine(TOP_W / 2.0f + i * 12.0f + far_dx, HORIZON, rail, TOP_W / 2.0f + i * 64.0f, TOP_H, rail, 1.2f,
                      0.5f);
-    float phase = fmodf(s_frame * 0.006f + s_level * 0.5f, 1.0f);
+    float phase = fmodf(s_anim * 0.006f + s_level * 0.5f, 1.0f);
     for (int j = 0; j < 9; j++) {
         float tt = (j + phase) / 9.0f, y = HORIZON + (TOP_H - HORIZON) * tt * tt, dx = far_dx * (1.0f - tt);
         u32 c = rgba(VW_CYAN, (uint8_t)(60 + 180 * tt));
@@ -330,15 +343,29 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     sh_card(wx, wy, ww, wh, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 3);
     sh_rect(wx + 2, wy + 2, ww - 4, 13, rgba(t->pal[0], 0xFF));
     sh_zigzag(wx + ww - 40, wy + 8.5f, 60, 2.5f, 0, 1.6f, 10, rgba(ink_on(t, t->pal[0]), 0x90));
-    const char *bank = app->patch < 128 ? "JUNO" : "DX7";
-    ui_text(wx + 6, wy + 1, 0.4f, rgba(ink_on(t, t->pal[0]), 0xFF), 0, "%s_%03d.PAT", bank, app->patch);
-    uint32_t text = ink_on(t, t->card);
-    ui_text(wx + 8, wy + 16, 0.58f, rgba(text, 0xFF), 0, "%s", patch_names[app->patch - PATCH_FIRST]);
-    ui_text(wx + 8, wy + 33, 0.36f, rgba(text, 0xB0), 0, "L chord  R drums  PAD patch/oct  SELECT bank  START play  hold START quit");
-    // Little stickers on the card's corner.
-    sh_tri(wx + ww - 22, wy + 31, 9, s_frame * 0.02f, rgba(t->pal[1], 0xFF));
-    sh_circle(wx + ww - 40, wy + 34, 5, rgba(t->pal[3], 0xFF));
-    sh_bolt(wx + ww - 56, wy + 31, 16, 0.3f, rgba(t->pal[4], 0xFF));
+    const Sound *snd = sound_get(app->sound);
+    const uint32_t bar = ink_on(t, t->pal[0]), text = ink_on(t, t->card);
+    if (snd->kind == SOUND_BANK) {
+        ui_text(wx + 6, wy + 1, 0.4f, rgba(bar, 0xFF), 0, "%s_%03d.PAT", snd->name, app->patch - snd->bank_first);
+        ui_text(wx + 8, wy + 16, 0.58f, rgba(text, 0xFF), 0, "%s", patch_names[app->patch - PATCH_FIRST]);
+    } else {
+        ui_text(wx + 6, wy + 1, 0.4f, rgba(bar, 0xFF), 0, "%s.SYN", snd->name);
+        ui_text(wx + 8, wy + 16, 0.58f, rgba(text, 0xFF), 0, "%s  %s %d  %s %d", snd->name, snd->macro_name[0],
+                (int)(app->macro[0] * 100 + 0.5f), snd->macro_name[1], (int)(app->macro[1] * 100 + 0.5f));
+    }
+    ui_text(wx + 8, wy + 33, 0.36f, rgba(text, 0xB0), 0,
+            "L chord  R drums  PAD sound/oct  SELECT next sound  START play  hold START quit");
+    // The sound's mascot rides on the card and squishes on every note.
+    Motif mascot = {0};
+    mascot.kind = snd->motif;
+    mascot.x = wx + ww - 24;
+    mascot.y = wy + 28;
+    mascot.size = 11.0f * (1.0f + ui_bump() * 0.3f);
+    mascot.angle = -1.5708f + sinf(s_frame * 0.05f) * 0.15f;
+    mascot.rgb = t->pal[(app->sound + 1) % THEME_PALETTE];
+    mascot.seed = (uint32_t)app->sound * 31u + 7u;
+    motif_draw(&mascot, 0, 1.0f, 0xFF, t->ink, 2.0f);
+    sh_eyes(mascot.x, mascot.y, 2.6f, sinf(s_frame * 0.03f) * 0.8f, 0, (s_frame % 190) < 6, rgba(t->ink, 0xFF));
 
     if (s_toast > 0) {
         int age = TOAST_FRAMES - s_toast;
@@ -362,6 +389,36 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     }
 }
 
+// The scene's reaction to the FX page (drawn over the scene, under the HUD).
+static void draw_fx_overlay(const AppState *app) {
+    const Theme *t = ui_theme();
+    const FxState *fx = &app->fx;
+    if (fx->on[FX_SWEEP]) {
+        float x = fx->x[FX_SWEEP];
+        if (x < 0.48f)  // low-pass: the lights go down
+            sh_rect(0, 0, TOP_W, TOP_H, rgba(t->ink, (uint8_t)((0.48f - x) / 0.48f * 0xB0)));
+        else if (x > 0.52f)  // high-pass: a bright, thin flash
+            sh_rect(0, 0, TOP_W, TOP_H, rgba(0xFFFFFF, (uint8_t)((x - 0.52f) / 0.48f * 0x70)));
+    }
+    if (fx->on[FX_CRUSH]) {  // pixelate: a flickering mosaic, chunkier with RATE
+        float cell = 6.0f + fx->x[FX_CRUSH] * 18.0f;
+        Rng r = {(s_frame / 3) * 2654435761u + 1u};
+        for (float y = 0; y < TOP_H; y += cell)
+            for (float x = 0; x < TOP_W; x += cell)
+                if (rng_f(&r) < 0.35f)
+                    sh_rect(x, y, cell, cell, rgba(t->pal[rng_int(&r, THEME_PALETTE)], (uint8_t)(0x20 + fx->y[FX_CRUSH] * 0x50)));
+    }
+    if (fx->on[FX_STUTTER]) {  // the frozen frame glitches in slices
+        Rng r = {(s_frame / 4) * 40503u + 7u};
+        for (int i = 0; i < 5; i++) {
+            float y = rng_f(&r) * TOP_H, h = 3 + rng_f(&r) * 12;
+            sh_rect(rng_range(&r, -30, 10), y, TOP_W + 20, h, rgba(t->pal[rng_int(&r, THEME_PALETTE)], 0x90));
+        }
+    }
+    if (fx->tape_speed < 1.0f)  // the tape winds down: everything dims with it
+        sh_rect(0, 0, TOP_W, TOP_H, rgba(t->ink, (uint8_t)((1.0f - fx->tape_speed) * 0xA0)));
+}
+
 void ui_draw_top(const AppState *app, const AudioStats *stats, const int16_t *scope, float eye) {
     if (ui_theme()->sunset)
         draw_sunset(eye);
@@ -369,5 +426,6 @@ void ui_draw_top(const AppState *app, const AudioStats *stats, const int16_t *sc
         draw_prism(eye);
     draw_scope(scope, eye);
     draw_bursts(eye);
+    draw_fx_overlay(app);
     draw_hud(app, stats);
 }

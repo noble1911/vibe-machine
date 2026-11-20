@@ -55,7 +55,12 @@ uploads `vibe-machine.3dsx` as an artifact; `v*` tags publish a release.
   behind the screen).
 - `make DEMO=1` builds a silent attract mode that cycles themes, handy for
   screenshots in Azahar. Never ship it.
-- Avoid citro2d's ellipse/circle primitive for large shapes: it fails to
-  draw at large radii in Azahar. Build big round shapes as triangle fans.
+- Never use citro2d's ellipse/circle primitive: it does not render in
+  Azahar at any size. `sh_circle()` draws triangle fans; use it.
+- New synth engines go in `sounds.c` as AMY patch strings. Run
+  `make -C tests`: the probe fails if a sound is silent or a macro has no
+  audible effect. AMY evaluates `mod0`/`mod1` once per block, so use
+  `ALGO` operators (not mod-source FM) for audio-rate FM.
+- `fx.c` must stay free of 3DS headers so `tests/fx_probe` can run it.
 - Original visual design only: no copying another product's graphics,
   characters or names.

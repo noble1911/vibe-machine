@@ -6,6 +6,7 @@
 #pragma once
 
 #include <citro2d.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 void sh_rect(float x, float y, float w, float h, u32 c);
@@ -31,6 +32,10 @@ void sh_blob(float x, float y, float r, uint32_t seed, u32 c);
 void sh_grid(float x, float y, float w, float h, float step, u32 c);
 void sh_scanlines(float x, float y, float w, float h, float spacing, float thick, u32 c);
 void sh_speckles(float x, float y, float w, float h, int n, uint32_t seed, u32 c);
+
+// A pair of googly eyes centred on (x, y). look_x/look_y (-1..1) aim the
+// pupils; blink draws them shut.
+void sh_eyes(float x, float y, float r, float look_x, float look_y, bool blink, u32 ink);
 
 // Sticker card: ink border plus a hard offset shadow (shadow 0 = none).
 void sh_card(float x, float y, float w, float h, u32 face, u32 ink, float shadow);

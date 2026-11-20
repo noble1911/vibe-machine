@@ -30,6 +30,11 @@ void engine_exit(void);
 void engine_note_on(int synth, int note, float velocity);
 void engine_note_off(int synth, int note);
 void engine_set_patch(int patch);
+// Load a sound from sounds.c onto the lead synth. For a BANK sound, `patch`
+// is the AMY patch number to use; CUSTOM sounds ignore it.
+void engine_load_sound(int sound, int patch);
+// Set macro m (0..1) of the CUSTOM sound currently loaded.
+void engine_set_macro(int sound, int m, float value);
 // value is normalised 0..1; the engine maps it to the real range.
 void engine_set_param(EngineParam param, float value);
 const char *engine_param_name(EngineParam param);

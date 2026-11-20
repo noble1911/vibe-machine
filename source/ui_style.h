@@ -19,6 +19,10 @@ float rgb_luma(uint32_t rgb);
 // Readable text colour on a face: white on dark faces, theme ink otherwise.
 uint32_t ink_on(const Theme *t, uint32_t face_rgb);
 
+// 0..1 pulse kicked by every note (live or sequenced); mascots squish on it.
+float ui_bump(void);
+void ui_bump_kick(void);
+
 const Theme *ui_theme(void);
 int ui_theme_index(void);
 

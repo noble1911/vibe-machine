@@ -43,7 +43,17 @@ typedef struct {
 } Held;
 
 // What the current touch is doing; decided when the stylus lands.
-typedef enum { TOUCH_NONE, TOUCH_IGNORE, TOUCH_SLIDER, TOUCH_KEYS, TOUCH_CELLS, TOUCH_BUTTON } TouchMode;
+typedef enum {
+    TOUCH_NONE,
+    TOUCH_IGNORE,
+    TOUCH_SLIDER,
+    TOUCH_KEYS,
+    TOUCH_CELLS,
+    TOUCH_BUTTON,
+    TOUCH_SYNTH_PAD,
+    TOUCH_BANK,
+    TOUCH_FX_PAD,
+} TouchMode;
 
 static Held s_held[NUM_SOURCES];
 static AppState s_app;
@@ -100,12 +110,77 @@ static void release_all(void) {
     for (int s = 0; s < NUM_SOURCES; s++) source_release(s);
 }
 
+// Juno patches carry their own EQ/chorus settings, so after any sound or
+// patch load the SOUND sliders are sent again to keep what's on screen true.
+static void reapply_params(void) {
+    for (int i = 0; i < PARAM_COUNT; i++) engine_set_param((EngineParam)i, s_app.params[i]);
+}
+
+static void set_macro(int m, float v) {
+    if (fabsf(v - s_app.macro[m]) < 0.01f) return;
+    s_app.macro[m] = v;
+    engine_set_macro(s_app.sound, m, v);
+}
+
+static void select_sound(int index) {
+    int n = sound_count();
+    index = ((index % n) + n) % n;
+    const Sound *snd = sound_get(index);
+    release_all();
+    s_app.sound = index;
+    if (snd->kind == SOUND_BANK) s_app.patch = snd->bank_first;
+    engine_load_sound(index, s_app.patch);
+    for (int m = 0; m < SOUND_MACROS; m++) {
+        s_app.macro[m] = snd->macro_default[m];
+        engine_set_macro(index, m, s_app.macro[m]);
+    }
+    reapply_params();
+}
+
+// Step through the current BANK sound's patches (wrapping inside the bank).
 static void change_patch(int patch) {
-    if (patch < PATCH_FIRST) patch = PATCH_LAST;
-    if (patch > PATCH_LAST) patch = PATCH_FIRST;
+    const Sound *snd = sound_get(s_app.sound);
+    if (snd->kind != SOUND_BANK) return;
+    int first = snd->bank_first, n = snd->bank_count;
+    patch = first + (((patch - first) % n) + n) % n;
     release_all();
     s_app.patch = patch;
-    engine_set_patch(patch);
+    engine_load_sound(s_app.sound, patch);
+    reapply_params();
+}
+
+static void fx_pad_move(float x, float y) {
+    int k = s_app.fx_sel;
+    s_app.fx_x[k] = x;
+    s_app.fx_y[k] = y;
+    fx_set((FxKind)k, true, x, y);
+}
+
+static void fx_pad_release(void) {
+    int k = s_app.fx_sel;
+    if (s_app.fx_hold) {
+        s_app.fx_latched[k] = true;  // HOLD keeps it running
+    } else {
+        fx_set((FxKind)k, false, s_app.fx_x[k], s_app.fx_y[k]);
+    }
+}
+
+static void fx_sticker(int hit) {
+    if (hit == FX_HIT_HOLD) {
+        s_app.fx_hold = !s_app.fx_hold;
+        if (!s_app.fx_hold)  // releasing HOLD lets go of everything it held
+            for (int k = 0; k < FX_COUNT; k++)
+                if (s_app.fx_latched[k]) {
+                    s_app.fx_latched[k] = false;
+                    fx_set((FxKind)k, false, s_app.fx_x[k], s_app.fx_y[k]);
+                }
+        return;
+    }
+    if (hit == s_app.fx_sel && s_app.fx_latched[hit]) {  // tap a held effect again: off
+        s_app.fx_latched[hit] = false;
+        fx_set((FxKind)hit, false, s_app.fx_x[hit], s_app.fx_y[hit]);
+    }
+    s_app.fx_sel = hit;
 }
 
 static void set_param(int i, float v) {
@@ -172,6 +247,33 @@ static void touch_begin(int x, int y) {
         s_touch = TOUCH_KEYS;
         return;
     }
+    if (s_app.page == PAGE_SYNTH) {
+        int tile = ui_hit_sound_tile(x, y);
+        if (tile >= 0) {
+            select_sound(tile);
+            s_touch = TOUCH_IGNORE;
+        } else if (ui_in_synth_pad(x, y)) {
+            if (sound_get(s_app.sound)->kind == SOUND_BANK) {
+                s_touch = TOUCH_BANK;
+                s_paint_step = -1;
+            } else {
+                s_touch = TOUCH_SYNTH_PAD;
+            }
+        } else {
+            s_touch = TOUCH_IGNORE;
+        }
+        return;
+    }
+    if (s_app.page == PAGE_FX) {
+        int hit = ui_hit_fx_sticker(x, y);
+        if (hit >= 0) {
+            fx_sticker(hit);
+            s_touch = TOUCH_IGNORE;
+        } else {
+            s_touch = ui_in_fx_pad(x, y) ? TOUCH_FX_PAD : TOUCH_IGNORE;
+        }
+        return;
+    }
     if (s_app.page == PAGE_SOUND) {
         if (ui_hit_theme(x, y)) {
             ui_set_theme(next_theme());
@@ -205,6 +307,8 @@ static void touch_begin(int x, int y) {
 
 static void handle_touch(u32 down, u32 held, u32 up) {
     if (up & KEY_TOUCH) {
+        if (s_touch == TOUCH_FX_PAD) fx_pad_release();
+        s_app.pad_touch = false;
         source_release(SOURCE_TOUCH);
         s_app.active_slider = -1;
         s_touch = TOUCH_NONE;
@@ -236,6 +340,35 @@ static void handle_touch(u32 down, u32 held, u32 up) {
                 paint_cell(step, row);
             break;
         }
+        case TOUCH_SYNTH_PAD: {
+            float nx, ny;
+            ui_synth_pad_pos(tp.px, tp.py, &nx, &ny);
+            s_app.pad_touch = true;
+            s_app.pad_x = nx;
+            s_app.pad_y = ny;
+            set_macro(0, nx);
+            set_macro(1, ny);
+            break;
+        }
+        case TOUCH_BANK: {
+            // Slide across the dots to audition patches.
+            int cell = ui_hit_bank_cell(tp.px, tp.py);
+            const Sound *snd = sound_get(s_app.sound);
+            if (cell >= 0 && cell < snd->bank_count && cell != s_paint_step) {
+                s_paint_step = cell;
+                change_patch(snd->bank_first + cell);
+            }
+            break;
+        }
+        case TOUCH_FX_PAD: {
+            float nx, ny;
+            ui_fx_pad_pos(tp.px, tp.py, &nx, &ny);
+            s_app.pad_touch = true;
+            s_app.pad_x = nx;
+            s_app.pad_y = ny;
+            fx_pad_move(nx, ny);
+            break;
+        }
         case TOUCH_BUTTON:
             s_button_frames++;
             if ((s_button == SEQ_BTN_BPM_DOWN || s_button == SEQ_BTN_BPM_UP) && s_button_frames > REPEAT_DELAY &&
@@ -254,11 +387,13 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
         if (up & kKeyButtons[k]) source_release(k);
     }
 
-    if (repeat & KEY_CPAD_RIGHT) change_patch(s_app.patch + 1);
-    if (repeat & KEY_CPAD_LEFT) change_patch(s_app.patch - 1);
+    // Circle pad left/right: next patch inside a bank, otherwise next sound.
+    bool bank = sound_get(s_app.sound)->kind == SOUND_BANK;
+    if (repeat & KEY_CPAD_RIGHT) bank ? change_patch(s_app.patch + 1) : select_sound(s_app.sound + 1);
+    if (repeat & KEY_CPAD_LEFT) bank ? change_patch(s_app.patch - 1) : select_sound(s_app.sound - 1);
     if ((down & KEY_CPAD_UP) && s_app.octave < MUSIC_OCTAVE_MAX) s_app.octave++;
     if ((down & KEY_CPAD_DOWN) && s_app.octave > MUSIC_OCTAVE_MIN) s_app.octave--;
-    if (down & KEY_SELECT) change_patch(s_app.patch < 128 ? 128 : 0);
+    if (down & KEY_SELECT) select_sound(s_app.sound + 1);
 
     // START: tap to play/stop; holding it quits (checked in the main loop).
     if (down & KEY_START) s_start_down = s_app.frame;
@@ -282,7 +417,7 @@ int main(void) {
     gfxInitDefault();
     gfxSet3D(true);  // the top-screen scene has real depth; the slider scales it
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
-    C2D_Init(8192);  // the pattern engine draws a lot of small triangles
+    C2D_Init(16384);  // the pattern engine draws a lot of small triangles
     C2D_Prepare();
     C3D_RenderTarget *top = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
     C3D_RenderTarget *top_right = C2D_CreateScreenTarget(GFX_TOP, GFX_RIGHT);
@@ -293,14 +428,13 @@ int main(void) {
     s_app.patch = 0;
     s_app.active_slider = -1;
     s_app.page = PAGE_SOUND;
+    for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
 
     engine_init();
     seq_init();
     const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
-    for (int i = 0; i < PARAM_COUNT; i++) {
-        s_app.params[i] = initial[i];
-        engine_set_param((EngineParam)i, initial[i]);
-    }
+    for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
+    select_sound(0);
     s_app.audio_ok = audio_out_init();
 
     hidSetRepeatParameters(18, 5);
@@ -315,16 +449,31 @@ int main(void) {
 
         s_app.seq = seq_status();
         seq_snapshot(&s_app.pattern);
+        fx_set_tempo((float)s_app.seq.bpm);
+        s_app.fx = fx_state();
 
 #ifdef VM_DEMO
         // Debug attract mode (make DEMO=1): silent, starts the sequencer and
         // rotates themes, flipping to the SEQ page half the time.
-        if (s_app.frame == 1) {
-            engine_set_param(PARAM_VOLUME, 0.0f);
-            seq_toggle_play();
+        if (s_app.frame == 1) seq_toggle_play();
+        if (s_app.frame % 480 == 479) ui_set_theme(next_theme());
+        s_app.page = (Page)((s_app.frame / 120) % PAGE_COUNT);
+        if (s_app.page == PAGE_SYNTH && s_app.frame % 120 == 0) select_sound(s_app.sound + 1);
+        {   // wander a pretend stylus around the pads
+            float a = s_app.frame * 0.05f;
+            float px = 0.5f + 0.38f * sinf(a), py = 0.5f + 0.38f * cosf(a * 1.3f);
+            s_app.pad_touch = s_app.page == PAGE_SYNTH || s_app.page == PAGE_FX;
+            s_app.pad_x = px;
+            s_app.pad_y = py;
+            if (s_app.page == PAGE_SYNTH && sound_get(s_app.sound)->kind == SOUND_CUSTOM) {
+                set_macro(0, px);
+                set_macro(1, py);
+            }
+            s_app.fx_sel = (int)((s_app.frame / 480) % FX_COUNT);
+            for (int k = 0; k < FX_COUNT; k++)
+                if (k != s_app.fx_sel || s_app.page != PAGE_FX) fx_set((FxKind)k, false, px, py);
+            if (s_app.page == PAGE_FX) fx_pad_move(px, py);
         }
-        if (s_app.frame % 240 == 239) ui_set_theme(next_theme());
-        s_app.page = (s_app.frame / 120) & 1 ? PAGE_SEQ : PAGE_SOUND;
 #endif
         handle_buttons(down, held, up, repeat);
         handle_touch(down, held, up);

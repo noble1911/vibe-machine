@@ -7,8 +7,11 @@
 //  * SEQ:   transport stickers and the 16-step grid -- a synth row above
 //           eight drum lanes. Cells under the playhead pop up off the card.
 
+#include <math.h>
+
 #include "motif.h"
 #include "shapes.h"
+#include "sounds.h"
 #include "ui.h"
 #include "ui_style.h"
 
@@ -35,8 +38,24 @@ void ui_bottom_theme_changed(void) {
     }
 }
 
+// Recent stylus positions on the FX pad, drawn as a fading motif trail.
+#define TRAIL 14
+static float s_trail_x[TRAIL], s_trail_y[TRAIL];
+static int s_trail_len;
+
 void ui_bottom_update(const AppState *app) {
     s_frame = app->frame;
+    if (app->page == PAGE_FX && app->pad_touch) {
+        for (int i = TRAIL - 1; i > 0; i--) {
+            s_trail_x[i] = s_trail_x[i - 1];
+            s_trail_y[i] = s_trail_y[i - 1];
+        }
+        s_trail_x[0] = app->pad_x;
+        s_trail_y[0] = app->pad_y;
+        if (s_trail_len < TRAIL) s_trail_len++;
+    } else if (s_trail_len > 0 && (s_frame & 1)) {
+        s_trail_len--;  // the trail shrinks away after you lift off
+    }
     for (int i = 0; i < BG_MOTIFS; i++) motif_step(&s_bg[i], BOTTOM_W, BOTTOM_H);
 }
 
@@ -62,11 +81,30 @@ static void sticker(float x, float y, float w, float h, uint32_t face, bool down
 
 // ------------------------------------------------------------- tabs ----
 
+// Icon tabs: sliders, step grid, waveform, lightning.
 static void draw_tabs(const AppState *app) {
     const Theme *t = ui_theme();
-    bool sound = app->page == PAGE_SOUND;
-    sticker(TAB_SOUND_X, TAB_Y, TAB_SOUND_W, TAB_H, sound ? t->pal[0] : t->card, !sound, "SOUND");
-    sticker(TAB_SEQ_X, TAB_Y, TAB_SEQ_W, TAB_H, !sound ? t->pal[0] : t->card, sound, "SEQ");
+    for (int i = 0; i < PAGE_COUNT; i++) {
+        const bool on = app->page == (Page)i;
+        const float x = TAB_X0 + i * TAB_PITCH;
+        const uint32_t face = on ? t->pal[i % THEME_PALETTE] : t->card;
+        sticker(x, TAB_Y, TAB_W, TAB_H, face, !on, 0);
+        const float o = on ? 0.0f : 2.0f, cx = x + TAB_W / 2.0f + o, cy = TAB_Y + TAB_H / 2.0f + o;
+        const u32 ink = rgba(ink_on(t, face), 0xFF);
+        switch (i) {
+            case PAGE_SOUND:
+                for (int b = 0; b < 3; b++) {
+                    float h = 5.0f + ((b * 5 + 3) % 7);
+                    sh_rect(cx - 7 + b * 5.5f, cy + 6 - h, 3, h, ink);
+                }
+                break;
+            case PAGE_SEQ:
+                for (int b = 0; b < 4; b++) sh_rect(cx - 6 + (b & 1) * 7, cy - 6 + (b >> 1) * 7, 5, 5, ink);
+                break;
+            case PAGE_SYNTH: sh_squiggle(cx, cy, 16, 3.5f, 0, 2.0f, s_frame * 0.1f, ink); break;
+            default: sh_bolt(cx, cy, 16, 0.25f, ink); break;
+        }
+    }
 }
 
 // ------------------------------------------------------- SOUND page ----
@@ -143,13 +181,13 @@ static void draw_transport(const AppState *app) {
 
     // Tempo.
     sticker(SEQ_BPM_DOWN_X, TAB_Y, SEQ_BPM_BTN_W, TAB_H, t->pal[1], false, 0);
-    sh_rect(SEQ_BPM_DOWN_X + 5, cy - 1.5f, SEQ_BPM_BTN_W - 10, 3, rgba(ink_on(t, t->pal[1]), 0xFF));
-    sh_card(SEQ_BPM_VALUE_X, TAB_Y, 42, TAB_H, rgba(t->card, 0xFF), ink, 2);
-    ui_text(SEQ_BPM_VALUE_X + 21, TAB_Y + 0.5f, 0.42f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter, "%d",
+    sh_rect(SEQ_BPM_DOWN_X + 4, cy - 1.5f, SEQ_BPM_BTN_W - 8, 3, rgba(ink_on(t, t->pal[1]), 0xFF));
+    sh_card(SEQ_BPM_VALUE_X, TAB_Y, SEQ_BPM_VALUE_W, TAB_H, rgba(t->card, 0xFF), ink, 2);
+    ui_text(SEQ_BPM_VALUE_X + SEQ_BPM_VALUE_W / 2.0f, TAB_Y + 0.5f, 0.42f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter, "%d",
             st->bpm);
     sticker(SEQ_BPM_UP_X, TAB_Y, SEQ_BPM_BTN_W, TAB_H, t->pal[1], false, 0);
     u32 plus = rgba(ink_on(t, t->pal[1]), 0xFF);
-    sh_rect(SEQ_BPM_UP_X + 5, cy - 1.5f, SEQ_BPM_BTN_W - 10, 3, plus);
+    sh_rect(SEQ_BPM_UP_X + 4, cy - 1.5f, SEQ_BPM_BTN_W - 8, 3, plus);
     sh_rect(SEQ_BPM_UP_X + SEQ_BPM_BTN_W / 2.0f - 1.5f, cy - 4, 3, 8, plus);
 
     sticker(SEQ_CLEAR_X, TAB_Y, SEQ_CLEAR_W, TAB_H, t->pal[4], false, "CLR");
@@ -221,6 +259,210 @@ static void draw_seq_page(const AppState *app) {
     draw_grid(app);
 }
 
+// ------------------------------------------------------- SYNTH page ----
+
+// A sound's mascot: its motif with googly eyes, squishing on every note.
+static void draw_mascot(int sound, float x, float y, float size, float look_x, float look_y, uint32_t rgb) {
+    const Theme *t = ui_theme();
+    const Sound *s = sound_get(sound);
+    float squish = 1.0f + ui_bump() * 0.25f;
+    Motif m = {0};
+    m.kind = s->motif;
+    m.x = x;
+    m.y = y;
+    m.size = size * squish;
+    m.angle = -1.5708f + sinf(s_frame * 0.05f + sound) * 0.15f;
+    m.rgb = rgb;
+    m.seed = (uint32_t)sound * 31u + 7u;
+    motif_draw(&m, 0, 1.0f, 0xFF, t->ink, 2.0f);
+    bool blink = ((s_frame + sound * 37) % 190) < 6;
+    sh_eyes(x, y - size * 0.05f, size * 0.22f, look_x, look_y, blink, rgba(t->ink, 0xFF));
+}
+
+static void draw_sound_tiles(const AppState *app) {
+    const Theme *t = ui_theme();
+    for (int i = 0; i < sound_count() && i < 9; i++) {
+        const bool on = app->sound == i;
+        const float x = SYN_TILE_X0 + (i % 3) * SYN_TILE_PITCH_X, y = SYN_TILE_Y0 + (i / 3) * SYN_TILE_PITCH_Y;
+        const uint32_t face = on ? t->pal[i % THEME_PALETTE] : t->card;
+        const float o = on ? 0.0f : 0.0f;
+        sh_card(x + o, y + o, SYN_TILE_W, SYN_TILE_H, rgba(face, 0xFF), rgba(t->ink, 0xFF), on ? 3.0f : 1.5f);
+        uint32_t body = on ? t->card : t->pal[i % THEME_PALETTE];
+        float bob = on ? sinf(s_frame * 0.15f) * 1.5f : 0.0f;
+        draw_mascot(i, x + SYN_TILE_W / 2.0f, y + 17 + bob, on ? 11.0f : 9.0f, 0, 0, body);
+        ui_text(x + SYN_TILE_W / 2.0f, y + SYN_TILE_H - 13, 0.28f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter, "%s",
+                sound_get(i)->tag);
+    }
+}
+
+static void draw_bank_grid(const AppState *app, const Sound *s) {
+    const Theme *t = ui_theme();
+    const int cur = app->patch - s->bank_first;
+    ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, "%s  %d PATCHES", s->name, s->bank_count);
+    ui_text(SYN_PAD_X + SYN_PAD_W - 6, SYN_PAD_Y + 2, 0.36f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight,
+            "tap a dot");
+    for (int i = 0; i < s->bank_count && i < BANK_COLS * BANK_ROWS; i++) {
+        float cx = BANK_X0 + (i % BANK_COLS) * BANK_CELL_W + BANK_CELL_W / 2.0f;
+        float cy = BANK_Y0 + (i / BANK_COLS) * BANK_CELL_H + BANK_CELL_H / 2.0f;
+        uint32_t col = t->pal[(i / BANK_COLS) % THEME_PALETTE];
+        if (i == cur) {
+            float r = 6.0f + ui_bump() * 2.0f;
+            sh_circle(cx + 1.5f, cy + 1.5f, r, rgba(t->ink, 0xFF));
+            sh_circle(cx, cy, r, rgba(col, 0xFF));
+            sh_ring(cx, cy, r + 0.5f, 1.5f, rgba(t->ink, 0xFF));
+        } else {
+            sh_circle(cx, cy, 2.6f, rgba(col, 0xD0));
+        }
+    }
+}
+
+static void draw_creature_pad(const AppState *app, const Sound *s) {
+    const Theme *t = ui_theme();
+    const u32 ink = rgba(t->ink, 0xFF);
+    const float x0 = SYN_PAD_X + 8, y0 = SYN_PAD_Y + 20, w = SYN_PAD_W - 16, h = SYN_PAD_H - 28;
+    sh_grid(x0, y0, w, h, 13, rgba(t->ink, 0x16));
+    ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, "%s", s->name);
+    ui_text(SYN_PAD_X + SYN_PAD_W - 6, SYN_PAD_Y + 3, 0.32f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "%s",
+            s->blurb);
+
+    const float cx = x0 + app->macro[0] * w, cy = y0 + (1.0f - app->macro[1]) * h;
+    // Crosshair to the axes, as dashed lines in the axis colours.
+    for (float yy = cy + 6; yy < y0 + h; yy += 6) sh_rect(cx - 0.75f, yy, 1.5f, 3, rgba(t->pal[0], 0xC0));
+    for (float xx = x0; xx < cx - 6; xx += 6) sh_rect(xx, cy - 0.75f, 3, 1.5f, rgba(t->pal[1], 0xC0));
+
+    // Axis labels with little arrow triangles.
+    uint32_t lab = ink_on(t, t->card);
+    ui_text(x0 + w - 8, y0 + h - 1, 0.36f, rgba(lab, 0xFF), C2D_AlignRight, "%s %d", s->macro_name[0],
+            (int)(app->macro[0] * 100.0f + 0.5f));
+    sh_tri(x0 + w - 3, y0 + h + 5, 4, 0.0f, rgba(t->pal[0], 0xFF));
+    sh_tri(x0 + 4, y0 + 3, 4, -1.5708f, rgba(t->pal[1], 0xFF));
+    ui_text(x0 + 10, y0 - 3, 0.36f, rgba(lab, 0xFF), 0, "%s %d", s->macro_name[1], (int)(app->macro[1] * 100.0f + 0.5f));
+
+    // The creature itself; its eyes follow the stylus while you drag.
+    float lx = 0, ly = 0;
+    if (!app->pad_touch) {
+        lx = sinf(s_frame * 0.031f) * 0.8f;
+        ly = cosf(s_frame * 0.023f) * 0.5f;
+    }
+    draw_mascot(app->sound, cx, cy, app->pad_touch ? 17.0f : 15.0f, lx, ly, t->pal[(app->sound + 1) % THEME_PALETTE]);
+    (void)ink;
+}
+
+static void draw_synth_page(const AppState *app) {
+    const Theme *t = ui_theme();
+    const Sound *s = sound_get(app->sound);
+    draw_sound_tiles(app);
+    sh_card(SYN_PAD_X, SYN_PAD_Y, SYN_PAD_W, SYN_PAD_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 3);
+    if (s->kind == SOUND_BANK)
+        draw_bank_grid(app, s);
+    else
+        draw_creature_pad(app, s);
+}
+
+// ---------------------------------------------------------- FX page ----
+
+static const uint8_t kFxMotif[FX_COUNT] = {MO_DOTS, MO_SQUIGGLE, MO_ZIGZAG, MO_RING};
+
+static void draw_fx_stickers(const AppState *app) {
+    const Theme *t = ui_theme();
+    for (int i = 0; i < FX_COUNT; i++) {
+        const bool sel = app->fx_sel == i, live = app->fx.on[i];
+        const float y = FX_STICK_Y0 + i * FX_STICK_PITCH;
+        const uint32_t face = sel ? t->pal[(i + 1) % THEME_PALETTE] : t->card;
+        sticker(FX_STICK_X, y, FX_STICK_W, FX_STICK_H, face, false, 0);
+        Motif m = {0};
+        m.kind = kFxMotif[i];
+        m.x = FX_STICK_X + 13;
+        m.y = y + FX_STICK_H / 2.0f;
+        m.size = 6.5f;
+        m.angle = live ? s_frame * 0.2f : 0.0f;
+        m.rgb = sel ? ink_on(t, face) : t->pal[(i + 1) % THEME_PALETTE];
+        motif_draw(&m, 0, 1.0f, 0xFF, t->ink, 0);
+        ui_text(FX_STICK_X + 25, y + 3, 0.4f, rgba(ink_on(t, face), 0xFF), 0, "%s", fx_name((FxKind)i));
+        if (live) sh_circle(FX_STICK_X + FX_STICK_W - 7, y + 6, 3.0f + ((s_frame >> 3) & 1), rgba(t->pal[0], 0xFF));
+    }
+    uint32_t hold_face = app->fx_hold ? t->pal[0] : t->card;
+    sticker(FX_STICK_X, FX_HOLD_Y, FX_STICK_W, FX_HOLD_H, hold_face, app->fx_hold, app->fx_hold ? "HOLD: ON" : "HOLD");
+}
+
+// Each effect gets its own pad backdrop that explains its axes.
+static void draw_fx_backdrop(FxKind k) {
+    const Theme *t = ui_theme();
+    const float x = FX_PAD_X + 2, y = FX_PAD_Y + 2, w = FX_PAD_W - 4, h = FX_PAD_H - 4;
+    const uint32_t lab = ink_on(t, t->card);
+    switch (k) {
+        case FX_CRUSH:  // pixels get chunkier to the right, coarser upwards
+            for (int gy = 0; gy < 8; gy++)
+                for (int gx = 0; gx < 14; gx++)
+                    if ((gx + gy) & 1) sh_rect(x + gx * w / 14, y + gy * h / 8, w / 14, h / 8, rgba(t->pal[gx % THEME_PALETTE], 0x16 + gx * 2));
+            ui_text(x + 4, y + h - 13, 0.34f, rgba(lab, 0xA0), 0, "smooth");
+            ui_text(x + w - 4, y + h - 13, 0.34f, rgba(lab, 0xA0), C2D_AlignRight, "chunky");
+            break;
+        case FX_SWEEP:  // dark low-pass on the left, bright high-pass on the right
+            C2D_DrawRectangle(x, y, 0.5f, w / 2, h, rgba(t->ink, 0x50), rgba(t->ink, 0x00), rgba(t->ink, 0x50), rgba(t->ink, 0x00));
+            C2D_DrawRectangle(x + w / 2, y, 0.5f, w / 2, h, rgba(t->pal[1], 0x00), rgba(t->pal[1], 0x60), rgba(t->pal[1], 0x00), rgba(t->pal[1], 0x60));
+            sh_rect(x + w * 0.48f, y, w * 0.04f, h, rgba(t->ink, 0x18));
+            ui_text(x + 4, y + h - 13, 0.34f, rgba(lab, 0xC0), 0, "LOW");
+            ui_text(x + w - 4, y + h - 13, 0.34f, rgba(lab, 0xC0), C2D_AlignRight, "HIGH");
+            ui_text(x + w / 2, y + h - 13, 0.3f, rgba(lab, 0x80), C2D_AlignCenter, "off");
+            break;
+        case FX_STUTTER: {  // five tempo zones
+            static const char *const zones[] = {"1/2", "1/4", "1/8", "1/16", "1/32"};
+            for (int z = 0; z < 5; z++) {
+                if (z & 1) sh_rect(x + z * w / 5, y, w / 5, h, rgba(t->pal[2], 0x28));
+                ui_text(x + (z + 0.5f) * w / 5, y + h - 13, 0.34f, rgba(lab, 0xB0), C2D_AlignCenter, "%s", zones[z]);
+            }
+            break;
+        }
+        default:  // TAPE: two reels
+            sh_ring(x + w * 0.3f, y + h * 0.45f, 26, 4, rgba(t->ink, 0x1C));
+            sh_ring(x + w * 0.7f, y + h * 0.45f, 26, 4, rgba(t->ink, 0x1C));
+            ui_text(x + 4, y + h - 13, 0.34f, rgba(lab, 0xA0), 0, "quick stop");
+            ui_text(x + w - 4, y + h - 13, 0.34f, rgba(lab, 0xA0), C2D_AlignRight, "slow stop");
+            break;
+    }
+    ui_text(x + 4, y + 1, 0.34f, rgba(lab, 0xB0), 0, "%s", fx_axis_name(k, 1));
+}
+
+static void draw_fx_pad(const AppState *app) {
+    const Theme *t = ui_theme();
+    const FxKind k = (FxKind)app->fx_sel;
+    sh_card(FX_PAD_X, FX_PAD_Y, FX_PAD_W, FX_PAD_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 3);
+    draw_fx_backdrop(k);
+
+    const float m = 8.0f, iw = FX_PAD_W - 2 * m, ih = FX_PAD_H - 2 * m;
+    Motif mo = {0};
+    mo.kind = kFxMotif[k];
+    mo.seed = 99u;
+    // Trail of fading motifs behind the stylus.
+    for (int i = s_trail_len - 1; i >= 1; i--) {
+        mo.x = FX_PAD_X + m + s_trail_x[i] * iw;
+        mo.y = FX_PAD_Y + m + (1.0f - s_trail_y[i]) * ih;
+        mo.size = 9.0f - i * 0.5f;
+        mo.angle = s_frame * 0.1f + i;
+        mo.rgb = t->pal[i % THEME_PALETTE];
+        motif_draw(&mo, 0, 1.0f, (uint8_t)(220 - i * 14), t->ink, 0);
+    }
+    // The cursor: where the effect sits now (live or held).
+    if (app->fx.on[k] || app->pad_touch) {
+        float px = app->pad_touch ? app->pad_x : app->fx_x[k], py = app->pad_touch ? app->pad_y : app->fx_y[k];
+        mo.x = FX_PAD_X + m + px * iw;
+        mo.y = FX_PAD_Y + m + (1.0f - py) * ih;
+        mo.size = 15.0f + ui_bump() * 4.0f;
+        mo.angle = s_frame * 0.08f;
+        mo.rgb = t->pal[(k + 1) % THEME_PALETTE];
+        motif_draw(&mo, 0, 1.0f, 0xFF, t->ink, 3.0f);
+    } else {
+        ui_text(FX_PAD_X + FX_PAD_W / 2.0f, FX_PAD_Y + FX_PAD_H / 2.0f - 8, 0.45f, rgba(ink_on(t, t->card), 0x90),
+                C2D_AlignCenter, "touch to %s", fx_name(k));
+    }
+}
+
+static void draw_fx_page(const AppState *app) {
+    draw_fx_stickers(app);
+    draw_fx_pad(app);
+}
+
 // ------------------------------------------------------------- keys ----
 
 static void draw_key(const AppState *app, int k) {
@@ -258,9 +500,11 @@ void ui_draw_bottom(const AppState *app) {
     for (int i = 0; i < BG_MOTIFS; i++) motif_draw(&s_bg[i], 0, 1.0f, 0xE0, t->ink, 1.5f);
 
     draw_tabs(app);
-    if (app->page == PAGE_SEQ)
-        draw_seq_page(app);
-    else
-        draw_sound_page(app);
+    switch (app->page) {
+        case PAGE_SEQ: draw_seq_page(app); break;
+        case PAGE_SYNTH: draw_synth_page(app); break;
+        case PAGE_FX: draw_fx_page(app); break;
+        default: draw_sound_page(app); break;
+    }
     for (int k = 0; k < MUSIC_KEYS; k++) draw_key(app, k);
 }

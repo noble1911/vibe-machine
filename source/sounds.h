@@ -19,6 +19,7 @@ typedef enum { SOUND_BANK, SOUND_CUSTOM } SoundKind;
 
 typedef struct {
     const char *name;   // short, shouty: "PLUCK"
+    const char *tag;    // four letters max, for the tiny SYNTH tiles
     const char *blurb;  // one line for the top screen
     uint8_t motif;      // MotifKind used as the sound's mascot
     SoundKind kind;

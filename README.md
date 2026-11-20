@@ -7,8 +7,9 @@ animated graphics, built to fit the original 3DS.
 
 > **Status: early prototype.** It plays 256 Juno-6 and DX7 patches from
 > the buttons and touchscreen, with chords, drums, four effect sliders, a
-> live waveform and a DSP load meter, plus a 16-step sequencer with live
-> recording. No tape recorder yet.
+> live waveform and a DSP load meter, a 16-step sequencer with live
+> recording, seven original synth engines with an XY "creature pad", and
+> four performance FX. No tape recorder yet.
 
 **The look:** loud 90s Memphis. Nine themes (Prism, Graph Paper,
 Midnight, Teal Pop, Lime Rave, Grape Soda, Leopard, Sunshine and Vapor
@@ -29,9 +30,7 @@ synthesis library (MIT) that also runs on the ESP32 and RP2040.
 | D-pad ← ↓ → ↑, then Y B A X | Eight keys: C major scale, C to C |
 | Hold **L** | Chord mode: each key plays its diatonic triad |
 | Hold **R** | Drum mode: kick, snare, hats, clap, rim, tom, crash |
-| Circle pad ← / → | Previous / next patch (hold to scroll) |
 | Circle pad ↑ / ↓ | Octave up / down |
-| SELECT | Jump between the Juno (0–127) and DX7 (128–255) banks |
 | Touch sliders | TONE (tilt EQ), ECHO, VERB (reverb), VOL |
 | Touch keys | Play (slide across keys to glide) |
 | Touch THEME | Next colour theme |
@@ -39,6 +38,12 @@ synthesis library (MIT) that also runs on the ESP32 and RP2040.
 | Touch SOUND / SEQ tabs | Switch bottom-screen page |
 | SEQ page: tap or drag cells | Paint steps (the synth row uses the last notes you played) |
 | SEQ page: ▶ ● − BPM + CLR | Play/stop, arm recording, tempo, clear |
+| SYNTH page: tap a tile | Pick a sound: JUNO / DX7 banks or PLUCK, SQUELCH, BELL, BREEZE, SUPERSAW, FOLD, WAVY |
+| SYNTH page: drag the creature | Its X and Y are the sound's two macros (e.g. CUTOFF / RESO) |
+| SYNTH page: tap a dot (banks) | Load that patch; slide across dots to audition |
+| SELECT / circle pad ← → | Next sound (inside a bank, the circle pad steps patches) |
+| FX page: pick CRUSH / SWEEP / STUTTER / TAPE, touch the pad | Effect on while touching; X and Y shape it |
+| FX page: HOLD | Effects stay on after you lift the stylus (tap an effect again to drop it) |
 
 ## Running it
 
@@ -89,6 +94,9 @@ release.
 | `source/audio_out.c` | ndsp streaming on a dedicated audio thread, load and scope stats |
 | `source/music.c` | Scales, chords and the drum map (pure logic) |
 | `source/seq.c` | 16-step sequencer; its clock runs on the audio thread |
+| `source/sounds.c` | The synth engines: AMY patch strings + two macros each |
+| `source/fx.c` | Performance FX on the master output (audio thread) |
+| `tests/` | Host probes: build AMY natively, check every sound and FX (`make -C tests`) |
 | `source/ui*.c` | Both screens (`ui_top.c`, `ui_bottom.c`), touch layout, text |
 | `source/shapes.c`, `motif.c`, `theme.c` | Memphis drawing primitives, motifs and the theme table |
 | `source/amy_platform_3ds.c` | Platform hooks AMY expects |

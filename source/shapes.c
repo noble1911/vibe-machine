@@ -22,13 +22,11 @@ static inline void place(float cx, float cy, float ca, float sa, float px, float
     *oy = cy + px * sa + py * ca;
 }
 
+// Always a triangle fan: citro2d's own circle/ellipse primitive does not
+// render in Azahar (seen at both large and small radii), so it is never used.
 void sh_circle(float x, float y, float r, u32 c) {
     if (r <= 0.0f) return;
-    if (r < 10.0f) {  // small circles: the native primitive is fine and cheaper
-        C2D_DrawCircleSolid(x, y, Z, r, c);
-        return;
-    }
-    int segs = r < 30.0f ? 20 : r < 60.0f ? 32 : 48;
+    int segs = r < 2.5f ? 6 : r < 6.0f ? 8 : r < 12.0f ? 12 : r < 30.0f ? 20 : r < 60.0f ? 32 : 48;
     float px = x + r, py = y;
     for (int i = 1; i <= segs; i++) {
         float a = i * TAU / segs;
@@ -138,14 +136,14 @@ void sh_tri_dotted(float x, float y, float r, float angle, float spacing, float 
     for (float gy = y - r; gy <= y + r; gy += spacing, row++) {
         float off = (row & 1) ? spacing * 0.5f : 0.0f;  // halftone offset rows
         for (float gx = x - r + off; gx <= x + r; gx += spacing)
-            if (inside(px, py, gx, gy)) C2D_DrawCircleSolid(gx, gy, Z, dot, c);
+            if (inside(px, py, gx, gy)) sh_circle(gx, gy, dot, c);
     }
 }
 
 static void polyline(const float *xs, const float *ys, int n, float thick, u32 c) {
     for (int i = 0; i + 1 < n; i++) C2D_DrawLine(xs[i], ys[i], c, xs[i + 1], ys[i + 1], c, thick, Z);
     if (thick >= 2.0f)
-        for (int i = 0; i < n; i++) C2D_DrawCircleSolid(xs[i], ys[i], Z, thick * 0.5f, c);
+        for (int i = 0; i < n; i++) sh_circle(xs[i], ys[i], thick * 0.5f, c);
 }
 
 void sh_squiggle(float x, float y, float len, float amp, float angle, float thick, float phase, u32 c) {
@@ -213,6 +211,20 @@ void sh_speckles(float x, float y, float w, float h, int n, uint32_t seed, u32 c
     }
 }
 
+void sh_eyes(float x, float y, float r, float look_x, float look_y, bool blink, u32 ink) {
+    const u32 white = C2D_Color32(0xFF, 0xFF, 0xFF, 0xFF);
+    for (int side = -1; side <= 1; side += 2) {
+        float ex = x + side * r * 1.05f;
+        sh_circle(ex, y, r + 1.2f, ink);
+        if (blink) {
+            sh_rect(ex - r, y - 0.8f, 2 * r, 1.6f, white);
+            continue;
+        }
+        sh_circle(ex, y, r, white);
+        sh_circle(ex + look_x * r * 0.45f, y - look_y * r * 0.45f, r * 0.5f, ink);
+    }
+}
+
 void sh_card(float x, float y, float w, float h, u32 face, u32 ink, float shadow) {
     if (shadow > 0.0f) sh_rect(x + shadow, y + shadow, w, h, ink);
     sh_rect(x, y, w, h, ink);
@@ -230,7 +242,7 @@ void sh_rect_pattern(float x, float y, float w, float h, u32 base, FillPattern p
             int row = 0;
             for (float gy = y + h - 3; gy >= y + 1; gy -= 6, row++)
                 for (float gx = x + 3 + ((row & 1) ? 3 : 0); gx < x + w - 1; gx += 6)
-                    C2D_DrawCircleSolid(gx, gy, Z, 1.4f, ink);
+                    sh_circle(gx, gy, 1.4f, ink);
             break;
         }
         case PAT_ZIGZAG:
