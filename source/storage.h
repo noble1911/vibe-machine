@@ -9,6 +9,7 @@
 #include "engine.h"
 #include "fx.h"
 #include "mixer.h"
+#include "sampler.h"
 #include "seq.h"
 #include "sounds.h"
 #include "tape.h"
@@ -32,6 +33,8 @@ typedef struct {
     MixStrip mix[MIX_STRIPS];  // the MIX page (older files: defaults)
     uint8_t solo;    // bit n = strip n soloed
     int8_t tape_source[TAPE_TRACKS];  // TAPE_SRC_ALL or a MIX strip
+    SampleEdit sample_edit;  // the MIC sound's START / END / CHOP
+    bool old_mic_macros;     // loaded from before MIC's first macro became DECAY (not saved)
     float params[PARAM_COUNT];
     int octave;
     int bpm;

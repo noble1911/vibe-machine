@@ -178,6 +178,26 @@ bool ui_hit_synth_dice(int x, int y) {
 
 bool ui_hit_synth_rec(int x, int y) { return in_box(x, y, SYN_REC_X - 3, SYN_DICE_Y - 3, SYN_REC_W + 4, SYN_DICE_W + 4); }
 
+int ui_hit_sampler(int x, int y) {
+    if (in_box(x, y, SMP_CHOP_X - 2, SYN_DICE_Y - 3, SMP_CHOP_W + 3, SYN_DICE_W + 4)) return SMP_HIT_CHOP;
+    if (in_box(x, y, SMP_LIB_X - 1, SYN_DICE_Y - 3, SMP_LIB_W + 3, SYN_DICE_W + 4)) return SMP_HIT_LIB;
+    if (in_box(x, y, SMP_WAVE_X - 8, SMP_WAVE_Y - 4, SMP_WAVE_W + 16, SMP_WAVE_H + SMP_GRIP_H + 6)) return SMP_HIT_WAVE;
+    for (int m = 0; m < 2; m++)
+        if (in_box(x, y, SMP_SLIDER_X0 + m * SMP_SLIDER_PITCH - 2, SMP_SLIDER_Y - 3, SMP_SLIDER_W + 4, SMP_SLIDER_H + 6))
+            return SMP_HIT_SLIDER + m;
+    return SMP_HIT_NONE;
+}
+
+float ui_sampler_pos(int x) {
+    float v = (float)(x - SMP_WAVE_X) / SMP_WAVE_W;
+    return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+}
+
+float ui_sampler_slider(int x, int m) {
+    float v = (float)(x - SMP_SLIDER_X0 - m * SMP_SLIDER_PITCH) / SMP_SLIDER_W;
+    return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+}
+
 bool ui_in_synth_pad(int x, int y) { return in_box(x, y, SYN_PAD_X, SYN_PAD_Y, SYN_PAD_W, SYN_PAD_H); }
 
 int ui_hit_bank_cell(int x, int y) {
@@ -205,6 +225,7 @@ int ui_hit_tape(int x, int y) {
     if (in_box(x, y, TAPE_REW_X - 2, TAPE_BTN_Y - 2, TAPE_BTN_W + 3, TAPE_BTN_H + 3)) return TAPE_HIT_REW;
     if (in_box(x, y, TAPE_PLAY_X - 1, TAPE_BTN_Y - 2, TAPE_BTN_W + 2, TAPE_BTN_H + 3)) return TAPE_HIT_PLAY;
     if (in_box(x, y, TAPE_REC_X - 1, TAPE_BTN_Y - 2, TAPE_BTN_W + 2, TAPE_BTN_H + 3)) return TAPE_HIT_REC;
+    if (in_box(x, y, TAPE_SMP_X - 2, TAPE_BTN_Y - 2, TAPE_SMP_W + 4, TAPE_BTN_H + 3)) return TAPE_HIT_SAMPLE;
     if (in_box(x, y, TAPE_WIN_X, TAPE_SPEED_Y - 2, TAPE_WIN_W, TAPE_SPEED_H + 6)) return TAPE_HIT_SPEED;
     return TAPE_HIT_NONE;
 }

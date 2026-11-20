@@ -57,3 +57,71 @@ int sampler_boing(int16_t *buf, int max_frames) {
     }
     return n;
 }
+
+void sampler_edit_clamp(SampleEdit *e) {
+    const float min_len = 0.02f;
+    if (!(e->start >= 0.0f)) e->start = 0.0f;  // NaN too
+    if (!(e->end <= 1.0f)) e->end = 1.0f;
+    if (e->start > 1.0f - min_len) e->start = 1.0f - min_len;
+    if (e->end < e->start + min_len) e->end = e->start + min_len;
+    if (e->slices == 1 || e->slices > SAMPLER_MAX_SLICES) e->slices = 0;
+}
+
+int sampler_region(const SampleEdit *e, int frames, int slice, int *first) {
+    int a = (int)(e->start * frames), b = (int)(e->end * frames);
+    if (a < 0) a = 0;
+    if (b > frames) b = frames;
+    if (b <= a) b = a + 1 <= frames ? a + 1 : a;
+    if (slice >= 0 && e->slices > 0) {
+        const int n = b - a, k = slice % e->slices;
+        const int sa = a + (int)((long)n * k / e->slices), sb = a + (int)((long)n * (k + 1) / e->slices);
+        a = sa;
+        b = sb;
+    }
+    *first = a;
+    return b - a;
+}
+
+int sampler_slice_of_pitch(int pitch, int slices) {
+    if (slices <= 0) return 0;
+    // Scale degree of each semitone in C major (sharps take the one below).
+    static const int degree[12] = {0, 0, 1, 1, 2, 3, 3, 4, 4, 5, 5, 6};
+    int semis = pitch - 60, oct = semis >= 0 ? semis / 12 : -((11 - semis) / 12);
+    int d = oct * 7 + degree[semis - oct * 12];
+    return ((d % slices) + slices) % slices;
+}
+
+int sampler_resample(const int16_t *in, int n, int in_rate, int16_t *out, int max_out, int out_rate) {
+    if (n <= 0 || in_rate <= 0 || out_rate <= 0) return 0;
+    if (in_rate == out_rate) {
+        int m = n < max_out ? n : max_out;
+        memmove(out, in, (size_t)m * sizeof(int16_t));
+        return m;
+    }
+    const double step = (double)in_rate / out_rate;
+    int m = (int)((n - 1) / step) + 1;
+    if (m > max_out) m = max_out;
+    for (int i = 0; i < m; i++) {
+        double pos = i * step;
+        int j = (int)pos;
+        double f = pos - j;
+        int a = in[j], b = j + 1 < n ? in[j + 1] : in[j];
+        out[i] = (int16_t)lrint(a + (b - a) * f);
+    }
+    return m;
+}
+
+void sampler_normalise(int16_t *buf, int frames) {
+    int peak = 0;
+    for (int i = 0; i < frames; i++) peak = abs(buf[i]) > peak ? abs(buf[i]) : peak;
+    if (peak < 300) return;
+    const float gain = 0.9f * 32767.0f / (float)peak;
+    const int fade = SAMPLER_RATE / 1000 < frames / 4 ? SAMPLER_RATE / 1000 : frames / 4;  // 1 ms
+    for (int i = 0; i < frames; i++) {
+        float g = gain;
+        if (i < fade) g *= (float)i / fade;
+        if (frames - 1 - i < fade) g *= (float)(frames - 1 - i) / fade;
+        float v = buf[i] * g;
+        buf[i] = (int16_t)(v > 32767.0f ? 32767.0f : v < -32767.0f ? -32767.0f : v);
+    }
+}

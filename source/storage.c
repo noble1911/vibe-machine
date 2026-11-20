@@ -9,8 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 9  // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
-                   // 9: tape sources
+#define VERSION 10 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+                   // 9: tape sources; 10: sample edit
 #define MAX_PAYLOAD 4096
 
 typedef struct {
@@ -128,6 +128,9 @@ static void encode(Writer *w, const SaveState *st) {
     }
     put(w, &st->solo, 1);
     put(w, st->tape_source, sizeof(st->tape_source));  // version 9
+    put(w, &st->sample_edit.start, sizeof(float));      // version 10
+    put(w, &st->sample_edit.end, sizeof(float));
+    put(w, &st->sample_edit.slices, 1);
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -146,6 +149,8 @@ static void decode(Reader *r, SaveState *st, int version) {
     for (int k = 0; k < MIX_STRIPS; k++) mixer_strip_default(&st->mix[k]);
     st->solo = 0;
     for (int t = 0; t < TAPE_TRACKS; t++) st->tape_source[t] = TAPE_SRC_ALL;
+    sampler_edit_default(&st->sample_edit);
+    st->old_mic_macros = version < 10;
     get(r, st->params, sizeof(st->params));
     get(r, st->fx_x, sizeof(st->fx_x));
     get(r, st->fx_y, sizeof(st->fx_y));
@@ -208,6 +213,14 @@ static void decode(Reader *r, SaveState *st, int version) {
         get(r, st->tape_source, sizeof(st->tape_source));
         for (int t = 0; t < TAPE_TRACKS; t++)
             if (st->tape_source[t] < TAPE_SRC_ALL || st->tape_source[t] >= TAPE_SOURCES) r->ok = false;
+    }
+    if (version >= 10) {
+        get(r, &st->sample_edit.start, sizeof(float));
+        get(r, &st->sample_edit.end, sizeof(float));
+        get(r, &st->sample_edit.slices, 1);
+        SampleEdit e = st->sample_edit;
+        sampler_edit_clamp(&e);
+        if (memcmp(&e, &st->sample_edit, sizeof(e)) != 0) r->ok = false;  // out of range: damaged
     }
 }
 

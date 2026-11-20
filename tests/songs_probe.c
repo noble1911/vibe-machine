@@ -3,8 +3,10 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "dice.h"
+#include "samples.h"
 #include "songs.h"
 
 static int fails;
@@ -19,6 +21,7 @@ static SaveState make(int bpm, int filled, const char *name) {
     st.bpm = bpm;
     for (int i = 0; i < filled; i++) dice_groove(&st.slots[i], 99u + i, 0);
     strcpy(st.name, name);
+    sampler_edit_default(&st.sample_edit);
     return st;
 }
 
@@ -91,6 +94,35 @@ int main(void) {
     for (int i = 1; i < n; i++) sorted &= strcmp(list[i - 1].name, list[i].name) < 0;
     check(n == 71 && sorted && strcmp(list[n - 1].name, "ZEBRA DISCO") == 0, "71 songs are all listed, in order");
     for (int i = 0; i < n; i++) song_delete(root, list[i].name);
+
+    // The sample library: any .wav (any case) is listed under a clean name,
+    // sorted; other files are ignored.
+    {
+        const char *sroot = "build/samples_test";
+        mkdir(sroot, 0777);
+        const char *files[] = {"kick loop.WAV", "VOX 1.wav", "notes.txt", "a.wav"};
+        for (int i = 0; i < 4; i++) {
+            char path[160];
+            sample_path(sroot, files[i], path, sizeof(path));
+            FILE *sf = fopen(path, "wb");
+            fputs("x", sf);
+            fclose(sf);
+        }
+        static SampleFile sl[16];
+        int sn = sample_list(sroot, sl, 16);
+        check(sn == 3 && strcmp(sl[0].name, "A") == 0 && strcmp(sl[1].name, "KICK LOOP") == 0 &&
+                  strcmp(sl[1].file, "kick loop.WAV") == 0 && strcmp(sl[2].name, "VOX 1") == 0,
+              "the sample library lists WAVs by name, whatever their case");
+        char fname[64];
+        sample_file_for("NEON GECKO 7", fname, sizeof(fname));
+        check(strcmp(fname, "NEON GECKO 7.wav") == 0, "a saved sample is NAME.wav");
+        for (int i = 0; i < 4; i++) {
+            char path[160];
+            sample_path(sroot, files[i], path, sizeof(path));
+            remove(path);
+        }
+        rmdir(sroot);
+    }
 
     printf(fails ? "\n%d song problem(s)\n" : "\nall songs OK\n", fails);
     return fails ? 1 : 0;

@@ -319,25 +319,36 @@ static void draw_sound_page(const AppState *app) {
 static void draw_songs_page(const AppState *app) {
     const Theme *t = ui_theme();
     const u32 ink = rgba(t->ink, 0xFF);
+    const bool smp = app->lib_samples;
     if (app->song_count == 0) {
         sh_card(SONG_LIST_X, SONG_LIST_Y0, SONG_LIST_W, SONG_ROWS * SONG_ROW_PITCH - 4, rgba(t->card, 0xFF), ink, 3);
         sh_floppy(SONG_LIST_X + SONG_LIST_W / 2.0f - 14, SONG_LIST_Y0 + 22, 28, rgba(t->pal[1], 0xFF), rgba(t->card, 0xFF), ink);
-        ui_text(SONG_LIST_X + SONG_LIST_W / 2.0f, SONG_LIST_Y0 + 60, 0.45f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter, "no songs yet");
+        ui_text(SONG_LIST_X + SONG_LIST_W / 2.0f, SONG_LIST_Y0 + 60, 0.45f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter,
+                smp ? "no samples yet" : "no songs yet");
         ui_text(SONG_LIST_X + SONG_LIST_W / 2.0f, SONG_LIST_Y0 + 78, 0.36f, rgba(ink_on(t, t->card), 0xA0), C2D_AlignCenter,
-                "tap SAVE AS to keep this one");
+                smp ? "SAVE AS keeps the MIC take" : "tap SAVE AS to keep this one");
+        if (smp)
+            ui_text(SONG_LIST_X + SONG_LIST_W / 2.0f, SONG_LIST_Y0 + 94, 0.32f, rgba(ink_on(t, t->card), 0xA0),
+                    C2D_AlignCenter, "or copy WAVs to 3ds/vibe-machine/samples");
     }
     for (int r = 0; r < SONG_ROWS; r++) {
         int i = app->song_scroll + r;
         if (i >= app->song_count) break;
         const SongInfo *s = &app->songs[i];
-        const bool sel = i == app->song_sel, cur = strcmp(s->name, app->song_name) == 0;
+        const bool sel = i == app->song_sel, cur = !smp && strcmp(s->name, app->song_name) == 0;
         const float y = SONG_LIST_Y0 + r * SONG_ROW_PITCH;
         const uint32_t face = sel ? t->pal[i % THEME_PALETTE] : t->card;
         sticker(SONG_LIST_X, y, SONG_LIST_W, SONG_ROW_H, face, false, 0);
-        sh_floppy(SONG_LIST_X + 4, y + 4, 14, rgba(t->pal[(i + 1) % THEME_PALETTE], 0xFF), rgba(t->card, 0xFF), ink);
+        if (smp)  // a sample: a little waveform
+            for (int b = 0; b < 5; b++) {
+                float hh = 3.0f + ((b * 7 + i * 3) % 9);
+                sh_rect(SONG_LIST_X + 5 + b * 3, y + SONG_ROW_H / 2.0f - hh / 2, 2, hh, rgba(t->pal[(i + 1) % THEME_PALETTE], 0xFF));
+            }
+        else
+            sh_floppy(SONG_LIST_X + 4, y + 4, 14, rgba(t->pal[(i + 1) % THEME_PALETTE], 0xFF), rgba(t->card, 0xFF), ink);
         const uint32_t txt = ink_on(t, face);
         ui_text(SONG_LIST_X + 24, y + 3, 0.42f, rgba(txt, 0xFF), 0, "%s%s", s->name, cur ? " <" : "");
-        if (s->bpm >= 0)
+        if (s->bpm >= 0 && !smp)
             ui_text(SONG_LIST_X + SONG_LIST_W - 5, y + 5, 0.32f, rgba(txt, 0xB0), C2D_AlignRight, "%d BPM  %dP", s->bpm, s->patterns);
     }
     // Scroll stickers (dimmed at either end).
@@ -361,16 +372,21 @@ static void draw_songs_page(const AppState *app) {
     // Buttons. DELETE and NEW (and LOAD over unsaved changes) are held:
     // a bar fills across the sticker while you hold.
     static const char *const labels[] = {"SAVE AS", "SAVE", "LOAD", "DELETE", "NEW"};
+    static const char *const smp_labels[] = {"SAVE AS", NULL, "LOAD", "DELETE", "BACK"};
     const bool has_sel = app->song_sel >= 0 && app->song_sel < app->song_count;
+    if (smp)
+        ui_text(SONG_BTN_X + SONG_BTN_W / 2.0f, SONG_BTN_Y0 + SONG_BTN_PITCH + 4, 0.4f, rgba(ink_on(t, t->bg_b), 0xFF),
+                C2D_AlignCenter, "SAMPLES");
     for (int b = 0; b < 5; b++) {
         const float y = SONG_BTN_Y0 + b * SONG_BTN_PITCH;
+        if (smp && !smp_labels[b]) continue;
         bool enabled = b == 0 || b == 4 || (b == 1) || ((b == 2 || b == 3) && has_sel);
         // colourful(): never a black or white face, whatever the theme.
         uint32_t face = !enabled ? t->card : colourful(t, b);
         sticker(SONG_BTN_X, y, SONG_BTN_W, SONG_BTN_H, face, false, 0);
-        bool hold = b == 3 || b == 4 || (b == 2 && app->song_dirty);
+        bool hold = smp ? b == 3 : (b == 3 || b == 4 || (b == 2 && app->song_dirty));
         ui_text(SONG_BTN_X + SONG_BTN_W / 2.0f, y + 2, 0.42f, rgba(ink_on(t, face), enabled ? 0xFF : 0x50), C2D_AlignCenter,
-                "%s%s", labels[b], hold && enabled ? " (hold)" : "");
+                "%s%s", smp ? smp_labels[b] : labels[b], hold && enabled ? " (hold)" : "");
         if (app->song_hold == b && app->song_hold_t > 0.0f)
             sh_rect(SONG_BTN_X + 2, y + SONG_BTN_H - 5, (SONG_BTN_W - 4) * app->song_hold_t, 3, rgba(ink_on(t, face), 0xFF));
     }
@@ -689,7 +705,87 @@ static void draw_bank_grid(const AppState *app, const Sound *s) {
     }
 }
 
+// The slice (0..slices-1) any live note is playing, as a bit mask; with
+// CHOP off, bit 0 means "the region is sounding".
+static unsigned live_slices(const AppState *app) {
+    unsigned m = 0;
+    for (int p = 0; p < 128; p++)
+        if ((app->live_pitch[p >> 3] >> (p & 7)) & 1u)
+            m |= 1u << (app->sample_edit.slices ? sampler_slice_of_pitch(p, app->sample_edit.slices) : 0);
+    return m;
+}
+
+// MIC: the sample editor. The take, START..END bright and the rest dimmed,
+// slice lines when chopped, and handles to drag.
+static void draw_sampler(const AppState *app, const Sound *s) {
+    const Theme *t = ui_theme();
+    const u32 ink = rgba(t->ink, 0xFF);
+    const uint32_t lab = ink_on(t, t->card);
+    const SampleEdit *e = &app->sample_edit;
+    ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(lab, 0xFF), 0, "%s", s->name);
+
+    // CHOP, LIB, REC.
+    const uint32_t cf = e->slices ? colourful(t, 2) : t->card;
+    sticker(SMP_CHOP_X, SYN_DICE_Y, SMP_CHOP_W, 16, cf, false, 0);
+    ui_text(SMP_CHOP_X + SMP_CHOP_W / 2.0f, SYN_DICE_Y, 0.36f, rgba(ink_on(t, cf), 0xFF), C2D_AlignCenter,
+            e->slices ? "CHOP %d" : "CHOP", e->slices);
+    sticker(SMP_LIB_X, SYN_DICE_Y, SMP_LIB_W, 16, colourful(t, 4), false, 0);
+    sh_floppy(SMP_LIB_X + 3, SYN_DICE_Y + 3, 10, rgba(t->pal[1], 0xFF), rgba(t->card, 0xFF), ink);
+    ui_text(SMP_LIB_X + 28, SYN_DICE_Y, 0.36f, rgba(ink_on(t, colourful(t, 4)), 0xFF), C2D_AlignCenter, "LIB");
+    uint32_t face = app->mic_rec ? (((s_frame / 8) & 1) ? t->pal[0] : t->card) : t->card;
+    sticker(SYN_REC_X, SYN_DICE_Y, SYN_REC_W, 16, face, app->mic_rec, 0);
+    float o = app->mic_rec ? 2.0f : 0.0f;
+    sh_circle(SYN_REC_X + 8 + o, SYN_DICE_Y + 8 + o, 4.0f, rgba(app->mic_ok ? t->pal[0] : t->ink, 0xFF));
+    ui_text(SYN_REC_X + 24 + o, SYN_DICE_Y + o, 0.36f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter,
+            app->mic_ok ? "REC" : "N/A");
+
+    // The take.
+    const float x0 = SMP_WAVE_X, y0 = SMP_WAVE_Y, w = SMP_WAVE_W, h = SMP_WAVE_H, mid = y0 + h / 2.0f;
+    sh_card(x0 - 2, y0 - 2, w + 4, h + 4, rgba(t->bg_a, 0xFF), ink, 0);
+    const float sx = x0 + e->start * w, ex = x0 + e->end * w;
+    const unsigned lit = live_slices(app);
+    const int n = e->slices ? e->slices : 1;
+    for (int k = 0; k < n; k++) {  // each slice gets a tint; lit while it plays
+        const float a = sx + (ex - sx) * k / n, b = sx + (ex - sx) * (k + 1) / n;
+        const bool on = ((lit >> k) & 1u) || (app->smp_flash_frames > 0 && (app->smp_flash == k || app->smp_flash < 0));
+        sh_rect(a, y0, b - a, h, rgba(e->slices ? t->pal[k % THEME_PALETTE] : t->pal[2], on ? 0x90 : (k & 1) ? 0x30 : 0x48));
+        if (e->slices && k > 0) sh_rect(a - 0.5f, y0, 1, h, rgba(t->ink, 0xA0));
+        if (e->slices) ui_text((a + b) / 2.0f, y0 + 1, 0.3f, rgba(t->ink, 0xC0), C2D_AlignCenter, "%d", k + 1);
+    }
+    const float bw = w / SAMPLER_OVERVIEW;
+    for (int i = 0; i < SAMPLER_OVERVIEW; i++) {
+        const float a = app->take_overview[i] * (h / 2.0f - 3.0f), bx = x0 + i * bw;
+        const bool in = bx + bw > sx && bx < ex;
+        sh_rect(bx, mid - a, bw * 0.75f, 2 * a + 1, rgba(t->ink, in ? 0xE0 : 0x40));
+    }
+    // Handles: a line through the take and a grip underneath.
+    for (int hnd = 0; hnd < 2; hnd++) {
+        const float hx = hnd ? ex : sx;
+        const bool grabbed = app->smp_grab == 1 + hnd;
+        const uint32_t c = hnd ? t->pal[0] : t->pal[3];
+        sh_rect(hx - 1, y0 - 2, 2, h + 4, rgba(c, 0xFF));
+        const float gw = grabbed ? 18 : 15, gx = hnd ? hx - gw : hx;  // grips point inwards
+        sh_card(gx, y0 + h + 2, gw, SMP_GRIP_H, rgba(c, 0xFF), ink, grabbed ? 0 : 1.5f);
+        ui_text(gx + gw / 2.0f, y0 + h + 1.5f, 0.32f, rgba(ink_on(t, c), 0xFF), C2D_AlignCenter, hnd ? "E" : "S");
+    }
+    // DECAY and TONE.
+    for (int m = 0; m < 2; m++) {
+        const float bx = SMP_SLIDER_X0 + m * SMP_SLIDER_PITCH, v = app->macro[m];
+        const uint32_t col = colourful(t, m);
+        sh_card(bx, SMP_SLIDER_Y, SMP_SLIDER_W, SMP_SLIDER_H, rgba(t->card, 0xFF), ink, app->smp_grab == 3 + m ? 0 : 2);
+        sh_rect(bx + 1.5f, SMP_SLIDER_Y + 1.5f, (SMP_SLIDER_W - 3) * v, SMP_SLIDER_H - 3, rgba(col, 0xFF));
+        ui_text(bx + 4, SMP_SLIDER_Y + 0.5f, 0.34f, rgba(ink_on(t, v > 0.35f ? col : t->card), 0xFF), 0, "%s",
+                s->macro_name[m]);
+        ui_text(bx + SMP_SLIDER_W - 4, SMP_SLIDER_Y + 0.5f, 0.34f, rgba(lab, 0xFF), C2D_AlignRight, "%d",
+                (int)(v * 100.0f + 0.5f));
+    }
+}
+
 static void draw_creature_pad(const AppState *app, const Sound *s) {
+    if (app->sound == sound_mic_index()) {
+        draw_sampler(app, s);
+        return;
+    }
     const Theme *t = ui_theme();
     const u32 ink = rgba(t->ink, 0xFF);
     const float x0 = SYN_PAD_X + 8, y0 = SYN_PAD_Y + 20, w = SYN_PAD_W - 16, h = SYN_PAD_H - 28;
@@ -697,24 +793,6 @@ static void draw_creature_pad(const AppState *app, const Sound *s) {
     ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, "%s", s->name);
     if (app->sound != sound_mic_index())
         ui_text(SYN_DICE_X - 4, SYN_PAD_Y + 3, 0.32f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "%s", s->blurb);
-
-    // MIC: the take itself is the backdrop, with START marked on it.
-    if (app->sound == sound_mic_index()) {
-        const float mid = y0 + h / 2.0f, bw = w / SAMPLER_OVERVIEW;
-        for (int i = 0; i < SAMPLER_OVERVIEW; i++) {
-            float a = app->take_overview[i] * (h / 2.0f - 4.0f);
-            bool played = (float)i / SAMPLER_OVERVIEW >= app->macro[0] * 0.8f;
-            sh_rect(x0 + i * bw, mid - a, bw * 0.7f, 2 * a + 1, rgba(t->pal[played ? 2 : 4], played ? 0x90 : 0x40));
-        }
-        sh_rect(x0 + app->macro[0] * 0.8f * w - 1, y0, 2, h, rgba(t->pal[0], 0xFF));
-        // REC sticker: hold it to record.
-        uint32_t face = app->mic_rec ? (((s_frame / 8) & 1) ? t->pal[0] : t->card) : t->card;
-        sticker(SYN_REC_X, SYN_DICE_Y, SYN_REC_W, 16, face, app->mic_rec, 0);
-        float o = app->mic_rec ? 2.0f : 0.0f;
-        sh_circle(SYN_REC_X + 8 + o, SYN_DICE_Y + 8 + o, 4.0f, rgba(app->mic_ok ? t->pal[0] : t->ink, 0xFF));
-        ui_text(SYN_REC_X + 24 + o, SYN_DICE_Y + o, 0.36f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter,
-                app->mic_ok ? "REC" : "N/A");
-    }
 
     const float cx = x0 + app->macro[0] * w, cy = y0 + (1.0f - app->macro[1]) * h;
     // Crosshair to the axes, as dashed lines in the axis colours.
@@ -988,12 +1066,22 @@ static void draw_tape_transport(const AppState *app) {
     // Counter, with two reels that turn at the tape's speed.
     sh_card(TAPE_TIME_X, TAPE_BTN_Y, TAPE_TIME_W, TAPE_BTN_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
     int whole = (int)tp->seconds;
-    ui_text(TAPE_TIME_X + 52, TAPE_BTN_Y + 2, 0.5f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter, "%02d:%02d.%d",
+    ui_text(TAPE_TIME_X + 27, TAPE_BTN_Y + 3, 0.42f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter, "%02d:%02d.%d",
             whole / 60, whole % 60, (int)((tp->seconds - whole) * 10));
     static float reel;
     reel += tp->speed * 0.12f;
     draw_reel(TAPE_TIME_X + TAPE_TIME_W - 30, cy, 8, reel, t->pal[1]);
     draw_reel(TAPE_TIME_X + TAPE_TIME_W - 11, cy, 8, reel * 0.8f, t->pal[2]);
+
+    // SAMPLE: a little waveform with scissors-ish snip marks.
+    const uint32_t sf = colourful(t, 1);
+    sticker(TAPE_SMP_X, TAPE_BTN_Y, TAPE_SMP_W, TAPE_BTN_H, sf, false, 0);
+    const u32 si = rgba(ink_on(t, sf), 0xFF);
+    for (int i = 0; i < 7; i++) {
+        float hh = 2.0f + ((i * 5 + 3) % 7);
+        sh_rect(TAPE_SMP_X + 5 + i * 4, cy - 3 - hh / 2, 2, hh, si);
+    }
+    ui_text(TAPE_SMP_X + TAPE_SMP_W / 2.0f, TAPE_BTN_Y + 10, 0.28f, si, C2D_AlignCenter, "SAMPLE");
 
     // Speed strip: reverse on the left, stop in the middle, normal at 3/4.
     const float sx = TAPE_WIN_X, sw = TAPE_WIN_W;

@@ -42,7 +42,7 @@ build/seq_probe: seq_probe.c ../source/seq.c ../source/music.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
-build/songs_probe: songs_probe.c ../source/songs.c ../source/storage.c ../source/dice.c ../source/music.c
+build/songs_probe: songs_probe.c ../source/samples.c ../source/sampler.c ../source/songs.c ../source/storage.c ../source/dice.c ../source/music.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 

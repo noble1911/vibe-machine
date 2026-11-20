@@ -14,6 +14,27 @@
 
 static LightLock s_lock;
 
+// MIC: which parts play it, and how many slices it's chopped into. Read by
+// note on/off from both threads (the sequencer calls in from the audio one).
+static volatile bool s_part_mic[PARTS];
+static volatile int s_slices;
+
+// A note on a part playing MIC always names the sample preset, so voices
+// never keep a slice's preset after CHOP is turned off. With CHOP on, the
+// key picks the slice and the slice plays at its own pitch.
+static void mic_note(amy_event *e, int synth, int note) {
+    e->midi_note = (float)note;
+    const int part = synth - part_synth(0);
+    if (part < 0 || part >= PARTS || !s_part_mic[part]) return;
+    const int slices = s_slices;
+    if (slices > 0) {
+        e->preset = (uint16_t)(SAMPLER_PRESET + 1 + sampler_slice_of_pitch(note, slices));
+        e->midi_note = SAMPLER_SLICE_NOTE;
+    } else {
+        e->preset = SAMPLER_PRESET;
+    }
+}
+
 static const char *const s_param_names[PARAM_COUNT] = {
     "TONE", "ECHO", "VERB", "VOL",
 };
@@ -73,7 +94,7 @@ void engine_init(void) {
     // The MIC sound's placeholder until something is recorded.
     static int16_t boing[SAMPLER_RATE];
     int n = sampler_boing(boing, SAMPLER_RATE);
-    engine_load_sample(boing, n, SAMPLER_RATE);
+    engine_load_sample(boing, n, SAMPLER_RATE, NULL);
 }
 
 void engine_exit(void) {
@@ -85,7 +106,7 @@ void engine_exit(void) {
 void engine_note_on(int synth, int note, float velocity) {
     amy_event e = amy_default_event();
     e.synth = (uint8_t)synth;
-    e.midi_note = (float)note;
+    mic_note(&e, synth, note);
     e.velocity = velocity;
     send_locked(&e);
 }
@@ -93,7 +114,7 @@ void engine_note_on(int synth, int note, float velocity) {
 void engine_note_off(int synth, int note) {
     amy_event e = amy_default_event();
     e.synth = (uint8_t)synth;
-    e.midi_note = (float)note;
+    mic_note(&e, synth, note);
     e.velocity = 0.0f;
     send_locked(&e);
 }
@@ -109,6 +130,7 @@ static void wire_locked(const char *msg) {
 
 void engine_load_sound(int part, int sound, int patch) {
     const Sound *s = sound_get(sound);
+    if (part >= 0 && part < PARTS) s_part_mic[part] = sound == sound_mic_index();
     const int synth = part_synth(part);
     char msg[512];
     if (s->kind == SOUND_BANK) {
@@ -139,21 +161,37 @@ void engine_set_strip(int strip, const struct MixStrip *s, bool audible) {
     mixer_set_gain(strip, s, audible);
 }
 
-bool engine_load_sample(const int16_t *data, int frames, int rate) {
+static bool load_preset(int preset, const int16_t *data, int frames, int rate) {
+    // midinote 60: the C key plays the sample at its recorded pitch.
+    int16_t *ram = pcm_load((uint16_t)preset, (uint32_t)frames, (uint32_t)rate, 1, 60.0f, 0, 0);
+    if (ram) memcpy(ram, data, (size_t)frames * sizeof(int16_t));
+    return ram != NULL;
+}
+
+bool engine_load_sample(const int16_t *data, int frames, int rate, const SampleEdit *edit) {
     if (frames <= 0) return false;
+    SampleEdit ed;
+    if (edit)
+        ed = *edit;
+    else
+        sampler_edit_default(&ed);
+    sampler_edit_clamp(&ed);
     for (int part = 0; part < PARTS; part++) {  // any part may be playing the MIC take
         amy_event off = amy_default_event();
         off.synth = (uint8_t)part_synth(part);
         off.velocity = 0.0f;  // note-off for every voice of the synth
         send_locked(&off);
     }
+    int first, n = sampler_region(&ed, frames, -1, &first);
     LightLock_Lock(&s_lock);
-    // midinote 60: the C key plays the take at its recorded pitch.
-    int16_t *ram = pcm_load(SAMPLER_PRESET, (uint32_t)frames, (uint32_t)rate, 1, 60.0f, 0, 0);
-    if (ram) memcpy(ram, data, (size_t)frames * sizeof(int16_t));
+    bool ok = load_preset(SAMPLER_PRESET, data + first, n, rate);
+    for (int k = 0; ok && k < ed.slices; k++) {
+        int sn = sampler_region(&ed, frames, k, &first);
+        ok = load_preset(SAMPLER_PRESET + 1 + k, data + first, sn > 0 ? sn : 1, rate);
+    }
     LightLock_Unlock(&s_lock);
-    if (ram) sound_set_sample_frames(frames);
-    return ram != NULL;
+    if (ok) s_slices = ed.slices;
+    return ok;
 }
 
 void engine_set_macro(int part, int sound, int m, float value) {

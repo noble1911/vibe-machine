@@ -120,6 +120,30 @@
 #define SYN_DICE_W 18
 #define SYN_REC_X (SYN_DICE_X - 42)
 #define SYN_REC_W 38
+// SYNTH page, MIC sound: the sample editor in place of the creature pad.
+// CHOP and LIB stickers beside REC; the take with START / END handles; DECAY
+// and TONE sliders underneath.
+#define SMP_CHOP_X 160
+#define SMP_CHOP_W 42
+#define SMP_LIB_X 206
+#define SMP_LIB_W 42
+#define SMP_WAVE_X 118
+#define SMP_WAVE_Y 50
+#define SMP_WAVE_W 190
+#define SMP_WAVE_H 70
+#define SMP_GRIP_H 12      // handle grips under the wave
+#define SMP_SLIDER_Y 138
+#define SMP_SLIDER_H 15
+#define SMP_SLIDER_X0 116
+#define SMP_SLIDER_W 94
+#define SMP_SLIDER_PITCH 100
+typedef enum {
+    SMP_HIT_NONE = -1,
+    SMP_HIT_CHOP,
+    SMP_HIT_LIB,
+    SMP_HIT_WAVE,      // the take (and the grips under it)
+    SMP_HIT_SLIDER,    // + macro
+} SmpHit;
 #define BANK_COLS 16
 #define BANK_ROWS 8
 #define BANK_X0 (SYN_PAD_X + 6)
@@ -166,7 +190,9 @@
 #define TAPE_REC_X 154
 #define TAPE_BTN_W 32
 #define TAPE_TIME_X 190
-#define TAPE_TIME_W 126
+#define TAPE_TIME_W 84
+#define TAPE_SMP_X 278      // SAMPLE: the bar under the playhead -> the MIC sound
+#define TAPE_SMP_W 38
 #define TAPE_SPEED_Y 136
 #define TAPE_SPEED_H 22
 
@@ -247,6 +273,7 @@ typedef enum {
     TAPE_HIT_LINK,
     TAPE_HIT_WINDOW,
     TAPE_HIT_SPEED,
+    TAPE_HIT_SAMPLE,
     TAPE_HIT_TRACK,  // + track index
     TAPE_HIT_MUTE = TAPE_HIT_TRACK + TAPE_TRACKS,  // + track index
     TAPE_HIT_SOURCE = TAPE_HIT_MUTE + TAPE_TRACKS,  // + track index
@@ -305,6 +332,9 @@ int ui_hit_sound_tile(int x, int y);
 bool ui_in_synth_pad(int x, int y);
 bool ui_hit_synth_dice(int x, int y);
 bool ui_hit_synth_rec(int x, int y);  // the MIC sound's REC sticker
+int ui_hit_sampler(int x, int y);       // the rest of the MIC editor: an SmpHit
+float ui_sampler_pos(int x);            // position along the take, 0..1
+float ui_sampler_slider(int x, int m);  // slider m's value for a touch at x
 int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
 int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
 bool ui_in_fx_pad(int x, int y);

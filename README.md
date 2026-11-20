@@ -3,7 +3,8 @@
 **A loud, 90s-Memphis pocket synth and groovebox for the Nintendo 3DS** (homebrew).
 
 Three instrument parts plus drums, eight original synth engines plus the
-Juno-6 and DX7 banks, a microphone sampler, a 16-step sequencer and piano
+Juno-6 and DX7 banks, a sampler (microphone, tape or WAV; trim it, chop it
+into slices across the keys), a 16-step sequencer and piano
 roll with 8 pattern slots and song mode, a mixer with drive, crush, tone
 and pan on every part, four performance effects you play with the stylus,
 and a 4-track tape recorder,
@@ -89,12 +90,12 @@ runs seven probes:
 
 | Probe | Checks |
 |---|---|
-| sound | Every sound makes a note, at a matched level, and both of its macros audibly change it |
+| sound | Every sound makes a note, at a matched level, and both of its macros audibly change it; chopped samples play the right slice on each key |
 | fx | Bypass is bit-exact; sweep darkens and brightens; crush quantises; stutter repeats at exactly the tempo-synced length; tape stops and recovers |
 | seq | 16ths land on time, to the sample; swing gaps are right; accents hit harder; a queued pattern switches on the bar line; song mode chains the right slots; piano-roll notes hold for their length (over the bar line too), chords sound together, live notes keep the length you held; muted parts and drums stay silent |
 | tape | Playback at pitch, an octave up at 2×, reverse, mute, wipe; a track set to one strip records just that strip |
-| logic | Save files, WAV files, dice grooves (always in key), MIC take tidying |
-| songs | Song names, listing (sorted, hundreds of songs), save, load, overwrite, delete |
+| logic | Save files, WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling |
+| songs | Song names, listing (sorted, hundreds of songs), save, load, overwrite, delete; the sample library's listing |
 | mix | Each part reaches only its own strip; level, mute and pan are exact; DRIVE squares the wave off and CRUSH steps it while the level stays within a few dB; another strip's effects leave a part bit-for-bit alone; the master echo still reaches every part |
 
 CI builds the app in the `devkitpro/devkitarm` container and runs every
@@ -112,7 +113,7 @@ probe on each push ([workflow](.github/workflows/build.yml)). Pushing a
 | `source/seq.c` | Sequencer: slots, song, swing, accents; clock runs on the audio thread |
 | `source/mixer.c` | MIX strips: one AMY bus per part, DRIVE / CRUSH / level / pan in AMY's bus hook, summed into a master bus |
 | `source/fx.c`, `tape.c` | Performance FX and the 4-track tape |
-| `source/mic.c`, `sampler.c` | Microphone capture and take tidying |
+| `source/mic.c`, `sampler.c`, `samples.c` | Microphone capture; take tidying, START/END, CHOP slices, resampling; the sample library |
 | `source/songs.c`, `storage.c`, `wav.c` | Named songs, the save format, WAV files |
 | `source/dice.c` | Weighted random grooves |
 | `source/ui*.c`, `shapes.c`, `motif.c`, `theme.c` | Both screens, the Memphis drawing kit, the nine themes |

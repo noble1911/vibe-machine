@@ -41,5 +41,3 @@ bool sound_macro_wire(int index, int m, float t, int synth, char *out, size_t le
 
 // Index of the MIC sound (the one that plays the microphone take).
 int sound_mic_index(void);
-// Tell the MIC sound how long the current take is (START is a fraction of it).
-void sound_set_sample_frames(int frames);

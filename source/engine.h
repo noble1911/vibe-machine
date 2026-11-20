@@ -38,7 +38,11 @@ void engine_load_sound(int part, int sound, int patch);
 void engine_set_macro(int part, int sound, int m, float value);
 // Replace the MIC sound's sample (mono, `rate` Hz). Silences the lead
 // synth first so no voice is playing the old buffer.
-bool engine_load_sample(const int16_t *data, int frames, int rate);
+// The whole take goes in with its edit (sampler.h): the START..END region
+// becomes the pitched sample, and with CHOP on each slice is loaded too,
+// and parts playing MIC play one slice per key.
+#include "sampler.h"
+bool engine_load_sample(const int16_t *data, int frames, int rate, const SampleEdit *edit);
 // value is normalised 0..1; the engine maps it to the real range.
 void engine_set_param(EngineParam param, float value);  // on the master bus
 // A MIX page strip (mixer.h): level, pan, DRIVE, CRUSH, TONE, and whether it

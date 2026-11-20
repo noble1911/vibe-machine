@@ -20,6 +20,7 @@
 #include "dice.h"
 #include "mic.h"
 #include "sampler.h"
+#include "samples.h"
 #include "songs.h"
 #include "seq.h"
 #include "storage.h"
@@ -75,6 +76,7 @@ typedef enum {
     TOUCH_ROLL_KEYS,
     TOUCH_PART_HOLD,
     TOUCH_MIX,
+    TOUCH_SMP,
 } TouchMode;
 
 #define PART_MUTE_FRAMES 40  // hold a SYNTH part sticker this long to (un)mute it
@@ -449,9 +451,34 @@ static void show_take(const int16_t *data, int frames) {
 static void load_boing(void) {
     static int16_t boing[SAMPLER_RATE];
     int n = sampler_boing(boing, SAMPLER_RATE);
-    engine_load_sample(boing, n, SAMPLER_RATE);
+    engine_load_sample(boing, n, SAMPLER_RATE, &s_app.sample_edit);
     show_take(boing, n);
     s_take_user = false;
+}
+
+// The MIC sound plays s_take_buf through its edit (START..END, CHOP).
+static void reload_take(void) {
+    sampler_edit_clamp(&s_app.sample_edit);
+    engine_load_sample(s_take_buf, s_take_frames, SAMPLER_RATE, &s_app.sample_edit);
+}
+
+// A new take for the MIC sound (recorded, grabbed from tape or loaded from
+// the library). It plays whole; CHOP stays as it was, so a bar grabbed
+// into a chopped sampler is ready to play as slices.
+static bool use_take(const int16_t *data, int frames) {
+    if (frames <= 0) return false;
+    if (frames > SAMPLER_MAX_FRAMES) frames = SAMPLER_MAX_FRAMES;
+    if (data != s_take_buf) memmove(s_take_buf, data, (size_t)frames * sizeof(int16_t));
+    s_app.sample_edit.start = 0.0f;
+    s_app.sample_edit.end = 1.0f;
+    if (!engine_load_sample(s_take_buf, frames, SAMPLER_RATE, &s_app.sample_edit)) return false;
+    show_take(s_take_buf, frames);
+    s_take_user = true;
+    s_mic_gen++;
+#ifndef VM_DEMO
+    wav_write(STORAGE_DIR "/mic.wav", s_take_buf, frames, SAMPLER_RATE);
+#endif
+    return true;
 }
 
 static void finish_recording(void) {
@@ -459,15 +486,7 @@ static void finish_recording(void) {
     int16_t *take = mic_stop(&frames);
     s_app.mic_rec = false;
     frames = sampler_tidy(take, frames);
-    if (frames > SAMPLER_RATE / 20 && engine_load_sample(take, frames, SAMPLER_RATE)) {
-        show_take(take, frames);
-        s_take_user = true;
-        s_mic_gen++;
-#ifndef VM_DEMO
-        wav_write(STORAGE_DIR "/mic.wav", take, frames, SAMPLER_RATE);
-#endif
-        set_macro(0, 0.0f);  // play the new take from its start
-        engine_set_macro(s_app.part, s_app.sound, 0, 0.0f);
+    if (frames > SAMPLER_RATE / 20 && use_take(take, frames)) {
         ui_key_struck(0, PLAY_NOTE);
     } else {
         s_app.mic_secs = s_take_secs;  // silent or too short: keep the old take
@@ -512,6 +531,7 @@ static void capture(SaveState *st) {
     st->solo = s_app.mix_solo;
     const TapeStatus tp = tape_status();
     for (int t = 0; t < TAPE_TRACKS; t++) st->tape_source[t] = (int8_t)tp.source[t];
+    st->sample_edit = s_app.sample_edit;
     memcpy(st->params, s_app.params, sizeof(st->params));
     st->octave = s_app.octave;
     st->bpm = seq.bpm;
@@ -530,9 +550,13 @@ static void restore(const SaveState *st) {
     s_theme = ((st->theme % ui_theme_count()) + ui_theme_count()) % ui_theme_count();
     ui_set_theme(s_theme);
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = st->params[i];
+    s_app.sample_edit = st->sample_edit;
     for (int k = PARTS - 1; k >= 0; k--) {
+        float macro[SOUND_MACROS];
+        memcpy(macro, st->parts[k].macro, sizeof(macro));
+        if (st->old_mic_macros && st->parts[k].sound == sound_mic_index()) macro[0] = 1.0f;  // START became DECAY
         if (st->parts[k].sound >= 0)
-            load_part(k, st->parts[k].sound, st->parts[k].patch, st->parts[k].macro);
+            load_part(k, st->parts[k].sound, st->parts[k].patch, macro);
         else  // an older song: this part gets its default sound
             load_part(k, kPartDefault[k], -1, NULL);
         seq_set_part_mute(k, (st->muted >> k) & 1u);
@@ -664,11 +688,27 @@ static void sync_scratch_mic(void) {
 #endif
 }
 
+// The sample library (the SONGS page's other mode): the files behind the
+// names in s_app.songs.
+#define SAMPLES_ROOT STORAGE_DIR "/samples"
+static SampleFile s_sample_files[SONGS_MAX];
+
 static void refresh_songs(void) {
-    s_app.song_count = song_list(SONGS_ROOT, s_app.songs, SONGS_MAX, false);  // names only: fast
+    if (s_app.lib_samples) {
+        s_app.song_count = sample_list(SAMPLES_ROOT, s_sample_files, SONGS_MAX);
+        for (int i = 0; i < s_app.song_count; i++) {
+            memcpy(s_app.songs[i].name, s_sample_files[i].name, sizeof(s_app.songs[i].name));
+            s_app.songs[i].bpm = 0;  // nothing more to read for a sample
+            s_app.songs[i].patterns = 0;
+        }
+    } else {
+        s_app.song_count = song_list(SONGS_ROOT, s_app.songs, SONGS_MAX, false);  // names only: fast
+    }
+    const int keep = s_app.song_sel;
     s_app.song_sel = -1;
-    for (int i = 0; i < s_app.song_count; i++)
+    for (int i = 0; i < s_app.song_count && !s_app.lib_samples; i++)
         if (strcmp(s_app.songs[i].name, s_app.song_name) == 0) s_app.song_sel = i;
+    if (s_app.lib_samples && keep >= 0 && keep < s_app.song_count) s_app.song_sel = keep;
     if (s_app.song_sel < 0 && s_app.song_count > 0) s_app.song_sel = 0;
     int max_scroll = s_app.song_count > SONG_ROWS ? s_app.song_count - SONG_ROWS : 0;
     if (s_app.song_sel >= 0 && s_app.song_sel < s_app.song_scroll) s_app.song_scroll = s_app.song_sel;
@@ -764,7 +804,7 @@ static bool load_song(const char *name) {
     song_path(SONGS_ROOT, name, "mic.wav", path, sizeof(path));
     int rate = 0, frames = wav_read(path, s_take_buf, SAMPLER_MAX_FRAMES, &rate);
     s_mic_gen++;
-    if (frames > 0 && rate == SAMPLER_RATE && engine_load_sample(s_take_buf, frames, rate)) {
+    if (frames > 0 && rate == SAMPLER_RATE && engine_load_sample(s_take_buf, frames, rate, &s_app.sample_edit)) {
         show_take(s_take_buf, frames);
         s_take_user = true;
     } else {
@@ -784,6 +824,7 @@ static void new_song(void) {
     seq_reset();
     seq_set_bpm(112);
     for (int t = 0; t < TAPE_TRACKS; t++) tape_clear(t);
+    sampler_edit_default(&s_app.sample_edit);
     load_boing();
     s_mic_gen++;
     sync_scratch_mic();
@@ -801,7 +842,7 @@ static void new_song(void) {
 }
 
 // Ask for a name with the 3DS keyboard, offering a random one.
-static bool ask_song_name(char *out) {
+static bool ask_name(char *out, const char *hint) {
     char suggestion[SONG_NAME_MAX + 1], buf[48];
     song_random_name((uint32_t)svcGetSystemTick(), suggestion);
 #ifdef VM_DEMO
@@ -811,7 +852,7 @@ static bool ask_song_name(char *out) {
 #else
     SwkbdState kb;
     swkbdInit(&kb, SWKBD_TYPE_NORMAL, 2, SONG_NAME_MAX);
-    swkbdSetHintText(&kb, "Name your song");
+    swkbdSetHintText(&kb, hint);
     swkbdSetInitialText(&kb, suggestion);
     swkbdSetValidation(&kb, SWKBD_NOTEMPTY_NOTBLANK, 0, 0);
     if (swkbdInputText(&kb, buf, sizeof(buf)) != SWKBD_BUTTON_CONFIRM) return false;
@@ -853,7 +894,126 @@ static unsigned s_song_hold_frames;
 static bool s_restored_unsaved, s_restored_mic_changed;
 static uint8_t s_restored_tape_changed;
 
+// ------------------------------------------------------ sample library ----
+
+static void open_library(bool samples) {
+    s_app.lib_samples = samples;
+    s_app.page = PAGE_SONGS;
+    s_app.confirm_name[0] = '\0';
+    if (samples) {
+        s_app.song_sel = -1;
+        s_app.song_scroll = 0;
+    }
+    refresh_songs();
+}
+
+static bool sample_named(const char *name) {
+    for (int i = 0; i < s_app.song_count; i++)
+        if (strcmp(s_sample_files[i].name, name) == 0) return true;
+    return false;
+}
+
+// The take's START..END region, as you hear it (CHOP is a way of playing
+// it, not part of the file).
+static void save_sample(const char *name) {
+    if (!s_take_user) {
+        notice("RECORD OR GRAB A SAMPLE FIRST");
+        return;
+    }
+    mkdir(SAMPLES_ROOT, 0777);
+    int first, n = sampler_region(&s_app.sample_edit, s_take_frames, -1, &first);
+    char file[64], path[160];
+    sample_file_for(name, file, sizeof(file));
+    sample_path(SAMPLES_ROOT, file, path, sizeof(path));
+    if (!wav_write(path, s_take_buf + first, n, SAMPLER_RATE)) {
+        notice("SAVE FAILED");
+        return;
+    }
+    refresh_songs();
+    for (int i = 0; i < s_app.song_count; i++)
+        if (strcmp(s_sample_files[i].name, name) == 0) s_app.song_sel = i;
+    notice("SAMPLE SAVED");
+}
+
+// Any 16-bit WAV: resampled to the sampler's rate, the first few seconds.
+static void load_sample(int i) {
+    static int16_t raw[SAMPLER_SECONDS * 48000], res[SAMPLER_MAX_FRAMES];
+    char path[160];
+    sample_path(SAMPLES_ROOT, s_sample_files[i].file, path, sizeof(path));
+    int rate = 0, frames = wav_read(path, raw, (int)(sizeof(raw) / sizeof(raw[0])), &rate);
+    int n = frames > 0 ? sampler_resample(raw, frames, rate, res, SAMPLER_MAX_FRAMES, SAMPLER_RATE) : 0;
+    if (n < SAMPLER_RATE / 50 || !use_take(res, n)) {
+        notice("CAN'T READ THAT WAV");
+        return;
+    }
+    notice("LOADED: PLAY IT AS THE MIC SOUND");
+}
+
+static void samples_touch(int x, int y) {
+    s_touch = TOUCH_IGNORE;
+    const bool confirming = s_app.confirm_name[0] != '\0';
+    const int hit = ui_hit_songs(x, y, confirming);
+    if (confirming) {
+        if (hit == SONG_HIT_CONFIRM) {
+            s_app.song_hold = SONG_HIT_CONFIRM;
+            s_song_hold_frames = 0;
+            s_touch = TOUCH_SONG_HOLD;
+        } else {
+            s_app.confirm_name[0] = '\0';
+        }
+        return;
+    }
+    const bool has_sel = s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count;
+    char name[SONG_NAME_MAX + 1];
+    if (hit >= SONG_HIT_ROW) {
+        int i = s_app.song_scroll + (hit - SONG_HIT_ROW);
+        if (i < s_app.song_count) s_app.song_sel = i;
+        return;
+    }
+    switch (hit) {
+        case SONG_HIT_UP:
+            if (s_app.song_scroll > 0) s_app.song_scroll--;
+            break;
+        case SONG_HIT_DOWN:
+            if (s_app.song_scroll + SONG_ROWS < s_app.song_count) s_app.song_scroll++;
+            break;
+        case SONG_HIT_SAVE_AS:
+            if (!ask_name(name, "Name your sample")) break;
+            if (sample_named(name))
+                snprintf(s_app.confirm_name, sizeof(s_app.confirm_name), "%s", name);
+            else
+                save_sample(name);
+            break;
+        case SONG_HIT_LOAD:
+            if (has_sel) load_sample(s_app.song_sel);
+            break;
+        case SONG_HIT_DELETE:
+            if (!has_sel) break;
+            s_app.song_hold = hit;
+            s_song_hold_frames = 0;
+            s_touch = TOUCH_SONG_HOLD;
+            break;
+        case SONG_HIT_NEW:  // BACK, in this mode
+            s_app.page = PAGE_SYNTH;
+            break;
+        default: break;
+    }
+}
+
 static void song_hold_done(int button) {
+    if (s_app.lib_samples) {
+        if (button == SONG_HIT_DELETE && s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count) {
+            char path[160];
+            sample_path(SAMPLES_ROOT, s_sample_files[s_app.song_sel].file, path, sizeof(path));
+            remove(path);
+            refresh_songs();
+        }
+        if (button == SONG_HIT_CONFIRM) {
+            save_sample(s_app.confirm_name);
+            s_app.confirm_name[0] = '\0';
+        }
+        return;
+    }
     const bool has_sel = s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count;
     if (button == SONG_HIT_LOAD && has_sel) start_job(JOB_LOAD, s_app.songs[s_app.song_sel].name, "LOADING...");
     if (button == SONG_HIT_DELETE && has_sel) {
@@ -877,6 +1037,10 @@ static void save_as(const char *name) {
 }
 
 static void songs_touch(int x, int y) {
+    if (s_app.lib_samples) {
+        samples_touch(x, y);
+        return;
+    }
     s_touch = TOUCH_IGNORE;
     if (s_job != JOB_NONE) return;  // busy: ignore taps until it's done
     const bool confirming = s_app.confirm_name[0] != '\0';
@@ -906,12 +1070,12 @@ static void songs_touch(int x, int y) {
             if (s_app.song_scroll + SONG_ROWS < s_app.song_count) s_app.song_scroll++;
             break;
         case SONG_HIT_SAVE_AS:
-            if (ask_song_name(name)) save_as(name);
+            if (ask_name(name, "Name your song")) save_as(name);
             break;
         case SONG_HIT_SAVE:
             if (s_app.song_name[0])
                 start_job(JOB_SAVE, s_app.song_name, "SAVING...");
-            else if (ask_song_name(name))
+            else if (ask_name(name, "Name your song"))
                 save_as(name);
             break;
         case SONG_HIT_LOAD:
@@ -998,6 +1162,91 @@ static void audition(int pitch) {
     engine_note_on(s_audition_synth, pitch, 0.7f);
     s_audition_pitch = pitch;
     s_audition_frames = AUDITION_FRAMES;
+}
+
+// --------------------------------------------------- MIC sample editor ----
+
+// The pitch whose key plays slice k (C D E F G A B C).
+static const int kSlicePitch[SAMPLER_MAX_SLICES] = {60, 62, 64, 65, 67, 69, 71, 72};
+
+static void sampler_drag(int x) {
+    SampleEdit *e = &s_app.sample_edit;
+    const float min_len = 0.02f;
+    if (s_app.smp_grab == 1) {
+        float v = ui_sampler_pos(x);
+        e->start = v > e->end - min_len ? e->end - min_len : v;
+    } else if (s_app.smp_grab == 2) {
+        float v = ui_sampler_pos(x);
+        e->end = v < e->start + min_len ? e->start + min_len : v;
+    } else if (s_app.smp_grab >= 3) {
+        set_macro(s_app.smp_grab - 3, ui_sampler_slider(x, s_app.smp_grab - 3));
+    }
+}
+
+// MIC editor touches; false if (x, y) isn't on it.
+static bool sampler_begin(int x, int y) {
+    SampleEdit *e = &s_app.sample_edit;
+    const int hit = ui_hit_sampler(x, y);
+    if (hit == SMP_HIT_NONE) return false;
+    s_touch = TOUCH_IGNORE;
+    if (hit == SMP_HIT_CHOP) {  // off -> 4 -> 8 -> off
+        e->slices = e->slices == 0 ? 4 : e->slices == 4 ? 8 : 0;
+        reload_take();
+    } else if (hit == SMP_HIT_LIB) {
+        open_library(true);
+    } else if (hit == SMP_HIT_WAVE) {
+        const float pos = ui_sampler_pos(x), near = 10.0f / SMP_WAVE_W;
+        const float ds = fabsf(pos - e->start), de = fabsf(pos - e->end);
+        if (y >= SMP_WAVE_Y + SMP_WAVE_H || ds < near || de < near) {  // a handle (or its grip)
+            s_app.smp_grab = ds < de || (ds == de && pos < e->start) ? 1 : 2;
+            sampler_drag(x);
+            s_touch = TOUCH_SMP;
+        } else {  // tap the take: hear that slice, or the region
+            int k = -1;
+            if (e->slices && pos >= e->start && pos < e->end)
+                k = (int)((pos - e->start) / (e->end - e->start) * e->slices);
+            audition(k >= 0 ? kSlicePitch[k] : 60);
+            s_app.smp_flash = k;
+            s_app.smp_flash_frames = 12;
+        }
+    } else if (hit >= SMP_HIT_SLIDER) {
+        s_app.smp_grab = 3 + (hit - SMP_HIT_SLIDER);
+        sampler_drag(x);
+        s_touch = TOUCH_SMP;
+    }
+    return true;
+}
+
+// TAPE's SAMPLE: the bar under the playhead on the picked track becomes the
+// MIC sound's take. (Bars count from the tape's start, where SEQ LINK
+// starts the beat.)
+static void grab_from_tape(void) {
+    const TapeStatus tp = tape_status();
+    char msg[sizeof(s_app.notice)];
+    if (tp.recording) {
+        notice("STOP RECORDING FIRST");
+        return;
+    }
+    int len = 0;
+    const int16_t *data = tape_track_data(tp.track, &len);
+    const float bar = 240.0f / (float)(s_app.seq.bpm > 0 ? s_app.seq.bpm : 120);
+    const int bar_no = (int)(fmodf(tp.seconds, (float)TAPE_SECONDS) / bar);
+    int a = (int)(bar_no * bar * TAPE_RATE), n = (int)((bar < SAMPLER_SECONDS ? bar : SAMPLER_SECONDS) * TAPE_RATE);
+    if (!data || !tp.used[tp.track] || a >= len) {
+        snprintf(msg, sizeof(msg), "NOTHING ON TAPE %c THERE", '1' + tp.track);
+        notice(msg);
+        return;
+    }
+    if (a + n > len) n = len - a;
+    static int16_t buf[SAMPLER_MAX_FRAMES];
+    int m = sampler_resample(data + a, n, TAPE_RATE, buf, SAMPLER_MAX_FRAMES, SAMPLER_RATE);
+    sampler_normalise(buf, m);
+    if (m < SAMPLER_RATE / 20 || !use_take(buf, m)) {
+        notice("COULDN'T GRAB THAT");
+        return;
+    }
+    snprintf(msg, sizeof(msg), "TAPE %c BAR %d -> MIC SOUND", '1' + tp.track, bar_no + 1 > 99 ? 99 : bar_no + 1);
+    notice(msg);
 }
 
 static void audition_tick(void) {
@@ -1214,6 +1463,8 @@ static void touch_begin(int x, int y) {
             s_touch = TOUCH_TAPE_SCRUB;
         } else if (hit == TAPE_HIT_SPEED) {
             s_touch = TOUCH_TAPE_SPEED;
+        } else if (hit == TAPE_HIT_SAMPLE) {
+            grab_from_tape();
         } else if (hit != TAPE_HIT_NONE) {
             tape_button(hit);
         }
@@ -1242,6 +1493,7 @@ static void touch_begin(int x, int y) {
         s_touch = TOUCH_IGNORE;
         return;
     }
+    if (s_app.page == PAGE_SYNTH && s_app.sound == sound_mic_index() && sampler_begin(x, y)) return;
     if (s_app.page == PAGE_SYNTH) {
         int tile = ui_hit_sound_tile(x, y);
         if (tile >= 0) {
@@ -1274,9 +1526,7 @@ static void touch_begin(int x, int y) {
         return;
     }
     if (s_app.page == PAGE_SOUND && ui_hit_songs_button(x, y)) {
-        s_app.page = PAGE_SONGS;
-        s_app.confirm_name[0] = '\0';
-        refresh_songs();
+        open_library(false);
         s_touch = TOUCH_IGNORE;
         return;
     }
@@ -1355,6 +1605,8 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         s_app.roll_active = -1;
         s_app.mix_strip = -1;
         s_app.mix_grab = MIX_GRAB_NONE;
+        if (s_touch == TOUCH_SMP && s_app.smp_grab <= 2) reload_take();  // START / END moved
+        s_app.smp_grab = 0;
         s_app.slot_hold_t = 0.0f;
         s_app.song_hold = -1;
         s_app.song_hold_t = 0.0f;
@@ -1431,6 +1683,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         case TOUCH_SWING: seq_set_swing(ui_swing_at(tp.px)); break;
         case TOUCH_ROLL_NOTE: roll_drag(tp.px, tp.py); break;
         case TOUCH_MIX: mix_drag(tp.py); break;
+        case TOUCH_SMP: sampler_drag(tp.px); break;
         case TOUCH_PART_HOLD:
             if (s_part_hold_frames < PART_MUTE_FRAMES && ++s_part_hold_frames == PART_MUTE_FRAMES) {
                 int k = s_app.part_hold;
@@ -1552,6 +1805,7 @@ int main(void) {
     s_app.mix_strip = -1;
     s_app.mix_grab = MIX_GRAB_NONE;
     mix_default();
+    sampler_edit_default(&s_app.sample_edit);
     mkdir("sdmc:/3ds", 0777);
     mkdir(STORAGE_DIR, 0777);
     {
@@ -1565,7 +1819,7 @@ int main(void) {
         load_boing();  // the MIC placeholder, unless a saved take replaces it
 #ifndef VM_DEMO
         int rate = 0, frames = wav_read(STORAGE_DIR "/mic.wav", s_take_buf, SAMPLER_MAX_FRAMES, &rate);
-        if (frames > 0 && rate == SAMPLER_RATE && engine_load_sample(s_take_buf, frames, rate)) {
+        if (frames > 0 && rate == SAMPLER_RATE && engine_load_sample(s_take_buf, frames, rate, &s_app.sample_edit)) {
             show_take(s_take_buf, frames);
             s_take_user = true;
         }
@@ -1711,6 +1965,7 @@ int main(void) {
         }
         update_lit_keys();
         mix_update();
+        if (s_app.smp_flash_frames > 0) s_app.smp_flash_frames--;
 
         AudioStats stats = audio_out_stats();
         audio_out_scope(scope);

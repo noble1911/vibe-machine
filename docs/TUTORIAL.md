@@ -12,7 +12,7 @@ recipes to get you making things. It takes about twenty minutes with the
 [SEQ](#5-the-seq-page-making-beats) ·
 [Parts](#6-parts-three-instruments-at-once) ·
 [SYNTH](#7-the-synth-page-choosing-and-shaping-sounds) ·
-[MIC](#8-sampling-your-voice-with-mic) ·
+[Sampler](#8-the-sampler-mic) ·
 [MIX](#9-the-mix-page-balancing-the-parts) ·
 [FX](#10-the-fx-page-performance-effects) ·
 [TAPE](#11-the-tape-page-recording-tracks) ·
@@ -234,22 +234,47 @@ or **slide across** them to audition. The patch name appears on the top
 screen. The **circle pad ← →** steps through patches, and the **dice** picks
 a random one.
 
-## 8. Sampling your voice with MIC
+## 8. The sampler: MIC
 
-1. On **SYNTH**, tap the **MIC** tile.
-2. **Hold REC** (top of the pad) and sing, beatbox or tap something into the
-   3DS microphone, for up to 3 seconds. The top screen shows a REC card with
-   a level meter.
-3. Let go. The take is tidied up: silence at the start is trimmed and the
-   level is evened out, so it plays the moment you press a key.
-4. Play the keys: **C plays it at its original pitch**, the others up the
-   scale. Hold **L** for chords made of your voice.
-5. The take's **waveform** fills the pad. Drag the mascot **left–right to
-   choose where in the take each note starts** (the marker line), and
-   **up–down for tone**.
+The **MIC** sound plays a sample: your voice, a sound you tapped into the
+microphone, a bar grabbed from the tape, or a WAV from the library. Tap the
+**MIC** tile on **SYNTH** and the pad becomes a **sample editor**.
 
-The take is saved with your song. Until you record one, MIC plays a
-cartoon "boing".
+**Getting a sample in:**
+
+- **REC**: hold it and sing, beatbox or tap something into the 3DS
+  microphone, for up to 4 seconds. Let go and the take is tidied up
+  (silence trimmed, level evened out).
+- **From the tape**: on the TAPE page, put the playhead in a bar and tap
+  **SAMPLE**. That bar of the picked track becomes the sample (bars count
+  from the start of the tape, where SEQ LINK starts the beat).
+- **LIB** (the floppy): the **sample library**. Pick one and tap **LOAD**.
+
+**Editing it:**
+
+- The take's waveform fills the editor. Drag the **S** (start) and **E**
+  (end) handles to choose the part that plays; the rest dims.
+- **CHOP** cuts that part into **4** or **8** equal slices (tap again for
+  8, again for off). Chopped, **each key plays one slice** at its own
+  pitch: C plays slice 1, D slice 2, and so on up the keys. A one-bar drum
+  loop chopped into 8 gives you its eighth notes to rearrange on the grid
+  or the piano roll.
+- Not chopped, the part plays **pitched across the keys**: C is the
+  original pitch, the others go up the scale. Hold **L** for chords.
+- **Tap the waveform** to hear that slice (or the whole part). Slices
+  light up as they play.
+- **DECAY**: how long each note lasts while held, from a tight chop to the
+  whole slice. **TONE**: dark to bright.
+
+**The library** (LIB): **SAVE AS** saves the part between the handles
+under a name; **LOAD** puts a saved sample into MIC; **DELETE** (hold)
+removes one; **BACK** returns to the editor. Samples are ordinary WAV files
+in `sdmc:/3ds/vibe-machine/samples/`, so you can copy your own in from a
+computer: any 16-bit WAV, mono or stereo, any sample rate (the first 4
+seconds are used).
+
+The current sample, its handles and CHOP are saved with your song. Until you
+record or load one, MIC plays a cartoon "boing".
 
 ## 9. The MIX page: balancing the parts
 
@@ -320,7 +345,7 @@ A four-track tape, 60 seconds long, that loops. Think of it as a
 multitrack recorder for **performances**: you play a pass, it goes on
 tape, and the tape plays it back while you play the next one. (For
 recording a sound to play on the keys, use the **MIC** sound:
-[section 8](#8-sampling-your-voice-with-mic).)
+[section 8](#8-the-sampler-mic).)
 
 Each track has a **source**, the chip next to its number. Pick the track,
 then tap its chip to change the source:

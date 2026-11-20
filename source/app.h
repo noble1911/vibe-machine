@@ -71,6 +71,10 @@ typedef struct {
     float mic_level;            // live input level, 0..1
     float mic_secs;             // length of the take so far / of the loaded take
     float take_overview[SAMPLER_OVERVIEW];  // waveform of the loaded take
+    SampleEdit sample_edit;     // the MIC sound's START / END / CHOP
+    int smp_grab;               // MIC editor: 0, 1 START / 2 END being dragged, 3 + m a slider
+    int smp_flash, smp_flash_frames;  // a slice (or -1: the region) just auditioned
+    bool lib_samples;           // the SONGS page is showing the sample library
 
     // TAPE page
     TapeStatus tape;            // read back from the tape each frame

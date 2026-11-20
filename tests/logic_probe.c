@@ -36,6 +36,7 @@ int main(void) {
     a.solo = 0x4;
     const int8_t srcs[TAPE_TRACKS] = {TAPE_SRC_ALL, MIX_DRUMS, 0, 2};
     memcpy(a.tape_source, srcs, sizeof(srcs));
+    a.sample_edit = (SampleEdit){0.125f, 0.875f, 8};
     for (int i = 0; i < PARAM_COUNT; i++) a.params[i] = 0.1f * (i + 1);
     a.octave = -2;
     a.bpm = 137;
@@ -162,6 +163,28 @@ int main(void) {
         check(loaded && old.bpm == 99 && strcmp(old.name, "OLD SONG") == 0 && p->count == 4 && chord_at_4 == 3 &&
                   d_at_9 == 1 && p->accents == 0x0101 && p->drums[0] == 1,
               "a song saved before the piano roll loads with its notes");
+    }
+
+    // --- sample edits ---------------------------------------------------------
+    {
+        SampleEdit e = {0.25f, 0.75f, 4};
+        int first, n = sampler_region(&e, 1000, -1, &first);
+        check(first == 250 && n == 500, "START..END picks the middle of the take");
+        int f1, n1 = sampler_region(&e, 1000, 1, &f1), f3, n3 = sampler_region(&e, 1000, 3, &f3);
+        check(f1 == 375 && n1 == 125 && f3 + n3 == 750, "CHOP 4 cuts the region into four equal slices");
+        static const int pitches[] = {60, 62, 64, 65, 67, 69, 71, 72, 61, 59};
+        static const int want[] = {0, 1, 2, 3, 0, 1, 2, 3, 0, 3};  // B3 is one step below C4: the last slice
+        int right = 0;
+        for (int i = 0; i < 10; i++) right += sampler_slice_of_pitch(pitches[i], 4) == want[i];
+        check(right == 10, "the keys walk through the slices, wrapping; sharps take the slice below");
+        SampleEdit bad = {0.9f, 0.1f, 1};
+        sampler_edit_clamp(&bad);
+        check(bad.start < bad.end && bad.slices == 0, "a back-to-front edit is put right");
+        static int16_t in[2205], out[4000];
+        for (int i = 0; i < 2205; i++) in[i] = (int16_t)(i * 10);
+        int m = sampler_resample(in, 2205, 22050, out, 4000, SAMPLER_RATE);
+        check(abs(m - 1637) <= 1 && abs(out[m / 2] - in[(int)(m / 2 * 22050.0 / SAMPLER_RATE)]) <= 10,
+              "resampling 22.05 kHz tape to the sampler's rate keeps length and shape");
     }
 
     // --- WAV ------------------------------------------------------------------
