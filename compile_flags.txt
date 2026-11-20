@@ -1,0 +1,12 @@
+--target=arm-none-eabi
+-march=armv6k
+-mfloat-abi=hard
+-D__3DS__
+-DAMY_NO_MINIAUDIO
+-DAMY_WAVETABLE
+-DBLOCK_SIZE_BITS=8
+-Isource
+-Ithird_party/amy/src
+-I/opt/devkitpro/libctru/include
+-isystem
+/opt/devkitpro/devkitARM/arm-none-eabi/include
