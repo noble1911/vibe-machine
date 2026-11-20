@@ -9,6 +9,8 @@
 static int16_t *s_track[TAPE_TRACKS];
 static uint8_t s_peaks[TAPE_TRACKS][TAPE_PEAKS];  // 0..255 per overview block
 static volatile bool s_used[TAPE_TRACKS];
+static volatile bool s_dirty[TAPE_TRACKS];
+static volatile int32_t s_len[TAPE_TRACKS];  // furthest frame written + 1
 
 static volatile bool s_playing, s_rec_armed, s_scrubbing;
 static volatile int s_armed_track;
@@ -65,6 +67,37 @@ void tape_clear(int track) {
     memset(s_track[track], 0, TAPE_FRAMES * sizeof(int16_t));
     memset(s_peaks[track], 0, TAPE_PEAKS);
     s_used[track] = false;
+    s_len[track] = 0;
+    s_dirty[track] = true;
+}
+
+bool tape_dirty(int track) { return track >= 0 && track < TAPE_TRACKS && s_dirty[track]; }
+
+const int16_t *tape_track_data(int track, int *frames) {
+    if (!s_ok || track < 0 || track >= TAPE_TRACKS) return NULL;
+    *frames = s_len[track];
+    return s_track[track];
+}
+
+void tape_mark_saved(int track) {
+    if (track >= 0 && track < TAPE_TRACKS) s_dirty[track] = false;
+}
+
+void tape_load_track(int track, const int16_t *data, int frames) {
+    if (!s_ok || track < 0 || track >= TAPE_TRACKS) return;
+    if (frames > TAPE_FRAMES) frames = TAPE_FRAMES;
+    memset(s_track[track], 0, TAPE_FRAMES * sizeof(int16_t));
+    memcpy(s_track[track], data, (size_t)frames * sizeof(int16_t));
+    memset(s_peaks[track], 0, TAPE_PEAKS);
+    for (int i = 0; i < frames; i++) {
+        float a = sqrtf(fabsf(data[i] / 32768.0f));
+        uint8_t pk = (uint8_t)fminf(255.0f, a * 255.0f);
+        int b = i / TAPE_PEAK_BLOCK;
+        if (pk > s_peaks[track][b]) s_peaks[track][b] = pk;
+    }
+    s_len[track] = frames;
+    s_used[track] = frames > 0;
+    s_dirty[track] = false;
 }
 
 TapeStatus tape_status(void) {
@@ -142,10 +175,13 @@ void tape_process(int16_t *io, int frames, int rate) {
                 float v = s_rec_acc / s_rec_n;
                 s_track[rt][w] = (int16_t)(soft(v) * 32767.0f);
                 int b = w / TAPE_PEAK_BLOCK;
-                uint8_t pk = (uint8_t)fminf(255.0f, fabsf(v) * 255.0f * 1.5f);
+                // Square-root scale, so quiet takes still read on screen.
+                uint8_t pk = (uint8_t)fminf(255.0f, sqrtf(fabsf(v)) * 255.0f);
                 if (w % TAPE_PEAK_BLOCK == 0) s_peaks[rt][b] = pk;  // first write of a block resets it
                 else if (pk > s_peaks[rt][b]) s_peaks[rt][b] = pk;
                 s_used[rt] = true;
+                s_dirty[rt] = true;
+                if (w + 1 > s_len[rt]) s_len[rt] = w + 1;
                 s_rec_acc = 0.0f;
                 s_rec_n = 0;
             }

@@ -7,6 +7,8 @@
 #include <3ds.h>
 #include <citro2d.h>
 #include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -21,6 +23,7 @@
 #include "seq.h"
 #include "storage.h"
 #include "tape.h"
+#include "wav.h"
 #include "ui.h"
 
 #define QUIT_HOLD_FRAMES 60   // hold START this long to quit
@@ -200,6 +203,34 @@ static void tape_button(int hit) {
     }
 }
 
+// Tape tracks are WAV files next to the state file. They are written when
+// the tape stops (and on quit), never mid-performance.
+static void tape_path(char *out, size_t len, int track) { snprintf(out, len, STORAGE_DIR "/tape%d.wav", track + 1); }
+
+static void save_tape(void) {
+    for (int t = 0; t < TAPE_TRACKS; t++) {
+        if (!tape_dirty(t)) continue;
+        char path[64];
+        tape_path(path, sizeof(path), t);
+        int frames = 0;
+        const int16_t *data = tape_track_data(t, &frames);
+        bool ok = frames > 0 ? wav_write(path, data, frames, TAPE_RATE) : (remove(path), true);
+        if (ok) tape_mark_saved(t);
+    }
+}
+
+static void load_tape(void) {
+    int16_t *buf = malloc(TAPE_FRAMES * sizeof(int16_t));
+    if (!buf) return;
+    for (int t = 0; t < TAPE_TRACKS; t++) {
+        char path[64];
+        tape_path(path, sizeof(path), t);
+        int rate = 0, frames = wav_read(path, buf, TAPE_FRAMES, &rate);
+        if (frames > 0 && rate == TAPE_RATE) tape_load_track(t, buf, frames);
+    }
+    free(buf);
+}
+
 // ---------------------------------------------------------------- MIC ----
 
 static float s_take_secs;  // length of the loaded take
@@ -216,6 +247,9 @@ static void finish_recording(void) {
     frames = sampler_tidy(take, frames);
     if (frames > SAMPLER_RATE / 20 && engine_load_sample(take, frames, SAMPLER_RATE)) {
         show_take(take, frames);
+#ifndef VM_DEMO
+        wav_write(STORAGE_DIR "/mic.wav", take, frames, SAMPLER_RATE);
+#endif
         set_macro(0, 0.0f);  // play the new take from its start
         engine_set_macro(s_app.sound, 0, 0.0f);
         ui_key_struck(0, PLAY_NOTE);
@@ -650,6 +684,11 @@ int main(void) {
     {
         SaveState st;
         if (storage_load(STORAGE_PATH, &st)) restore(&st);
+#ifndef VM_DEMO
+        static int16_t take[SAMPLER_MAX_FRAMES];
+        int rate = 0, frames = wav_read(STORAGE_DIR "/mic.wav", take, SAMPLER_MAX_FRAMES, &rate);
+        if (frames > 0 && rate == SAMPLER_RATE && engine_load_sample(take, frames, rate)) show_take(take, frames);
+#endif
         s_app.seq = seq_status();
         seq_snapshot(&s_app.pattern);
         capture(&s_saved);  // what is on disk now
@@ -658,6 +697,9 @@ int main(void) {
     s_app.tape_link = true;
     s_app.tape_hold_track = -1;
     tape_init();  // before the audio thread starts using it
+#ifndef VM_DEMO
+    load_tape();  // needs the tape memory from tape_init
+#endif
     s_app.audio_ok = audio_out_init();
     s_app.mic_ok = mic_init();
     {   // the MIC sound starts with the placeholder engine_init loaded
@@ -720,6 +762,11 @@ int main(void) {
         handle_touch(down, held, up);
 #ifndef VM_DEMO
         if (s_app.frame % 30 == 0) autosave(false);
+        {   // the tape just stopped: a good moment to write its tracks
+            static bool was_playing;
+            if (was_playing && !s_app.tape.playing) save_tape();
+            was_playing = s_app.tape.playing;
+        }
 #endif
         follow_sequencer();
         if (s_app.mic_rec) {
@@ -754,7 +801,11 @@ int main(void) {
 
 #ifndef VM_DEMO
     autosave(true);
+    tape_play(false);
+    save_tape();
 #else
+    (void)save_tape;
+    (void)load_tape;
     (void)autosave;  // the attract build never touches the SD card
 #endif
     if (s_app.seq.playing) seq_toggle_play();

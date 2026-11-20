@@ -7,6 +7,7 @@
 
 #include "dice.h"
 #include "sampler.h"
+#include "wav.h"
 #include "storage.h"
 
 static int fails;
@@ -82,6 +83,15 @@ int main(void) {
     check(first >= 0 && first < SAMPLER_RATE / 50, "the sound starts within 20 ms of the key press");
     memset(take, 0, sizeof(take));
     check(sampler_tidy(take, SAMPLER_RATE) == 0, "a silent take is refused");
+
+    // --- WAV ------------------------------------------------------------------
+    static int16_t wav_in[4000], wav_out[4000];
+    for (int i = 0; i < 4000; i++) wav_in[i] = (int16_t)((i * 37) % 30000 - 15000);
+    int rate = 0;
+    check(wav_write("build/test.wav", wav_in, 4000, 22050), "a WAV file is written");
+    int got = wav_read("build/test.wav", wav_out, 4000, &rate);
+    check(got == 4000 && rate == 22050 && memcmp(wav_in, wav_out, sizeof(wav_in)) == 0, "it reads back sample-exact at its rate");
+    check(wav_read("build/missing.wav", wav_out, 4000, &rate) < 0, "a missing WAV is reported");
 
     printf(fails ? "\n%d logic problem(s)\n" : "\nall logic OK\n", fails);
     return fails ? 1 : 0;

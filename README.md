@@ -80,6 +80,10 @@ your own console. Do not use the emulator placeholder on real hardware.
 Everything (pattern, sound, macros, sliders, tempo, theme) is saved to
 `sdmc:/3ds/vibe-machine/state.vms` a moment after you change it and again
 when you quit, and restored at launch.
+Tape tracks are saved as `tape1.wav` … `tape4.wav` (mono, 22.05 kHz) when
+the tape stops and on quit, and your MIC take as `mic.wav`, all in the same
+folder, so you can pull them off the SD card into any audio editor, or drop
+your own mono 16-bit WAVs in (tape tracks must be 22,050 Hz).
 
 ## Building
 

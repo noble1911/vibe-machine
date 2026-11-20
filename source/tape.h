@@ -53,6 +53,13 @@ TapeStatus tape_status(void);
 // Peak level (0..1) of track `track` around the overview block `block`.
 float tape_peak(int track, int block);
 
+// Saving and loading (UI thread, with the tape stopped). A track is dirty
+// once it has been recorded over or wiped since it was last saved/loaded.
+bool tape_dirty(int track);
+const int16_t *tape_track_data(int track, int *frames);  // frames = recorded length
+void tape_mark_saved(int track);
+void tape_load_track(int track, const int16_t *data, int frames);
+
 // --- audio thread --------------------------------------------------------
 // io: interleaved stereo int16 at `rate` Hz (the live, post-FX mix). Records
 // it if armed, then adds the tape playback in place.

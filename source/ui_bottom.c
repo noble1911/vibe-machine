@@ -603,8 +603,9 @@ static void draw_tape_transport(const AppState *app) {
     const bool armed = app->tape.recording || s_tape_armed_ui;
     uint32_t rf = armed ? (tp->recording && ((s_frame / 12) & 1) ? t->pal[0] : t->card) : t->card;
     sticker(TAPE_REC_X, TAPE_BTN_Y, TAPE_BTN_W, TAPE_BTN_H, rf, armed, 0);
+    // The dot flips to ink when the blinking face is the dot's own colour.
     sh_circle(TAPE_REC_X + TAPE_BTN_W / 2.0f + (armed ? 2 : 0), cy + (armed ? 2 : 0), 5.5f,
-              rgba(armed ? t->pal[0] : t->ink, 0xFF));
+              rgba(armed ? (rf == t->pal[0] ? t->ink : t->pal[0]) : t->ink, 0xFF));
 
     // Counter, with two reels that turn at the tape's speed.
     sh_card(TAPE_TIME_X, TAPE_BTN_Y, TAPE_TIME_W, TAPE_BTN_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);

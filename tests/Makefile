@@ -27,7 +27,7 @@ build/fx_probe: fx_probe.c ../source/fx.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
-build/logic_probe: logic_probe.c ../source/dice.c ../source/storage.c ../source/music.c ../source/sampler.c
+build/logic_probe: logic_probe.c ../source/dice.c ../source/storage.c ../source/music.c ../source/sampler.c ../source/wav.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
