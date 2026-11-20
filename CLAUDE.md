@@ -65,5 +65,8 @@ uploads `vibe-machine.3dsx` as an artifact; `v*` tags publish a release.
   must keep building on a PC (seq.c switches its lock on `__3DS__`):
   `make -C tests` runs probes for all of them. Timing changes to the
   sequencer must keep `tests/seq_probe` passing.
+- `docs/TUTORIAL.md` is the user guide and `README.md` the overview: when
+  a control, label or page changes, update them in the same commit.
+  Screenshots in `docs/images/` come from `make DEMO=1` runs in Azahar.
 - Original visual design only: no copying another product's graphics,
   characters or names.
