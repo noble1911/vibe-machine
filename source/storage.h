@@ -34,6 +34,8 @@ typedef struct {
     uint8_t solo;    // bit n = strip n soloed
     int8_t tape_source[TAPE_TRACKS];  // TAPE_SRC_ALL or a MIX strip
     SampleEdit sample_edit;  // the MIC sound's START / END / CHOP
+    SeqArrangement arr;      // the SONG sheet
+    uint8_t tape_muted;      // bit t = tape track t muted
     bool old_mic_macros;     // loaded from before MIC's first macro became DECAY (not saved)
     float params[PARAM_COUNT];
     int octave;

@@ -97,6 +97,31 @@
 #define ROLL_PART_W 16
 #define ROLL_PART_PITCH 18
 
+// SEQ page, SONG sheet (hold SONG): the arrangement as stickers, 8 x 4.
+#define ARR_HEAD_Y 26
+#define ARR_HEAD_H 15
+#define ARR_END_X 4
+#define ARR_END_W 56
+#define ARR_MUTE_X0 160
+#define ARR_MUTE_W 22
+#define ARR_MUTE_PITCH 24
+#define ARR_DEL_X 258
+#define ARR_DEL_W 34
+#define ARR_X0 4
+#define ARR_Y0 45
+#define ARR_COLS 8
+#define ARR_CELL_W 36
+#define ARR_CELL_H 21
+#define ARR_PITCH_X 39
+#define ARR_PITCH_Y 24
+typedef enum {
+    ARR_HIT_NONE = -1,
+    ARR_HIT_END,
+    ARR_HIT_DEL,
+    ARR_HIT_MUTE,                // + part (PARTS = drums)
+    ARR_HIT_CELL = ARR_HIT_MUTE + PARTS + 1,  // + row
+} ArrHit;
+
 // SYNTH page: part stickers in the tab row (tap: pick, hold: mute).
 #define PART_TAB_X0 136
 #define PART_TAB_W 58
@@ -324,6 +349,7 @@ int ui_hit_roll_part(int x, int y);     // part 0..PARTS-1, or -1
 int ui_hit_part_tab(int x, int y);      // SYNTH page part sticker, or -1
 bool ui_hit_seq_part_chip(int x, int y);  // the grid's synth-row chip
 bool ui_hit_roll_keys(int x, int y);
+int ui_hit_arr(int x, int y);  // SONG sheet: an ArrHit
 // Roll cell under (x, y): step 0..15 and row 0..ROLL_ROWS-1 counted up from
 // the bottom. The clamped form always answers (for drags off the edge).
 bool ui_roll_cell(int x, int y, int *step, int *row);

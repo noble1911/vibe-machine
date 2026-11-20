@@ -37,6 +37,12 @@ int main(void) {
     const int8_t srcs[TAPE_TRACKS] = {TAPE_SRC_ALL, MIX_DRUMS, 0, 2};
     memcpy(a.tape_source, srcs, sizeof(srcs));
     a.sample_edit = (SampleEdit){0.125f, 0.875f, 8};
+    a.arr.count = 3;
+    a.arr.loop = true;
+    a.arr.rows[0] = (SeqArrRow){0, 4, 0};
+    a.arr.rows[1] = (SeqArrRow){1, 2, 1u << PARTS};
+    a.arr.rows[2] = (SeqArrRow){7, 8, 0x5};
+    a.tape_muted = 0x9;
     for (int i = 0; i < PARAM_COUNT; i++) a.params[i] = 0.1f * (i + 1);
     a.octave = -2;
     a.bpm = 137;

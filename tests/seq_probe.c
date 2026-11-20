@@ -262,6 +262,62 @@ int main(void) {
     seq_set_part_mute(PARTS, false);
     check(drum_hits == 0 && part_hits == 3, "muted drums are silent while the parts play");
 
+    // --- arrangement ----------------------------------------------------------
+    // A x2, then B once with part 1 dropped out, then stop.
+    {
+        SeqPattern pa, pb;
+        memset(&pa, 0, sizeof(pa));
+        memset(&pb, 0, sizeof(pb));
+        pa.drums[0] = 1u << 0;  // kick
+        pb.drums[0] = 1u << 1;  // snare
+        pb.notes[pb.count++] = (SeqRollNote){0, 48, 1, 200, 0};  // part 1: dropped by the row
+        pb.notes[pb.count++] = (SeqRollNote){0, 72, 1, 200, 1};  // part 2: plays
+        seq_put_slot(0, &pa);
+        seq_put_slot(1, &pb);
+        for (int i = 2; i < SEQ_SLOTS; i++) {
+            SeqPattern empty;
+            memset(&empty, 0, sizeof(empty));
+            seq_put_slot(i, &empty);
+        }
+        SeqArrangement arr;
+        memset(&arr, 0, sizeof(arr));
+        arr.rows[arr.count++] = (SeqArrRow){0, 2, 0};
+        arr.rows[arr.count++] = (SeqArrRow){1, 1, 1u << 0};
+        arr.loop = false;
+        seq_set_arrangement(&arr);
+        seq_set_song(true);
+        seq_set_bpm(120);  // a bar is 2 s
+        seq_select_slot(1);  // wherever we were, the song starts at its first row
+        const uint32_t ends0 = seq_status().ends;
+        s_nhits = 0;
+        seq_toggle_play();
+        run(7.0);
+        SeqStatus st = seq_status();
+        int drums[8], nd = 0, part1 = 0, part2 = 0;
+        for (int i = 0; i < s_nhits; i++) {
+            if (s_hits[i].vel <= 0) continue;
+            if (s_hits[i].synth == SYNTH_DRUMS && nd < 8) drums[nd++] = s_hits[i].note;
+            if (s_hits[i].synth == part_synth(0)) part1++;
+            if (s_hits[i].synth == part_synth(1)) part2++;
+        }
+        printf("  arrangement: %d drum hits, part 1 %d, part 2 %d, playing %d\n", nd, part1, part2, st.playing);
+        check(nd == 3 && drums[0] == drums[1] && drums[2] != drums[0], "rows play their slots, repeated: A A B");
+        check(part1 == 0 && part2 == 1, "a row drops out the parts it mutes");
+        check(!st.playing && st.ends == ends0 + 1, "the song stops at the end of the arrangement");
+        arr.loop = true;
+        seq_set_arrangement(&arr);
+        s_nhits = 0;
+        seq_toggle_play();
+        run(7.0);
+        nd = 0;
+        for (int i = 0; i < s_nhits; i++)
+            if (s_hits[i].vel > 0 && s_hits[i].synth == SYNTH_DRUMS) nd++;
+        check(seq_status().playing && nd == 4, "LOOP goes round again instead");
+        seq_toggle_play();
+        run(0.1);
+        seq_set_song(false);
+    }
+
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);
     return fails ? 1 : 0;
 }

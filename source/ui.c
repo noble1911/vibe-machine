@@ -238,6 +238,21 @@ float ui_tape_speed_at(int x) {
     return s;
 }
 
+int ui_hit_arr(int x, int y) {
+    if (y >= ARR_HEAD_Y - 2 && y < ARR_HEAD_Y + ARR_HEAD_H + 2) {
+        if (in_box(x, y, ARR_END_X - 2, ARR_HEAD_Y - 2, ARR_END_W + 4, ARR_HEAD_H + 4)) return ARR_HIT_END;
+        if (in_box(x, y, ARR_DEL_X - 2, ARR_HEAD_Y - 2, ARR_DEL_W + 4, ARR_HEAD_H + 4)) return ARR_HIT_DEL;
+        for (int k = 0; k <= PARTS; k++)
+            if (in_box(x, y, ARR_MUTE_X0 + k * ARR_MUTE_PITCH - 1, ARR_HEAD_Y - 2, ARR_MUTE_W + 2, ARR_HEAD_H + 4))
+                return ARR_HIT_MUTE + k;
+        return ARR_HIT_NONE;
+    }
+    if (x < ARR_X0 - 1 || y < ARR_Y0 - 1) return ARR_HIT_NONE;
+    const int c = (x - ARR_X0 + 1) / ARR_PITCH_X, r = (y - ARR_Y0 + 1) / ARR_PITCH_Y;
+    if (c >= ARR_COLS || r >= SEQ_ARR_ROWS / ARR_COLS) return ARR_HIT_NONE;
+    return ARR_HIT_CELL + r * ARR_COLS + c;
+}
+
 int ui_hit_mix(int x, int y, int *strip) {
     if (x < MIX_X0 - 2) return MIX_HIT_NONE;
     const int k = (x - MIX_X0 + 2) / MIX_PITCH;

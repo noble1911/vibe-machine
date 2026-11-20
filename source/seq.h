@@ -52,6 +52,22 @@ typedef struct {
     SeqRollNote notes[SEQ_NOTES];
 } SeqPattern;
 
+// The song's arrangement (SONG mode): rows played in order, each a slot
+// repeated `reps` times with some parts dropped out. Empty: SONG chains
+// the slots that have something in them, as before.
+#define SEQ_ARR_ROWS 32
+#define SEQ_ARR_REPS_MAX 8
+typedef struct {
+    uint8_t slot;   // 0..SEQ_SLOTS-1
+    uint8_t reps;   // 1..SEQ_ARR_REPS_MAX bars
+    uint8_t mutes;  // bit n = part n silent in this row; bit PARTS = the drums
+} SeqArrRow;
+typedef struct {
+    uint8_t count;
+    bool loop;      // at the end: start again (true) or stop (false)
+    SeqArrRow rows[SEQ_ARR_ROWS];
+} SeqArrangement;
+
 typedef struct {
     bool playing;
     bool recording;
@@ -64,6 +80,9 @@ typedef struct {
     float swing;     // 0..SEQ_SWING_MAX
     uint8_t used;    // bit n = slot n has something in it
     uint8_t muted;   // bit n = part n is muted; bit PARTS = the drums
+    int arr_row;     // arrangement row playing (SONG mode with an arrangement), else -1
+    int arr_rep;     // which repeat of it (0-based)
+    uint32_t ends;   // bumps each time an arrangement plays to its end and stops
 } SeqStatus;
 
 // velocity 0 means note-off. `synth` is SYNTH_DRUMS or part_synth(part).
@@ -82,6 +101,8 @@ void seq_set_recording(bool on);
 void seq_set_bpm(int bpm);
 void seq_set_swing(float swing);
 void seq_set_song(bool on);
+void seq_set_arrangement(const SeqArrangement *a);
+void seq_get_arrangement(SeqArrangement *out);
 void seq_set_part_mute(int part, bool muted);  // part PARTS = the drums
 void seq_clear(void);                       // the current slot
 void seq_reset(void);  // a new song: empty slots, starter groove in A, no swing / song

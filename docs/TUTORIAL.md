@@ -136,11 +136,39 @@ Along the bottom:
   the switch waits for the end of the bar (the slot blinks while it's
   queued). **Hold** a slot to **copy** the current pattern into it, the
   quick way to make a variation.
-- **SONG**: when on, the sequencer plays every filled slot in order (A, B,
-  C, …), one bar each, skipping empty ones, and loops.
+- **SONG**: **tap** to turn song mode on. With no arrangement, it plays
+  every filled slot in order (A, B, C, …), one bar each, and loops.
+  **Hold** it to open the **SONG sheet** (below) and arrange a real song.
 - **ROLL**: switches the grid to the piano roll (below).
 - **SW**: swing. Drag from 0% to 50%. It lengthens the on-beat 16ths and
   shortens the off-beat ones, for a shuffle.
+
+### The SONG sheet: arranging
+
+**Hold SONG** (about half a second) and the grid becomes the **SONG
+sheet**: your song as a row of stickers, played left to right, top to
+bottom. Each sticker is a pattern slot and how many bars it plays.
+
+- **Tap +** to add a sticker. It starts as the slot you're on, for 1 bar.
+- **Tap a sticker** to pick it (it gets an outline). **Tap it again** to
+  repeat it: ×1 → ×2 → ×4 → ×8 bars.
+- With a sticker picked, **tap a slot A–H** along the bottom to make it
+  play that pattern.
+- The chips **1 2 3 D** in the header drop a part (or the drums) out of the
+  picked sticker: for an intro without drums, or a breakdown with just the
+  bass. Dropped parts show as dots on the sticker.
+- **DEL** removes the picked sticker.
+- **STOP / LOOP** (top left): what happens at the end. **STOP** ends the
+  song there, which is what you want for a finished song (and a mixdown).
+- The header shows the song's length in bars and minutes.
+
+Press **START** and the song plays from the first sticker; the playing one
+fills up as it goes, and the top screen shows **ROW 3/8**. Tap **ROLL** or
+hold **SONG** again to go back to editing patterns. Up to 32 stickers × 8
+bars: 256 bars.
+
+A typical pop shape with three patterns (A verse, B chorus, C a variation):
+`A×4 (drums dropped)`, `A×4`, `B×4`, `A×4`, `B×4`, `C×2`, `B×4`, with STOP.
 
 ### The piano roll
 

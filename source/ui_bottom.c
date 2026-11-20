@@ -543,6 +543,9 @@ static void draw_slots(const AppState *app) {
             sh_rect(x + 1, SEQ_SLOT_Y + SEQ_SLOT_H - 3, (SEQ_SLOT_W - 2) * app->slot_hold_t, 3, rgba(ink_on(t, face), 0xFF));
     }
     sticker(SEQ_SONG_X, SEQ_SLOT_Y, SEQ_SONG_W, SEQ_SLOT_H, st->song ? t->pal[3] : t->card, !st->song, "SONG");
+    if (app->song_btn_hold > 0)  // hold: open / close the SONG sheet
+        sh_rect(SEQ_SONG_X + 1, SEQ_SLOT_Y + SEQ_SLOT_H - 3, (SEQ_SONG_W - 2) * app->song_btn_hold / 30.0f, 3,
+                rgba(ink_on(t, st->song ? t->pal[3] : t->card), 0xFF));
     sticker(SEQ_ROLL_X, SEQ_SLOT_Y, SEQ_ROLL_W, SEQ_SLOT_H, app->roll_view ? t->pal[1] : t->card, !app->roll_view, "ROLL");
 
     sh_card(SEQ_SWING_X, SEQ_SLOT_Y, SEQ_SWING_W, SEQ_SLOT_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
@@ -641,9 +644,72 @@ static void draw_roll(const AppState *app) {
     if (app->roll_scroll > 0) sh_tri(ROLL_KEYS_X + ROLL_KEYS_W / 2.0f, gy + gh + 1, 3, 1.5708f, rgba(t->pal[2], 0xFF));
 }
 
+// The SONG sheet: the arrangement as stickers, the playing one filling up.
+static void draw_arr(const AppState *app) {
+    const Theme *t = ui_theme();
+    const SeqArrangement *a = &app->arr;
+    const u32 ink = rgba(t->ink, 0xFF);
+    const bool sel_ok = app->arr_sel >= 0 && app->arr_sel < a->count;
+    // Header: END, length, the picked row's mutes and DEL.
+    sticker(ARR_END_X, ARR_HEAD_Y, ARR_END_W, ARR_HEAD_H, a->loop ? t->pal[1] : t->pal[0], false,
+            a->loop ? "LOOP" : "STOP");
+    int bars = 0;
+    for (int i = 0; i < a->count; i++) bars += a->rows[i].reps;
+    const int secs = (int)(bars * 240.0f / (app->seq.bpm > 0 ? app->seq.bpm : 120) + 0.5f);
+    ui_text(ARR_END_X + ARR_END_W + 6, ARR_HEAD_Y + 1, 0.36f, rgba(ink_on(t, t->bg_b), 0xFF), 0, "%d BARS %d:%02d", bars,
+            secs / 60, secs % 60);
+    if (sel_ok) {
+        const uint8_t m = a->rows[app->arr_sel].mutes;
+        for (int k = 0; k <= PARTS; k++) {
+            const bool off = (m >> k) & 1u;
+            const uint32_t f = off ? t->card : part_rgb(t, k);
+            char lab[2] = {k < PARTS ? (char)('1' + k) : 'D', 0};
+            const float mx = ARR_MUTE_X0 + k * ARR_MUTE_PITCH;
+            sticker(mx, ARR_HEAD_Y, ARR_MUTE_W, ARR_HEAD_H, f, off, lab);
+            if (off) sh_rect(mx + 5, ARR_HEAD_Y + ARR_HEAD_H / 2.0f + 2, ARR_MUTE_W - 10, 1.5f, ink);  // struck out
+        }
+        sticker(ARR_DEL_X, ARR_HEAD_Y, ARR_DEL_W, ARR_HEAD_H, t->card, false, "DEL");
+    } else if (a->count == 0) {
+        ui_text(ARR_MUTE_X0 + 70, ARR_HEAD_Y + 1, 0.34f, rgba(ink_on(t, t->bg_b), 0xC0), C2D_AlignCenter,
+                "tap + to add a row");
+    }
+    // The rows.
+    for (int i = 0; i <= a->count && i < SEQ_ARR_ROWS; i++) {
+        const float x = ARR_X0 + (i % ARR_COLS) * ARR_PITCH_X, y = ARR_Y0 + (i / ARR_COLS) * ARR_PITCH_Y;
+        if (i == a->count) {  // the next free sticker: add a row
+            sh_card(x, y, ARR_CELL_W, ARR_CELL_H, rgba(t->card, 0x90), rgba(t->ink, 0x80), 0);
+            ui_text(x + ARR_CELL_W / 2.0f, y + 1, 0.55f, rgba(ink_on(t, t->card), 0xC0), C2D_AlignCenter, "+");
+            break;
+        }
+        const SeqArrRow *r = &a->rows[i];
+        const uint32_t face = t->pal[r->slot % THEME_PALETTE];
+        const bool sel = i == app->arr_sel, playing = i == app->seq.arr_row;
+        sticker(x, y, ARR_CELL_W, ARR_CELL_H, face, false, 0);
+        if (playing) {  // fills as the row plays through its repeats
+            const float f = (app->seq.arr_rep + (app->seq.step + 1) / (float)SEQ_STEPS) / r->reps;
+            sh_rect(x + 1, y + ARR_CELL_H - 4, (ARR_CELL_W - 2) * (f > 1 ? 1 : f), 3, rgba(ink_on(t, face), 0xFF));
+        }
+        const u32 txt = rgba(ink_on(t, face), 0xFF);
+        ui_text(x + 4, y + 1, 0.5f, txt, 0, "%c", 'A' + r->slot);
+        if (r->reps > 1) ui_text(x + ARR_CELL_W - 3, y + 3, 0.36f, txt, C2D_AlignRight, "x%d", r->reps);
+        for (int k = 0; k <= PARTS; k++)  // tiny dots: the parts dropped out of this row
+            if ((r->mutes >> k) & 1u) sh_rect(x + 4 + k * 5, y + ARR_CELL_H - 8, 3, 3, rgba(t->ink, 0xC0));
+        if (sel) {  // the picked row: a thick outline and a corner triangle
+            const float ox = x - 3, oy = y - 3, ow = ARR_CELL_W + 6, oh = ARR_CELL_H + 6;
+            sh_rect(ox, oy, ow, 2, ink);
+            sh_rect(ox, oy + oh - 2, ow, 2, ink);
+            sh_rect(ox, oy, 2, oh, ink);
+            sh_rect(ox + ow - 2, oy, 2, oh, ink);
+            sh_tri(x + ARR_CELL_W - 4, y + 4, 4, 1.5708f, ink);
+        }
+    }
+}
+
 static void draw_seq_page(const AppState *app) {
     draw_transport(app);
-    if (app->roll_view)
+    if (app->arr_view)
+        draw_arr(app);
+    else if (app->roll_view)
         draw_roll(app);
     else
         draw_grid(app);

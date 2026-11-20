@@ -77,7 +77,10 @@ typedef enum {
     TOUCH_PART_HOLD,
     TOUCH_MIX,
     TOUCH_SMP,
+    TOUCH_SONG_BTN,
 } TouchMode;
+
+#define SONG_SHEET_FRAMES 30  // hold SONG this long to open / close the SONG sheet
 
 #define PART_MUTE_FRAMES 40  // hold a SYNTH part sticker this long to (un)mute it
 
@@ -546,6 +549,9 @@ static void capture(SaveState *st) {
     const TapeStatus tp = tape_status();
     for (int t = 0; t < TAPE_TRACKS; t++) st->tape_source[t] = (int8_t)tp.source[t];
     st->sample_edit = s_app.sample_edit;
+    seq_get_arrangement(&st->arr);
+    for (int t = 0; t < TAPE_TRACKS; t++)
+        if (tp.muted[t]) st->tape_muted |= (uint8_t)(1u << t);
     memcpy(st->params, s_app.params, sizeof(st->params));
     st->octave = s_app.octave;
     st->bpm = seq.bpm;
@@ -580,7 +586,12 @@ static void restore(const SaveState *st) {
     memcpy(s_app.mix, st->mix, sizeof(s_app.mix));
     s_app.mix_solo = st->solo;
     mix_apply_all();
-    for (int t = 0; t < TAPE_TRACKS; t++) tape_set_source(t, st->tape_source[t]);
+    for (int t = 0; t < TAPE_TRACKS; t++) {
+        tape_set_source(t, st->tape_source[t]);
+        tape_mute(t, (st->tape_muted >> t) & 1u);
+    }
+    seq_set_arrangement(&st->arr);
+    s_app.arr_sel = -1;
     s_app.octave = st->octave < MUSIC_OCTAVE_MIN || st->octave > MUSIC_OCTAVE_MAX ? 0 : st->octave;
     seq_set_bpm(st->bpm);
     for (int i = 0; i < SEQ_SLOTS; i++) seq_put_slot(i, &st->slots[i]);
@@ -631,6 +642,53 @@ static bool s_force_dirty;
 static void notice(const char *msg) {
     snprintf(s_app.notice, sizeof(s_app.notice), "%s", msg);
     s_app.notice_frames = 150;
+}
+
+// ------------------------------------------------------- SONG sheet ----
+
+static void arr_assign(int slot) {
+    SeqArrangement a;
+    seq_get_arrangement(&a);
+    if (s_app.arr_sel < 0 || s_app.arr_sel >= a.count) return;
+    a.rows[s_app.arr_sel].slot = (uint8_t)slot;
+    seq_set_arrangement(&a);
+}
+
+static void arr_touch(int x, int y) {
+    s_touch = TOUCH_IGNORE;
+    SeqArrangement a;
+    seq_get_arrangement(&a);
+    const int hit = ui_hit_arr(x, y), sel = s_app.arr_sel;
+    const bool sel_ok = sel >= 0 && sel < a.count;
+    if (hit == ARR_HIT_END) {
+        a.loop = !a.loop;
+    } else if (hit == ARR_HIT_DEL && sel_ok) {
+        memmove(&a.rows[sel], &a.rows[sel + 1], sizeof(SeqArrRow) * (size_t)(a.count - sel - 1));
+        a.count--;
+        if (s_app.arr_sel >= a.count) s_app.arr_sel = a.count - 1;
+    } else if (hit >= ARR_HIT_MUTE && hit < ARR_HIT_CELL && sel_ok) {
+        a.rows[sel].mutes ^= (uint8_t)(1u << (hit - ARR_HIT_MUTE));
+    } else if (hit >= ARR_HIT_CELL) {
+        const int i = hit - ARR_HIT_CELL;
+        if (i < a.count) {
+            if (i == sel) {  // tap the picked row again: x1 -> x2 -> x4 -> x8
+                uint8_t *r = &a.rows[i].reps;
+                *r = *r >= SEQ_ARR_REPS_MAX ? 1 : *r * 2;
+            } else {
+                s_app.arr_sel = i;
+                return;
+            }
+        } else if (i == a.count && a.count < SEQ_ARR_ROWS) {  // "+": a row of the current slot
+            a.rows[a.count++] = (SeqArrRow){(uint8_t)s_app.seq.slot, 1, 0};
+            s_app.arr_sel = a.count - 1;
+        } else {
+            s_app.arr_sel = -1;
+            return;
+        }
+    } else {
+        return;
+    }
+    seq_set_arrangement(&a);
 }
 
 static void strip_name(int strip, char *out, size_t len) {
@@ -847,7 +905,12 @@ static void new_song(void) {
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
     default_parts();
     mix_default();
-    for (int t = 0; t < TAPE_TRACKS; t++) tape_set_source(t, TAPE_SRC_ALL);
+    for (int t = 0; t < TAPE_TRACKS; t++) {
+        tape_set_source(t, TAPE_SRC_ALL);
+        tape_mute(t, false);
+    }
+    s_app.arr_sel = -1;
+    s_app.arr_view = false;
     s_app.octave = 0;
     for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
     s_app.song_name[0] = '\0';
@@ -1557,11 +1620,12 @@ static void touch_begin(int x, int y) {
     int slot = ui_hit_seq_slot(x, y);
     if (slot >= 0) {
         if (slot == SEQ_HIT_ROLL) {
-            s_app.roll_view = !s_app.roll_view;
+            s_app.roll_view = s_app.arr_view ? true : !s_app.roll_view;
+            s_app.arr_view = false;
             s_touch = TOUCH_IGNORE;
-        } else if (slot == SEQ_HIT_SONG) {
-            seq_set_song(!s_app.seq.song);
-            s_touch = TOUCH_IGNORE;
+        } else if (slot == SEQ_HIT_SONG) {  // tap: SONG on/off; hold: the SONG sheet
+            s_app.song_btn_hold = 0;
+            s_touch = TOUCH_SONG_BTN;
         } else if (slot == SEQ_HIT_SWING) {
             seq_set_swing(ui_swing_at(x));
             s_touch = TOUCH_SWING;
@@ -1578,6 +1642,10 @@ static void touch_begin(int x, int y) {
         s_button = b;
         s_button_frames = 0;
         s_touch = TOUCH_BUTTON;
+        return;
+    }
+    if (s_app.arr_view) {
+        arr_touch(x, y);
         return;
     }
     if (s_app.roll_view) {
@@ -1614,7 +1682,18 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         if (s_touch == TOUCH_TAPE_TRACK && s_tape_hold_frames < TAPE_WIPE_FRAMES) tape_select(s_app.tape_hold_track);
         s_app.tape_hold_track = -1;
         s_app.tape_hold = 0.0f;
-        if (s_touch == TOUCH_SLOT && s_slot_frames < SLOT_COPY_FRAMES) seq_select_slot(s_app.slot_hold);
+        if (s_touch == TOUCH_SLOT && s_slot_frames < SLOT_COPY_FRAMES) {
+            seq_select_slot(s_app.slot_hold);
+            if (s_app.arr_view) arr_assign(s_app.slot_hold);  // SONG sheet: the picked row plays this slot
+        }
+        if (s_touch == TOUCH_SONG_BTN && s_app.song_btn_hold >= 0) {
+            const bool on = !s_app.seq.song;
+            seq_set_song(on);
+            SeqArrangement a;
+            seq_get_arrangement(&a);
+            if (on && a.count == 0 && !s_app.arr_view) notice("SONG CHAINS A-H. HOLD SONG TO ARRANGE");
+        }
+        s_app.song_btn_hold = -1;
         s_app.slot_hold = -1;
         s_app.roll_active = -1;
         s_app.mix_strip = -1;
@@ -1698,6 +1777,13 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         case TOUCH_ROLL_NOTE: roll_drag(tp.px, tp.py); break;
         case TOUCH_MIX: mix_drag(tp.py); break;
         case TOUCH_SMP: sampler_drag(tp.px); break;
+        case TOUCH_SONG_BTN:
+            if (s_app.song_btn_hold >= 0 && ++s_app.song_btn_hold >= SONG_SHEET_FRAMES) {
+                s_app.arr_view = !s_app.arr_view;
+                if (s_app.arr_view) seq_set_song(true);  // you're arranging a song
+                s_app.song_btn_hold = -1;  // done: the release does nothing
+            }
+            break;
         case TOUCH_PART_HOLD:
             if (s_part_hold_frames < PART_MUTE_FRAMES && ++s_part_hold_frames == PART_MUTE_FRAMES) {
                 int k = s_app.part_hold;
@@ -1819,6 +1905,8 @@ int main(void) {
     s_app.mix_strip = -1;
     s_app.mix_grab = MIX_GRAB_NONE;
     mix_default();
+    s_app.arr_sel = -1;
+    s_app.song_btn_hold = -1;
     sampler_edit_default(&s_app.sample_edit);
     mkdir("sdmc:/3ds", 0777);
     mkdir(STORAGE_DIR, 0777);
@@ -1873,6 +1961,7 @@ int main(void) {
 
         s_app.seq = seq_status();
         seq_snapshot(&s_app.pattern);
+        seq_get_arrangement(&s_app.arr);
         fx_set_tempo((float)s_app.seq.bpm);
         s_app.fx = fx_state();
         s_app.tape = tape_status();

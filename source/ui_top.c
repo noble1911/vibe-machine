@@ -325,6 +325,13 @@ static void draw_song_name(const AppState *app) {
     sh_card(6, 24, w, 17, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
     sh_floppy(10, 26, 13, rgba(t->pal[2], 0xFF), rgba(t->card, 0xFF), rgba(t->ink, 0xFF));
     ui_text(28, 24.5f, 0.42f, rgba(ink_on(t, t->card), 0xFF), 0, "%s%s", name, app->song_dirty ? " *" : "");
+    if (app->seq.arr_row >= 0 && app->arr.count > 0) {  // where the arrangement is
+        const SeqArrRow *r = &app->arr.rows[app->seq.arr_row];
+        const uint32_t f = t->pal[r->slot % THEME_PALETTE];
+        sh_card(w + 12, 24, 78, 17, rgba(f, 0xFF), rgba(t->ink, 0xFF), 2);
+        ui_text(w + 51, 24.5f, 0.4f, rgba(ink_on(t, f), 0xFF), C2D_AlignCenter, "ROW %d/%d %c", app->seq.arr_row + 1,
+                app->arr.count, 'A' + r->slot);
+    }
 }
 
 static void draw_hud(const AppState *app, const AudioStats *stats) {

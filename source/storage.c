@@ -9,8 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 10 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
-                   // 9: tape sources; 10: sample edit
+#define VERSION 11 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+                   // 9: tape sources; 10: sample edit; 11: arrangement, tape mutes
 #define MAX_PAYLOAD 4096
 
 typedef struct {
@@ -131,6 +131,14 @@ static void encode(Writer *w, const SaveState *st) {
     put(w, &st->sample_edit.start, sizeof(float));      // version 10
     put(w, &st->sample_edit.end, sizeof(float));
     put(w, &st->sample_edit.slices, 1);
+    uint8_t loop = st->arr.loop;  // version 11
+    put(w, &st->arr.count, 1);
+    put(w, &loop, 1);
+    for (int i = 0; i < SEQ_ARR_ROWS; i++) {
+        const uint8_t row[3] = {st->arr.rows[i].slot, st->arr.rows[i].reps, st->arr.rows[i].mutes};
+        put(w, row, 3);
+    }
+    put(w, &st->tape_muted, 1);
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -221,6 +229,20 @@ static void decode(Reader *r, SaveState *st, int version) {
         SampleEdit e = st->sample_edit;
         sampler_edit_clamp(&e);
         if (memcmp(&e, &st->sample_edit, sizeof(e)) != 0) r->ok = false;  // out of range: damaged
+    }
+    if (version >= 11) {
+        uint8_t loop;
+        get(r, &st->arr.count, 1);
+        get(r, &loop, 1);
+        st->arr.loop = loop != 0;
+        if (st->arr.count > SEQ_ARR_ROWS) r->ok = false;
+        for (int i = 0; i < SEQ_ARR_ROWS; i++) {
+            uint8_t row[3];
+            get(r, row, 3);
+            st->arr.rows[i] = (SeqArrRow){row[0], row[1], row[2]};
+            if (i < st->arr.count && (row[0] >= SEQ_SLOTS || row[1] < 1 || row[1] > SEQ_ARR_REPS_MAX)) r->ok = false;
+        }
+        get(r, &st->tape_muted, 1);
     }
 }
 

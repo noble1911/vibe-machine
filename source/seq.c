@@ -42,6 +42,10 @@ static SeqNoteFn s_out;
 static SeqPattern s_pats[SEQ_SLOTS];
 static int s_cur, s_queued = -1;
 static bool s_song;
+static SeqArrangement s_arr;
+static int s_arr_row = -1, s_arr_rep;
+static uint32_t s_ends;
+static bool s_end_pending;  // the arrangement is over: stop at this bar line
 static float s_swing;
 static uint8_t s_muted;  // bit n = part n muted; bit PARTS = the drums
 
@@ -124,8 +128,30 @@ static bool take_skip(int step, int pitch, int part) {
     return false;
 }
 
+static bool arranging(void) { return s_song && s_arr.count > 0; }
+
+static void arr_enter(int row) {
+    s_arr_row = row;
+    s_arr_rep = 0;
+    s_cur = s_arr.rows[row].slot;
+}
+
 // The bar is over: switch to the queued slot, or the next one in a song.
 static void bar_end(void) {
+    if (arranging()) {
+        if (s_arr_row < 0 || s_arr_row >= s_arr.count) {
+            arr_enter(0);
+        } else if (++s_arr_rep >= s_arr.rows[s_arr_row].reps) {
+            if (s_arr_row + 1 < s_arr.count)
+                arr_enter(s_arr_row + 1);
+            else if (s_arr.loop)
+                arr_enter(0);
+            else
+                s_end_pending = true;
+        }
+        s_queued = -1;
+        return;
+    }
     if (s_queued >= 0) {
         s_cur = s_queued;
         s_queued = -1;
@@ -159,7 +185,9 @@ static int fire_step(int step, Event *ev, int n) {
     const bool accent = (p->accents >> step) & 1u;
     uint8_t hits = p->drums[step] & (uint8_t)~s_skip_drums[step];
     s_skip_drums[step] = 0;
-    if ((s_muted >> PARTS) & 1u) hits = 0;
+    // An arrangement row can drop parts out on top of the mixer's mutes.
+    const uint8_t muted = s_muted | (arranging() && s_arr_row >= 0 ? s_arr.rows[s_arr_row].mutes : 0);
+    if ((muted >> PARTS) & 1u) hits = 0;
     for (int lane = 0; lane < SEQ_LANES; lane++)
         if ((hits & (1u << lane)) && n < MAX_EVENTS)
             ev[n++] = (Event){SYNTH_DRUMS, drum_note(lane), accent ? SEQ_VEL_DRUM_ACCENT : SEQ_VEL_DRUM};
@@ -167,7 +195,7 @@ static int fire_step(int step, Event *ev, int n) {
     for (int i = 0; i < p->count; i++) {
         const SeqRollNote *rn = &p->notes[i];
         if (rn->step != step || take_skip(step, rn->pitch, rn->part)) continue;
-        if ((s_muted >> rn->part) & 1u) continue;
+        if ((muted >> rn->part) & 1u) continue;
         float vel = rn->vel / 255.0f;
         if (accent && vel < SEQ_VEL_SYNTH_ACCENT) vel = SEQ_VEL_SYNTH_ACCENT;
         n = start_note(rn->part, rn->pitch, vel, s_ticks + (rn->len - 1) + SEQ_GATE, ev, n);
@@ -192,6 +220,8 @@ static void starter_locked(void) {
     s_queued = -1;
     s_song = false;
     s_swing = 0.0f;
+    memset(&s_arr, 0, sizeof(s_arr));
+    s_arr_row = -1;
 }
 
 void seq_init(SeqNoteFn out) {
@@ -217,6 +247,7 @@ void seq_advance(int frames, int rate) {
             s_start_pending = false;
             s_pos = 0.0;
             s_ticks = 0;
+            if (arranging()) arr_enter(0);  // a song plays from its first row
             n = fire_step(0, ev, n);
         } else {
             s_pos += frames;
@@ -227,6 +258,13 @@ void seq_advance(int frames, int rate) {
                 n = release_due(s_ticks, ev, n);  // notes ending on this boundary go first
                 int next = (s_step + 1) % SEQ_STEPS;
                 if (next == 0) bar_end();
+                if (s_end_pending) {  // the arrangement played to its end
+                    s_end_pending = false;
+                    s_playing = false;
+                    s_ends++;
+                    n = release_all(ev, n);
+                    break;
+                }
                 n = fire_step(next, ev, n);
             }
             n = release_due(now_steps(), ev, n);
@@ -275,6 +313,27 @@ void seq_set_swing(float swing) {
 void seq_set_song(bool on) {
     LOCK(&s_lock);
     s_song = on;
+    s_arr_row = -1;
+    UNLOCK(&s_lock);
+}
+
+void seq_set_arrangement(const SeqArrangement *a) {
+    LOCK(&s_lock);
+    s_arr = *a;
+    if (s_arr.count > SEQ_ARR_ROWS) s_arr.count = SEQ_ARR_ROWS;
+    for (int i = 0; i < s_arr.count; i++) {
+        SeqArrRow *r = &s_arr.rows[i];
+        if (r->slot >= SEQ_SLOTS) r->slot = 0;
+        if (r->reps < 1) r->reps = 1;
+        if (r->reps > SEQ_ARR_REPS_MAX) r->reps = SEQ_ARR_REPS_MAX;
+    }
+    if (s_arr_row >= s_arr.count) s_arr_row = s_arr.count - 1;  // edited under the playhead
+    UNLOCK(&s_lock);
+}
+
+void seq_get_arrangement(SeqArrangement *out) {
+    LOCK(&s_lock);
+    *out = s_arr;
     UNLOCK(&s_lock);
 }
 
@@ -506,7 +565,8 @@ void seq_record_release(int part, const SeqNote *note) {
 
 SeqStatus seq_status(void) {
     LOCK(&s_lock);
-    SeqStatus st = {s_playing, s_recording, s_bpm, s_step, s_fired, s_cur, s_queued, s_song, s_swing, 0, s_muted};
+    SeqStatus st = {s_playing, s_recording, s_bpm, s_step, s_fired, s_cur, s_queued, s_song, s_swing, 0, s_muted,
+                    arranging() && s_playing ? s_arr_row : -1, s_arr_rep, s_ends};
     for (int i = 0; i < SEQ_SLOTS; i++)
         if (slot_used(i)) st.used |= (uint8_t)(1u << i);
     UNLOCK(&s_lock);
