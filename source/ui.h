@@ -157,9 +157,47 @@ typedef enum {
 #define SYN_TILE_X0 4
 #define SYN_TILE_Y0 26
 #define SYN_TILE_W 49
-#define SYN_TILE_H 24
+#define SYN_TILE_H 17
 #define SYN_TILE_PITCH_X 52
-#define SYN_TILE_PITCH_Y 26
+#define SYN_TILE_PITCH_Y 19
+#define SYN_TILE_ROWS 6      // 11 sounds + PRESETS, then EDIT across the bottom
+#define SYN_EDIT_Y (SYN_TILE_Y0 + SYN_TILE_ROWS * SYN_TILE_PITCH_Y)
+#define SYN_EDIT_W (SYN_TILE_PITCH_X + SYN_TILE_W)
+typedef enum { SYN_HIT_NONE = -1, SYN_HIT_PRESETS, SYN_HIT_EDIT } SynHit;
+// EDIT view (in place of the pad): four sub-pages and RESET in its header,
+// the page's controls below.
+#define ED_TAB_X0 114
+#define ED_TAB_W 38
+#define ED_TAB_PITCH 40
+#define ED_TAB_Y 29
+#define ED_TAB_H 16
+#define ED_RESET_X 274
+#define ED_RESET_W 38
+#define ED_BODY_X 118
+#define ED_BODY_Y 50
+#define ED_BODY_W 190
+#define ED_BODY_H 102
+typedef enum { EDP_ENV, EDP_FILTER, EDP_LFO, EDP_VOICE, EDP_PAGES } EditPage;
+// VOICE page rows: a chip column on the left, a slider on the right.
+#define ED_ROW_Y0 52
+#define ED_ROW_PITCH 20
+#define ED_ROW_H 16
+#define ED_CHIP_W 22
+#define ED_SLIDER_X 196
+#define ED_SLIDER_W 112
+#define ED_PAD_H 74          // FILT / LFO: the XY pad's height; then a row at ED_LOW_Y
+#define ED_LOW_Y 132
+// ENV: the graph, and its three handles (attack peak, decay/sustain, release).
+#define ED_ENV_X (ED_BODY_X + 4)
+#define ED_ENV_Y (ED_BODY_Y + 6)
+#define ED_ENV_W (ED_BODY_W - 8)
+#define ED_ENV_H 66
+typedef enum {
+    EDH_NONE = -1,
+    EDH_TAB,      // + page
+    EDH_RESET = EDH_TAB + EDP_PAGES,
+    EDH_BODY,     // the page's area (the page decides what)
+} EditHit;
 #define SYN_PAD_X 110
 #define SYN_PAD_Y 26
 #define SYN_PAD_W 206
@@ -169,6 +207,13 @@ typedef enum {
 #define SYN_DICE_W 18
 #define SYN_REC_X (SYN_DICE_X - 42)
 #define SYN_REC_W 38
+// DRAW: shape stickers in the pad's header (sine, saw, square, triangle).
+#define DRAW_CHIP_X (SYN_PAD_X + 60)
+#define DRAW_CHIP_PITCH 30
+#define DRAW_CHIP_W 27
+#define DRAW_CHIP_Y (SYN_PAD_Y + 3)
+#define DRAW_CHIP_H 13
+int ui_hit_draw_shape(int x, int y);  // 0..3, or -1
 // SYNTH page, MIC sound: the sample editor in place of the creature pad.
 // CHOP and LIB stickers beside REC; the take with START / END handles; DECAY
 // and TONE sliders underneath.
@@ -394,6 +439,16 @@ int ui_hit_arr(int x, int y);  // SONG sheet: an ArrHit
 bool ui_roll_cell(int x, int y, int *step, int *row);
 void ui_roll_cell_clamped(int x, int y, int *step, int *row);
 int ui_hit_sound_tile(int x, int y);
+int ui_hit_synth_extra(int x, int y);   // PRESETS / EDIT tiles: a SynHit
+int ui_hit_edit(int x, int y);          // the EDIT view's header: an EditHit
+// ENV: where the three handles are for these values (A peak, D/S, R end)...
+void ui_env_handles(const float *p, float hx[3], float hy[3]);
+// ...and the values a drag of handle h to (x, y) makes (writes into p[]).
+void ui_env_drag(int h, int x, int y, float *p);
+// FILT / LFO pad: normalised position (y is 0 at the bottom).
+void ui_edit_pad_pos(int x, int y, float *nx, float *ny);
+// The low row's / VOICE rows' horizontal slider value for a touch at x.
+float ui_edit_slider(int x, int x0, int w);
 bool ui_in_synth_pad(int x, int y);
 bool ui_hit_synth_dice(int x, int y);
 bool ui_hit_synth_rec(int x, int y);  // the MIC sound's REC sticker

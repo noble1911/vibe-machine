@@ -6,7 +6,8 @@ recipes to get you making things. It takes about twenty minutes with the
 
 **From nothing to a finished song in ten steps:** jump to
 [the walkthrough](#from-nothing-to-a-finished-song), or watch it happen in
-the [demo video](media/zero-to-song.mp4).
+the [demo video](media/zero-to-song.mp4). The
+[feature tour](media/feature-tour.mp4) shows every feature, one at a time.
 
 **Contents:**
 [First sound](#1-your-first-sound) ·
@@ -138,6 +139,10 @@ glide from note to note.
 - **Hold R** for **drums**: KICK, SNARE, HAT, OPEN (hat), CLAP, RIM, TOM,
   CRASH.
 - **Circle pad up / down** changes the octave (−3 to +3).
+- **Pitch bend:** hold **SELECT** and push the **circle pad** left or right
+  to bend everything that's playing down or up (two semitones at full
+  tilt). Let go and it springs back. (Tapping SELECT without bending still
+  picks the next sound. The drums don't bend.)
 
 ## 4. The SOUND page
 
@@ -280,6 +285,10 @@ where melodies, chords and long notes live.
 - **Hold L and tap a note** to change how hard it plays: normal → **loud**
   (a bar along its top) → **soft** (washed out) → normal. Accents still
   push a step's notes up to loud.
+- **Hold R and tap a note** to make it **slide** (a little ramp off its
+  end): it holds on into the next note. On a sound set to **MONO** with some
+  **GLIDE** (SYNTH → EDIT → VOICE), the pitch slides from one note to the
+  next: the acid bass trick. Tap again to turn it off.
 - **Drag the keyboard strip** on the left to scroll up and down. Tap it to
   hear a pitch.
 - **C / #** (top-left) switches between **C major** rows (every row is in
@@ -329,8 +338,10 @@ on part 2 and a BELL lead on part 3, all playing together. They start as
 
 ![SYNTH page with the PLUCK creature](images/synth-creature.png)
 
-On the left, ten **sound tiles**, each with its own mascot. Tap one to switch
-sound. **SELECT** cycles through them too.
+On the left, eleven **sound tiles**, each with its own mascot. Tap one to
+switch sound. **SELECT** cycles through them too. Under them, **PRESET**
+opens your saved sounds, and **EDIT** (along the bottom) opens the sound's
+insides: see [EDIT](#edit-shaping-any-sound) below.
 
 ### The creature pad
 
@@ -348,7 +359,8 @@ The crosshairs show where it is, and its eyes follow your stylus. The
 | **SUPERSAW** | Five detuned saws, huge chords | SPREAD: tight → wide and lush | CUTOFF: muffled → bright |
 | **FOLD** | Wavefolded, crunchy lead | FOLD: soft → snarling | CRUSH: clean → bitcrushed |
 | **WAVY** | Slowly morphing wavetables | MORPH: where in the table | TABLE: which of five tables |
-| **MIC** | Your microphone recording, on the keys | START: where in the take each note begins | TONE: dark → bright |
+| **MIC** | Your microphone recording, on the keys | DECAY: short chops → plays to the end | TONE: dark → bright |
+| **DRAW** | A wave you draw yourself (see below) | — the pad is the drawing | |
 
 ### The Juno and DX7 banks
 
@@ -359,6 +371,68 @@ show their patches as a 16 × 8 grid of **dots**. **Tap a dot** to load it,
 or **slide across** them to audition. The patch name appears on the top
 screen. The **circle pad ← →** steps through patches, and the **dice** picks
 a random one.
+
+### DRAW: a wave you draw yourself
+
+![The DRAW canvas](images/synth-draw.png)
+
+Pick **DRAW** and the pad becomes a canvas. **Drag across it** to draw one
+cycle of a wave, left to right; the thick line is what you hear (smoothed,
+centred and levelled), and it changes while a note is still sounding. The
+four stickers at the top start you from a **SIN**e, **SAW**, **SQR**are or
+**TRI**angle. Each part keeps its own drawing, and it's saved with the song.
+Smooth curves sound soft; sharp corners and steps sound buzzy and bright.
+
+### EDIT: shaping any sound
+
+![EDIT: the envelope, drawn](images/synth-edit.png) ![EDIT: the LFO pad](images/synth-lfo.png)
+
+Tap **EDIT** and the pad shows four tabs. Every control starts where the
+sound itself is (nothing changes until you touch it), and **RESET** puts the
+sound back as designed. EDIT is kept per part, saved with the song, and
+stays when you step through a bank's patches, so you can try the same
+shaping on another patch. Picking a different sound starts EDIT afresh.
+
+- **ENV**: the volume envelope, drawn. Drag the three handles: the first is
+  the **attack** (left: instant, right: a slow swell), the second sets the
+  **decay** (across) and **sustain** level (up and down), the last the
+  **release** after you let go.
+- **FILT**: the **filter**. Across the pad is the **cutoff** (dark → bright),
+  up it is the **resonance** (smooth → whistling). **ENV AMOUNT** underneath
+  makes the cutoff follow the envelope: right of the middle opens up as the
+  note starts, left closes. Sounds without a filter get one when you touch
+  this.
+- **LFO**: a wobble. Across is its **speed**, up its **depth**; the stickers
+  underneath pick what it moves: **PITCH** (vibrato), **FILTER** (wah),
+  **VOLUME** (tremolo) or **PAN** (left to right).
+- **VOICE**:
+  - **MONO / POLY**: MONO plays one note at a time, and with **GLIDE** each
+    note slides to the next (great for basses and leads; see *slide* on the
+    piano roll).
+  - **x1 x2 x3**: **unison**, two or three copies of every note, spread
+    apart by **DETUNE**: thicker and wider. To keep the 3DS from running out
+    of breath, the sound gets fewer voices as you add copies (a 4-voice
+    sound at x2 plays two notes at once). The FM, KS and sample sounds
+    (DX7, BELL, PLUCK, BREEZE, MIC) can't do unison.
+  - **BRIGHT**: on the **DX7**, how hard its FM modulators hit: dull and
+    round at the left, glassy and cutting at the right. On the filtered
+    sounds it moves the cutoff.
+  - **MUTATE** nudges everything a little at random: tap it a few times to
+    wander away from where you are.
+  - **A** and **B** store the sound as it is now (EDIT and the creature
+    pad's macros). Once both are stored, **MORPH** slides smoothly between
+    them, which is fun with the sequencer playing.
+
+On the **JUNO**, ENV also moves its filter's envelope (as on the real
+thing), and the LFO is the patch's own.
+
+### PRESETS: saving your sounds
+
+Tap **PRESET** to open your saved sounds. **SAVE AS** keeps the part's sound
+as it is now (the sound, patch, macros, EDIT and DRAW wave) under a name;
+**LOAD** puts a saved one on the part you're playing; hold **DELETE** to
+remove one; **BACK** returns to SYNTH. They're small files in
+`3ds/vibe-machine/presets/`, so you can copy them between SD cards.
 
 ## 8. The sampler: MIC
 

@@ -5,7 +5,9 @@
 
 #include "engine.h"
 #include "fx.h"
+#include "drawwave.h"
 #include "mixer.h"
+#include "synthedit.h"
 #include "sampler.h"
 #include "music.h"
 #include "seq.h"
@@ -24,6 +26,8 @@ typedef enum { MIX_GRAB_NONE = -1, MIX_GRAB_FADER, MIX_GRAB_KNOB } MixGrab;
 typedef struct {
     int sound, patch;
     float macro[SOUND_MACROS];
+    PartEdit pe;    // the EDIT layer, and MORPH's snapshots
+    DrawWave wave;  // the DRAW sound's waveform
 } PartState;
 
 typedef struct {
@@ -46,6 +50,10 @@ typedef struct {
     Page page;                  // bottom-screen page
     SeqPattern pattern;         // snapshot of the sequencer, taken each frame
     SeqStatus seq;
+    bool edit_view;             // SYNTH: the pad shows the EDIT layer
+    int edit_page;              // EditPage
+    int edit_grab;              // what's being dragged in it (page-specific), or -1
+    float bend;                 // pitch bend now (-1..1), from SELECT + circle pad
     int bar_page;               // the bar of the pattern the grid / roll / FX strip show (0..3)
     int bar_hold;               // frames BAR has been held (hold: change the length), or -1
     bool roll_view;             // SEQ page shows the piano roll instead of the grid
@@ -91,7 +99,8 @@ typedef struct {
     SampleEdit sample_edit;     // the MIC sound's START / END / CHOP
     int smp_grab;               // MIC editor: 0, 1 START / 2 END being dragged, 3 + m a slider
     int smp_flash, smp_flash_frames;  // a slice (or -1: the region) just auditioned
-    bool lib_samples;           // the SONGS page is showing the sample library
+    bool lib_samples;           // the SONGS page is showing the sample library (or, with lib_presets, sounds)
+    bool lib_presets;           // ... the saved sounds (PRESETS)
 
     // TAPE page
     TapeStatus tape;            // read back from the tape each frame

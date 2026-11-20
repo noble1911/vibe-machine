@@ -41,3 +41,35 @@ bool sound_macro_wire(int index, int m, float t, int synth, char *out, size_t le
 
 // Index of the MIC sound (the one that plays the microphone take).
 int sound_mic_index(void);
+
+// --- DRAW and EDIT --------------------------------------------------------
+#include "synthedit.h"
+
+// The DRAW sound plays one drawn cycle, looped: memory PCM preset
+// DRAW_PRESET + part (each part draws its own).
+#define DRAW_PRESET 220
+int sound_draw_index(void);
+
+// Where the EDIT page's controls start for a sound: its own envelope,
+// filter and so on, as designed.
+void sound_edit_defaults(int index, float out[ED_PARAMS]);
+
+// The edit's structure: what needs the patch reloaded to change (voice
+// count, the extra LFO oscillator, unison). Two edits with the same key can
+// be swapped live.
+uint32_t sound_edit_key(int index, const SynthEdit *e);
+// Voices a part gets: MONO is one; UNISON divides the sound's voices so the
+// oscillator count (the CPU cost) never goes up.
+int sound_edit_voices(int index, const SynthEdit *e);
+// The patch string with the edit's structure folded in (voice-relative).
+void sound_edit_patch(int index, const SynthEdit *e, char *out, size_t len);
+// The edit's live commands for AMY synth `synth`: up to `max` wire messages
+// of `width` chars each, written row by row into `out`. Returns the count.
+int sound_edit_wire(int index, const SynthEdit *e, int synth, char *out, int width, int max);
+// DX7's BRIGHT: the factor its modulators' levels are scaled by (1 = as
+// designed). engine.c applies it: that needs the patch's own levels.
+float sound_edit_bright(int index, const SynthEdit *e);
+int sound_dx7_index(void);
+// UNISON on a sound: 0 it can't (FM, KS, samples), 1 it can, 2 it's built in
+// (SUPERSAW: DETUNE spreads its own five saws).
+int sound_unison_kind(int index);

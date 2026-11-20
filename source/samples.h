@@ -17,6 +17,9 @@ typedef struct {
 
 // Up to `max` .wav files in `root` (any case), sorted by shown name.
 int sample_list(const char *root, SampleFile *out, int max);
+// The same for any extension (".vmp": the sound presets).
+int sample_list_ext(const char *root, const char *ext, SampleFile *out, int max);
+void sample_file_for_ext(const char *name, const char *ext, char *file, size_t len);
 void sample_path(const char *root, const char *file, char *out, size_t len);
 // The file a sample saved under `name` (already cleaned) goes in.
 void sample_file_for(const char *name, char *file, size_t len);

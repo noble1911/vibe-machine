@@ -3,6 +3,9 @@
 // ("sdmc:/3ds/vibe-machine/state.vms"); tests/ round-trips it on the host.
 #pragma once
 
+#include "drawwave.h"
+#include "synthedit.h"
+
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -31,7 +34,10 @@ typedef struct {
         int sound;   // -1 = not set (older files): use the part's default
         int patch;
         float macro[SOUND_MACROS];
+        PartEdit pe;    // the SYNTH page's EDIT layer, A/B snapshots, MORPH
+        DrawWave wave;  // the DRAW sound's wave
     } parts[PARTS];
+    bool has_edit;   // pe / wave were in the file (version 16); else use defaults (not saved)
     int part;        // part being played / edited
     uint8_t muted;   // bit n = part n muted; bit PARTS = the drums
     MixStrip mix[MIX_STRIPS];  // the MIX page (older files: defaults)

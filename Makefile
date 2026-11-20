@@ -82,6 +82,11 @@ ifdef STORY
 # Keeps its files in its own folder on the SD card.
 CFLAGS	+=	-DVM_STORY
 endif
+ifdef TOUR
+# With STORY=1: the feature tour (every feature, one by one) instead of the
+# zero-to-song story.
+CFLAGS	+=	-DVM_TOUR
+endif
 ifdef RECORD
 # With STORY=1: the story records itself (screens every 4th frame, and the
 # sound) to sdmc:/3ds/vibe-machine-story/record/ for tools/make-video.sh.

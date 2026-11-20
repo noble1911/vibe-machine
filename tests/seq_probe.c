@@ -143,11 +143,11 @@ int main(void) {
     seq_set_swing(0.0f);
     SeqPattern roll;
     memset(&roll, 0, sizeof(roll));
-    roll.notes[roll.count++] = (SeqRollNote){0, 60, 4, 200, 0};   // a long C
-    roll.notes[roll.count++] = (SeqRollNote){8, 64, 1, 200, 0};   // a chord: E G B
-    roll.notes[roll.count++] = (SeqRollNote){8, 67, 1, 200, 0};
-    roll.notes[roll.count++] = (SeqRollNote){8, 71, 1, 200, 0};
-    roll.notes[roll.count++] = (SeqRollNote){15, 72, 3, 200, 0};  // runs over the bar line
+    roll.notes[roll.count++] = (SeqRollNote){0, 60, 4, 200, 0, 0};   // a long C
+    roll.notes[roll.count++] = (SeqRollNote){8, 64, 1, 200, 0, 0};   // a chord: E G B
+    roll.notes[roll.count++] = (SeqRollNote){8, 67, 1, 200, 0, 0};
+    roll.notes[roll.count++] = (SeqRollNote){8, 71, 1, 200, 0, 0};
+    roll.notes[roll.count++] = (SeqRollNote){15, 72, 3, 200, 0, 0};  // runs over the bar line
     seq_put_slot(6, &roll);
     seq_select_slot(6);
     s_nhits = s_noffs = 0;
@@ -178,8 +178,8 @@ int main(void) {
     // go before the second starts, and its old release must not cut the
     // second short.
     memset(&roll, 0, sizeof(roll));
-    roll.notes[roll.count++] = (SeqRollNote){0, 60, 6, 200, 0};
-    roll.notes[roll.count++] = (SeqRollNote){2, 60, 1, 200, 0};
+    roll.notes[roll.count++] = (SeqRollNote){0, 60, 6, 200, 0, 0};
+    roll.notes[roll.count++] = (SeqRollNote){2, 60, 1, 200, 0, 0};
     seq_put_slot(6, &roll);
     s_nhits = s_noffs = 0;
     s_clock = 0;
@@ -218,9 +218,9 @@ int main(void) {
 
     // --- parts ----------------------------------------------------------------
     memset(&roll, 0, sizeof(roll));
-    roll.notes[roll.count++] = (SeqRollNote){0, 48, 1, 200, 0};  // bass on part 1
-    roll.notes[roll.count++] = (SeqRollNote){0, 72, 1, 200, 1};  // lead on part 2
-    roll.notes[roll.count++] = (SeqRollNote){0, 72, 1, 200, 2};  // same pitch on part 3
+    roll.notes[roll.count++] = (SeqRollNote){0, 48, 1, 200, 0, 0};  // bass on part 1
+    roll.notes[roll.count++] = (SeqRollNote){0, 72, 1, 200, 1, 0};  // lead on part 2
+    roll.notes[roll.count++] = (SeqRollNote){0, 72, 1, 200, 2, 0};  // same pitch on part 3
     seq_put_slot(4, &roll);
     seq_select_slot(4);
     s_nhits = 0;
@@ -270,8 +270,8 @@ int main(void) {
         memset(&pb, 0, sizeof(pb));
         pa.drums[0] = 1u << 0;  // kick
         pb.drums[0] = 1u << 1;  // snare
-        pb.notes[pb.count++] = (SeqRollNote){0, 48, 1, 200, 0};  // part 1: dropped by the row
-        pb.notes[pb.count++] = (SeqRollNote){0, 72, 1, 200, 1};  // part 2: plays
+        pb.notes[pb.count++] = (SeqRollNote){0, 48, 1, 200, 0, 0};  // part 1: dropped by the row
+        pb.notes[pb.count++] = (SeqRollNote){0, 72, 1, 200, 1, 0};  // part 2: plays
         seq_put_slot(0, &pa);
         seq_put_slot(1, &pb);
         for (int i = 2; i < SEQ_SLOTS; i++) {
@@ -351,7 +351,7 @@ int main(void) {
         SeqPattern one;
         memset(&one, 0, sizeof(one));
         one.drums[4] = 1u << 2;
-        one.notes[one.count++] = (SeqRollNote){8, 60, 2, 200, 0};
+        one.notes[one.count++] = (SeqRollNote){8, 60, 2, 200, 0, 0};
         seq_put_slot(1, &one);
         seq_select_slot(1);
         seq_set_bars(4);

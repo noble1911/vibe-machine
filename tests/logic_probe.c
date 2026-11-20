@@ -8,7 +8,10 @@
 #include "dice.h"
 #include "sampler.h"
 #include "wav.h"
+#include "drawwave.h"
+#include "presets.h"
 #include "storage.h"
+#include "synthedit.h"
 
 static int fails;
 static void check(int ok, const char *what) {
@@ -26,7 +29,22 @@ int main(void) {
         a.parts[k].patch = 70 + k;
         a.parts[k].macro[0] = 0.25f + 0.1f * k;
         a.parts[k].macro[1] = 0.75f - 0.1f * k;
+        float d[ED_PARAMS];  // an EDIT layer, two snapshots part-way through a MORPH, a drawn wave
+        for (int i = 0; i < ED_PARAMS; i++) d[i] = 0.05f * i + 0.1f * k;
+        PartEdit *pe = &a.parts[k].pe;
+        edit_reset(&pe->cur, d);
+        edit_set(&pe->cur, ED_CUTOFF, 0.3f);
+        pe->cur.mono = 1;
+        pe->cur.unison = (uint8_t)(1 + k);
+        pe->cur.lfo_target = LFO_PAN;
+        pe->snap[0] = pe->snap[1] = pe->cur;
+        edit_set(&pe->snap[1], ED_RESO, 0.9f);
+        pe->snap_macro[1][0] = 0.6f;
+        pe->snaps = 3;
+        pe->morph = 0.4f;
+        draw_preset(&a.parts[k].wave, k);
     }
+    a.has_edit = true;
     a.part = 2;
     a.muted = 0x2 | (1u << PARTS);  // part 2 and the drums
     for (int k = 0; k < MIX_STRIPS; k++) {  // a mixer with everything moved
@@ -86,7 +104,7 @@ int main(void) {
             big.slots[i].len = SEQ_STEPS_MAX;
             big.slots[i].accents = ~0ull;
             big.slots[i].count = SEQ_NOTES;
-            for (int n = 0; n < SEQ_NOTES; n++) big.slots[i].notes[n] = (SeqRollNote){(uint8_t)(n % 64), 60, 1, 200, 0};
+            for (int n = 0; n < SEQ_NOTES; n++) big.slots[i].notes[n] = (SeqRollNote){(uint8_t)(n % 64), 60, 1, 200, 0, 0};
             for (int st = 0; st < SEQ_STEPS_MAX; st++) {
                 big.slots[i].drums[st] = 0xFF;
                 big.slots[i].fx[st] = 1 + st % 4;
@@ -199,6 +217,52 @@ int main(void) {
         check(loaded && old.bpm == 99 && strcmp(old.name, "OLD SONG") == 0 && p->count == 4 && chord_at_4 == 3 &&
                   d_at_9 == 1 && p->accents == 0x0101 && p->drums[0] == 1,
               "a song saved before the piano roll loads with its notes");
+    }
+
+    // --- EDIT, DRAW, presets ---------------------------------------------------
+    {
+        float defaults[ED_PARAMS];
+        for (int i = 0; i < ED_PARAMS; i++) defaults[i] = 0.5f;
+        SynthEdit a, b, m;
+        edit_reset(&a, defaults);
+        check(a.set == 0 && a.unison == 1, "an untouched edit overrides nothing");
+        b = a;
+        edit_set(&b, ED_CUTOFF, 0.9f);
+        edit_set(&b, ED_ATTACK, 1.7f);  // clamped
+        b.mono = 1;
+        edit_morph(&a, &b, 0.5f, &m);
+        check(m.p[ED_CUTOFF] > 0.69f && m.p[ED_CUTOFF] < 0.71f && m.p[ED_ATTACK] == 0.75f && (m.set >> ED_CUTOFF & 1) && m.mono == 1,
+              "MORPH half-way blends the values and takes B's switches");
+        SynthEdit mu = a;
+        edit_mutate(&mu, 0.1f, 1234u);
+        int moved = 0, in_range = 1;
+        for (int i = 0; i < ED_PARAMS; i++) {
+            moved += mu.p[i] != a.p[i];
+            in_range &= mu.p[i] >= 0.4f - 1e-6f && mu.p[i] <= 0.6f + 1e-6f;
+        }
+        check(moved >= 8 && in_range && mu.p[ED_GLIDE] == 0.5f, "MUTATE nudges the sound a little (not how it's played)");
+        DrawWave w;
+        static int16_t cyc[DRAW_CYCLE];
+        draw_preset(&w, 1);
+        draw_stroke(&w, 0.5f, 1.0f, 0.75f, -1.0f);
+        draw_render(&w, cyc);
+        long sum = 0;
+        int peak = 0;
+        for (int i = 0; i < DRAW_CYCLE; i++) {
+            sum += cyc[i];
+            if (abs(cyc[i]) > peak) peak = abs(cyc[i]);
+        }
+        check(labs(sum) / DRAW_CYCLE < 300 && peak > 29000 && peak < 30000, "a drawn wave plays centred, at a steady level");
+        Preset pr = {4, 0, {0.3f, 0.6f}, b, w}, back;
+        check(preset_save("build/test.vmp", &pr) && preset_load("build/test.vmp", &back) && back.sound == 4 &&
+                  memcmp(&back.edit.p, &pr.edit.p, sizeof(pr.edit.p)) == 0 && back.edit.set == pr.edit.set &&
+                  memcmp(back.wave.pt, w.pt, DRAW_POINTS) == 0,
+              "a preset saves and loads back exactly");
+        FILE *pf = fopen("build/test.vmp", "r+b");
+        fseek(pf, 12, SEEK_SET);
+        fputc(0x77, pf);
+        fclose(pf);
+        check(!preset_load("build/test.vmp", &back), "a damaged preset is refused");
     }
 
     // --- keys and scales ------------------------------------------------------

@@ -106,6 +106,9 @@ void engine_init(void) {
     char lvl[32];
     snprintf(lvl, sizeof(lvl), "i%diV%.3f", SYNTH_DRUMS, mixer_synth_level(1.0f));
     wire_locked(lvl);
+    // Pitch bend leaves the drums alone (their bend coefficient is 0).
+    snprintf(lvl, sizeof(lvl), "i%dv0f,,,,,,0", SYNTH_DRUMS);
+    wire_locked(lvl);
 
     // The master bus (dry), the echo bus and the reverb bus (see mixer.h),
     // all at full volume to start with. Echo character is fixed for now;
@@ -164,28 +167,97 @@ void engine_note_off(int synth, int note) {
 
 
 static void wire_locked(const char *msg) {
-    char buf[512];  // amy_add_message wants a mutable string
+    char buf[1024];  // amy_add_message wants a mutable string
     snprintf(buf, sizeof(buf), "%s", msg);
     LightLock_Lock(&s_lock);
     amy_add_message(buf);
     LightLock_Unlock(&s_lock);
 }
 
-void engine_load_sound(int part, int sound, int patch) {
+static int s_part_sound[PARTS], s_part_patch[PARTS];
+static uint32_t s_part_key[PARTS];
+
+// DX7 BRIGHT: each operator that modulates another (by the patch's
+// algorithm) has its level scaled. AMY's writes are absolute, so the
+// patch's own levels are read once the patch has loaded (on the audio
+// thread, after a render: see dx7_bright_tick).
+struct FmAlgorithm { uint8_t ops[6]; };  // as in AMY's algorithms.c
+extern const struct FmAlgorithm algorithms[33];
+extern uint16_t *voice_to_base_osc;
+static volatile float s_bright[PARTS] = {1.0f, 1.0f, 1.0f};
+static volatile bool s_bright_due[PARTS];  // apply s_bright after the next render
+static float s_dx7_level[PARTS][6];
+static bool s_dx7_known[PARTS];             // s_dx7_level holds this patch's levels
+
+static void dx7_bright_tick(void) {  // audio thread, AMY lock held
+    for (int part = 0; part < PARTS; part++) {
+        if (!s_bright_due[part]) continue;
+        s_bright_due[part] = false;
+        uint16_t voices[16];
+        const int syn = part_synth(part);
+        if (instrument_get_num_voices(syn, voices) < 1 || !voice_to_base_osc) continue;
+        const uint16_t base = voice_to_base_osc[voices[0]];
+        if (base + 7 >= AMY_OSCS || !synth[base] || !synth[base + 2]) continue;
+        const int algo = synth[base]->algorithm;
+        if (algo < 0 || algo > 32) continue;
+        if (!s_dx7_known[part]) {
+            for (int i = 0; i < 6; i++) s_dx7_level[part][i] = synth[base + 2 + i] ? synth[base + 2 + i]->amp_coefs[0] : 0.0f;
+            s_dx7_known[part] = true;
+        }
+        float k = s_bright[part];
+        if (k < 0.01f) k = 0.01f;  // a modulator at exactly 0 turns the output to garbage
+        for (int i = 0; i < 6; i++) {
+            if (!(algorithms[algo].ops[i] & 3)) continue;  // a carrier
+            char msg[48];
+            snprintf(msg, sizeof(msg), "i%dv%da%.4f", syn, 2 + i, (double)(s_dx7_level[part][i] * k));
+            amy_add_message(msg);
+        }
+    }
+}
+
+static void send_edit(int part, int sound, const SynthEdit *e) {
+    char cmds[16][64];
+    const int n = sound_edit_wire(sound, e, part_synth(part), &cmds[0][0], 64, 16);
+    for (int i = 0; i < n; i++) wire_locked(cmds[i]);
+}
+
+void engine_load_sound(int part, int sound, int patch, const SynthEdit *edit) {
     const Sound *s = sound_get(sound);
-    if (part >= 0 && part < PARTS) s_part_mic[part] = sound == sound_mic_index();
+    SynthEdit none;
+    if (!edit) {
+        memset(&none, 0, sizeof(none));
+        none.unison = 1;
+        edit = &none;
+    }
+    if (part >= 0 && part < PARTS) {
+        s_part_mic[part] = sound == sound_mic_index();
+        s_part_sound[part] = sound;
+        s_part_patch[part] = patch;
+        s_part_key[part] = sound_edit_key(sound, edit);
+        s_dx7_known[part] = false;  // a new patch: its own levels are read again
+        s_bright[part] = sound_edit_bright(sound, edit);
+        s_bright_due[part] = sound == sound_dx7_index() && s_bright[part] != 1.0f;
+    }
     const int synth = part_synth(part);
     char msg[512];
     if (s->kind == SOUND_BANK) {
         amy_event e = amy_default_event();
         e.synth = (uint8_t)synth;
-        e.num_voices = (uint16_t)s->voices;
+        e.num_voices = (uint16_t)sound_edit_voices(sound, edit);
         e.patch_number = (uint16_t)patch;
         send_locked(&e);
     } else {
-        snprintf(msg, sizeof(msg), "i%div%du%s", synth, s->voices, s->patch);
+        char body[400];
+        sound_edit_patch(sound, edit, body, sizeof(body));
+        snprintf(msg, sizeof(msg), "i%div%du%s", synth, sound_edit_voices(sound, edit), body);
         wire_locked(msg);
+        // Each part draws its own wave.
+        if (sound == sound_draw_index()) {
+            snprintf(msg, sizeof(msg), "i%dv0p%d", synth, DRAW_PRESET + part);
+            wire_locked(msg);
+        }
     }
+    send_edit(part, sound, edit);
     snprintf(msg, sizeof(msg), "i%diV%.3f", synth, mixer_synth_level(s->level));
     wire_locked(msg);
     // Onto the part's MIX strip. (AMY keeps a synth's bus across reloads;
@@ -235,6 +307,43 @@ bool engine_load_sample(const int16_t *data, int frames, int rate, const SampleE
     LightLock_Unlock(&s_lock);
     if (ok) s_slices = ed.slices;
     return ok;
+}
+
+void engine_apply_edit(int part, const SynthEdit *edit) {
+    if (part < 0 || part >= PARTS || !edit) return;
+    const int sound = s_part_sound[part];
+    if (sound_edit_key(sound, edit) != s_part_key[part]) {
+        engine_load_sound(part, sound, s_part_patch[part], edit);  // main.c re-sends the macros
+    } else {
+        send_edit(part, sound, edit);
+        if (sound == sound_dx7_index()) {
+            const float b = sound_edit_bright(sound, edit);
+            if (b != s_bright[part]) {
+                s_bright[part] = b;
+                s_bright_due[part] = true;
+            }
+        }
+    }
+}
+
+void engine_load_wave(int part, const int16_t *pcm, int n) {
+    if (part < 0 || part >= PARTS || n <= 0) return;
+    // AMY's wavetable oscillator (w19) plays the preset as cycles of n
+    // samples, pitched by the note. It wants two (it morphs between them):
+    // the same cycle, twice. Overwriting the RAM is heard straight away.
+    LightLock_Lock(&s_lock);
+    int16_t *ram = pcm_load((uint16_t)(DRAW_PRESET + part), (uint32_t)(2 * n), 44100, 1, 60.0f, 0, 0);
+    if (ram) {
+        memcpy(ram, pcm, (size_t)n * sizeof(int16_t));
+        memcpy(ram + n, pcm, (size_t)n * sizeof(int16_t));
+    }
+    LightLock_Unlock(&s_lock);
+}
+
+void engine_pitch_bend(float semitones) {
+    amy_event e = amy_default_event();
+    e.pitch_bend = semitones / 12.0f;  // AMY bends in octaves
+    send_locked(&e);
 }
 
 void engine_set_macro(int part, int sound, int m, float value) {
@@ -298,6 +407,7 @@ const int16_t *engine_render_block(void) {
     }
     const int16_t *block = amy_fill_buffer();
     amy_release_render_lock();
+    dx7_bright_tick();
     LightLock_Unlock(&s_lock);
     return block;
 }

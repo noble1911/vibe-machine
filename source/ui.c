@@ -133,6 +133,8 @@ bool ui_hit_theme(int x, int y) {
     return x >= THEME_X - 4 && x < THEME_X + THEME_W + 4 && y >= THEME_Y - 4 && y < THEME_Y + THEME_H + 30;
 }
 
+#define SOUNDS_SHOWN sound_count()  // the PRESETS tile comes after the last sound
+
 static bool in_box(int x, int y, int bx, int by, int bw, int bh) {
     return x >= bx && x < bx + bw && y >= by && y < by + bh;
 }
@@ -176,6 +178,62 @@ bool ui_hit_seq_cell(int x, int y, int *step, int *row) {
     return false;
 }
 
+int ui_hit_synth_extra(int x, int y) {
+    const int px = SYN_TILE_X0 + (SOUNDS_SHOWN % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
+    const int py = SYN_TILE_Y0 + (SOUNDS_SHOWN / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
+    if (in_box(x, y, px - 1, py - 1, SYN_TILE_W + 2, SYN_TILE_H + 2)) return SYN_HIT_PRESETS;
+    if (in_box(x, y, SYN_TILE_X0 - 1, SYN_EDIT_Y - 1, SYN_EDIT_W + 2, SYN_TILE_H + 4)) return SYN_HIT_EDIT;
+    return SYN_HIT_NONE;
+}
+
+int ui_hit_edit(int x, int y) {
+    if (y >= ED_TAB_Y - 3 && y < ED_TAB_Y + ED_TAB_H + 2) {
+        for (int i = 0; i < EDP_PAGES; i++)
+            if (in_box(x, y, ED_TAB_X0 + i * ED_TAB_PITCH - 1, ED_TAB_Y - 3, ED_TAB_W + 2, ED_TAB_H + 5)) return EDH_TAB + i;
+        if (in_box(x, y, ED_RESET_X - 1, ED_TAB_Y - 3, ED_RESET_W + 2, ED_TAB_H + 5)) return EDH_RESET;
+        return EDH_NONE;
+    }
+    if (in_box(x, y, ED_BODY_X - 6, ED_BODY_Y - 4, ED_BODY_W + 12, ED_BODY_H + 8)) return EDH_BODY;
+    return EDH_NONE;
+}
+
+// ENV zones across the graph: attack, decay, a sustain plateau, release.
+#define ENV_ZA 0.28f
+#define ENV_ZD 0.24f
+#define ENV_ZS 0.14f
+#define ENV_ZR 0.34f
+
+void ui_env_handles(const float *p, float hx[3], float hy[3]) {
+    const float gx = ED_ENV_X, gy = ED_ENV_Y, gw = ED_ENV_W, gh = ED_ENV_H;
+    hx[0] = gx + gw * ENV_ZA * p[ED_ATTACK];
+    hy[0] = gy;
+    hx[1] = gx + gw * (ENV_ZA + ENV_ZD * p[ED_DECAY]);
+    hy[1] = gy + (1.0f - p[ED_SUSTAIN]) * gh;
+    hx[2] = gx + gw * (ENV_ZA + ENV_ZD + ENV_ZS + ENV_ZR * p[ED_RELEASE]);
+    hy[2] = gy + gh;
+}
+
+static float unit(float v) { return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v; }
+
+void ui_env_drag(int h, int x, int y, float *p) {
+    const float gx = ED_ENV_X, gy = ED_ENV_Y, gw = ED_ENV_W, gh = ED_ENV_H;
+    if (h == 0) {
+        p[ED_ATTACK] = unit((x - gx) / (gw * ENV_ZA));
+    } else if (h == 1) {
+        p[ED_DECAY] = unit((x - gx - gw * ENV_ZA) / (gw * ENV_ZD));
+        p[ED_SUSTAIN] = unit(1.0f - (y - gy) / gh);
+    } else if (h == 2) {
+        p[ED_RELEASE] = unit((x - gx - gw * (ENV_ZA + ENV_ZD + ENV_ZS)) / (gw * ENV_ZR));
+    }
+}
+
+void ui_edit_pad_pos(int x, int y, float *nx, float *ny) {
+    *nx = unit((float)(x - ED_BODY_X - 6) / (ED_BODY_W - 12));
+    *ny = unit(1.0f - (float)(y - ED_BODY_Y - 6) / (ED_PAD_H - 12));
+}
+
+float ui_edit_slider(int x, int x0, int w) { return unit((float)(x - x0 - 3) / (w - 6)); }
+
 int ui_hit_sound_tile(int x, int y) {
     for (int i = 0; i < sound_count(); i++) {
         int tx = SYN_TILE_X0 + (i % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
@@ -209,6 +267,12 @@ float ui_sampler_pos(int x) {
 float ui_sampler_slider(int x, int m) {
     float v = (float)(x - SMP_SLIDER_X0 - m * SMP_SLIDER_PITCH) / SMP_SLIDER_W;
     return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
+}
+
+int ui_hit_draw_shape(int x, int y) {
+    for (int i = 0; i < 4; i++)
+        if (in_box(x, y, DRAW_CHIP_X + i * DRAW_CHIP_PITCH - 1, DRAW_CHIP_Y - 3, DRAW_CHIP_W + 2, DRAW_CHIP_H + 5)) return i;
+    return -1;
 }
 
 bool ui_in_synth_pad(int x, int y) { return in_box(x, y, SYN_PAD_X, SYN_PAD_Y, SYN_PAD_W, SYN_PAD_H); }

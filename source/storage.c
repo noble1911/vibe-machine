@@ -9,10 +9,10 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 15 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+#define VERSION 16 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
                    // 9: tape sources; 10: sample edit; 11: arrangement, tape mutes;
                    // 12: FX automation; 13: patterns of 1-4 bars, 128 notes; 14: key, arp;
-                   // 15: mixer ECHO / VERB sends
+                   // 15: mixer ECHO / VERB sends; 16: note flags (slide), synth EDIT, DRAW waves
 #define MAX_PAYLOAD 12288
 
 typedef struct {
@@ -60,8 +60,8 @@ static void put_pattern(Writer *w, const SeqPattern *p) {
     put(w, &p->count, 1);
     for (int i = 0; i < p->count; i++) {
         const SeqRollNote *n = &p->notes[i];
-        uint8_t b[5] = {n->step, n->pitch, n->len, n->vel, n->part};
-        put(w, b, 5);
+        uint8_t b[6] = {n->step, n->pitch, n->len, n->vel, n->part, n->flags};
+        put(w, b, 6);
     }
 }
 
@@ -91,12 +91,12 @@ static void get_pattern(Reader *r, SeqPattern *p, int version) {
             r->ok = false;
             return;
         }
-        const int bytes = version >= 7 ? 5 : 4;  // 7 adds the part
+        const int bytes = version >= 16 ? 6 : version >= 7 ? 5 : 4;  // 7 adds the part, 16 the flags
         const int len = seq_len(p);
         for (int i = 0; i < p->count; i++) {
-            uint8_t b[5] = {0, 0, 0, 0, 0};
+            uint8_t b[6] = {0, 0, 0, 0, 0, 0};
             get(r, b, (size_t)bytes);
-            p->notes[i] = (SeqRollNote){b[0], b[1], b[2], b[3], b[4]};
+            p->notes[i] = (SeqRollNote){b[0], b[1], b[2], b[3], b[4], b[5]};
             if (b[0] >= len || b[2] < 1 || b[2] > SEQ_STEPS_MAX || b[1] > 127 || b[4] >= PARTS) r->ok = false;
         }
         return;
@@ -108,13 +108,20 @@ static void get_pattern(Reader *r, SeqPattern *p, int version) {
         get(r, notes, MUSIC_MAX_NOTES);
         if (count > MUSIC_MAX_NOTES) r->ok = false;
         for (int i = 0; i < count && i < MUSIC_MAX_NOTES && p->count < SEQ_NOTES; i++)
-            p->notes[p->count++] = (SeqRollNote){(uint8_t)s, notes[i], 1, (uint8_t)(SEQ_VEL_SYNTH * 255), 0};
+            p->notes[p->count++] = (SeqRollNote){(uint8_t)s, notes[i], 1, (uint8_t)(SEQ_VEL_SYNTH * 255), 0, 0};
     }
     if (version >= 2) {
         uint16_t acc;
         get(r, &acc, 2);
         p->accents = acc;
     }
+}
+
+static void put_edit(Writer *w, const SynthEdit *e) {
+    put(w, e->p, sizeof(e->p));
+    put(w, &e->set, sizeof(e->set));
+    const uint8_t b[3] = {e->lfo_target, e->mono, e->unison};
+    put(w, b, 3);
 }
 
 static void encode(Writer *w, const SaveState *st) {
@@ -168,6 +175,27 @@ static void encode(Writer *w, const SaveState *st) {
     }
     const uint8_t extra[6] = {st->key_root, st->key_scale, st->arp.on, st->arp.mode, st->arp.rate, st->arp.octaves};
     put(w, extra, sizeof(extra));  // version 14
+    for (int k = 0; k < PARTS; k++) {  // version 16
+        const PartEdit *pe = &st->parts[k].pe;
+        put_edit(w, &pe->cur);
+        put_edit(w, &pe->snap[0]);
+        put_edit(w, &pe->snap[1]);
+        put(w, pe->snap_macro, sizeof(pe->snap_macro));
+        put(w, &pe->snaps, 1);
+        put(w, &pe->morph, sizeof(float));
+        put(w, st->parts[k].wave.pt, DRAW_POINTS);
+    }
+}
+
+static void get_edit(Reader *r, SynthEdit *e) {
+    get(r, e->p, sizeof(e->p));
+    get(r, &e->set, sizeof(e->set));
+    uint8_t b[3];
+    get(r, b, 3);
+    e->lfo_target = b[0];
+    e->mono = b[1];
+    e->unison = b[2];
+    edit_clamp(e);
 }
 
 // version 1 files hold one pattern (no accents); it becomes slot A.
@@ -296,6 +324,24 @@ static void decode(Reader *r, SaveState *st, int version) {
         if (extra[0] > 11 || extra[1] >= MUSIC_SCALES || extra[3] >= ARP_MODES || extra[4] >= ARP_RATES || extra[5] < 1 ||
             extra[5] > 2)
             r->ok = false;
+    }
+    st->has_edit = version >= 16;
+    if (version >= 16) {
+        for (int k = 0; k < PARTS; k++) {
+            PartEdit *pe = &st->parts[k].pe;
+            get_edit(r, &pe->cur);
+            get_edit(r, &pe->snap[0]);
+            get_edit(r, &pe->snap[1]);
+            get(r, pe->snap_macro, sizeof(pe->snap_macro));
+            get(r, &pe->snaps, 1);
+            get(r, &pe->morph, sizeof(float));
+            get(r, st->parts[k].wave.pt, DRAW_POINTS);
+            pe->snaps &= 3u;
+            if (!(pe->morph >= 0.0f && pe->morph <= 1.0f)) pe->morph = 0.0f;
+            for (int s = 0; s < 2; s++)
+                for (int m = 0; m < 2; m++)
+                    if (!(pe->snap_macro[s][m] >= 0.0f && pe->snap_macro[s][m] <= 1.0f)) pe->snap_macro[s][m] = 0.5f;
+        }
     }
 }
 

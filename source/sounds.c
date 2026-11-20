@@ -21,7 +21,7 @@
 enum { M_TRI = 0, M_TRI_OUTLINE, M_TRI_STRIPED, M_TRI_DOTTED, M_CIRCLE, M_RING, M_BAR,
        M_SQUIGGLE, M_ZIGZAG, M_BOLT, M_DOTS, M_CROSS, M_SPOT };
 
-enum { S_JUNO, S_DX7, S_PLUCK, S_SQUELCH, S_BELL, S_BREEZE, S_SUPERSAW, S_FOLD, S_WAVY, S_MIC, S_COUNT };
+enum { S_JUNO, S_DX7, S_PLUCK, S_SQUELCH, S_BELL, S_BREEZE, S_SUPERSAW, S_FOLD, S_WAVY, S_MIC, S_DRAW, S_COUNT };
 
 static const Sound kSounds[S_COUNT] = {
     [S_JUNO] = {"JUNO", "JUNO", "128 vintage poly patches", M_TRI, SOUND_BANK, 0, 128, 6, 2.2f, 0, {0, 0}, {0, 0}},
@@ -54,6 +54,11 @@ static const Sound kSounds[S_COUNT] = {
     [S_MIC] = {"MIC", "MIC", "your voice, on the keys", M_RING, SOUND_CUSTOM, 0, 0, 4, 2.0f,
                "v0w7p200F9000,0.2G1R0.8A2,1,30,1,250,0",
                {"DECAY", "TONE"}, {1.0f, 0.85f}},
+    // One drawn cycle (DRAW_PRESET + part), played as a wavetable: in tune
+    // on every key, and it can be redrawn while a note sounds.
+    [S_DRAW] = {"DRAW", "DRAW", "a wave you draw yourself", M_CROSS, SOUND_CUSTOM, 0, 0, 4, 1.4f,
+                "v0w19p220G1F7000,0.2R0.7A5,1,300,0.8,250,0",
+                {"CUTOFF", "SOFT"}, {0.7f, 0.0f}},
 };
 
 int sound_count(void) { return S_COUNT; }
@@ -117,8 +122,186 @@ bool sound_macro_wire(int index, int m, float t, int synth, char *out, size_t le
                 snprintf(out, len, "i%dv0A2,1,%d,0,120,0", synth, (int)expo(t, 40.0f, 3000.0f));
             return true;
         case S_MIC * 2 + 1: snprintf(out, len, "i%dv0F%.0f", synth, expo(t, 300.0f, 12000.0f)); return true;
+        // DRAW: a low-pass over the drawn wave, and how slowly it fades in.
+        case S_DRAW * 2 + 0: snprintf(out, len, "i%dv0F%.0f", synth, expo(t, 150.0f, 14000.0f)); return true;
+        case S_DRAW * 2 + 1:
+            snprintf(out, len, "i%dv0A%d,1,300,0.8,%d,0", synth, (int)expo(t, 5.0f, 900.0f), (int)expo(t, 250.0f, 1200.0f));
+            return true;
         default: return false;
     }
 }
 
 int sound_mic_index(void) { return S_MIC; }
+int sound_draw_index(void) { return S_DRAW; }
+
+// ------------------------------------------------------------------ EDIT --
+
+// What the EDIT page reaches into in each CUSTOM sound: its amp envelope
+// (on osc env_osc), filter (on osc 0; `filter` false = it has none, and
+// one is added when CUTOFF or RESO is touched), and the LFO: an extra osc
+// (lfo_osc) added to each voice when DEPTH is touched, or, for sounds that
+// already modulate with osc 1, that one (`lfo_shared`: its speed is RATE).
+typedef struct {
+    float a, d, s, r;     // ms, ms, level, ms
+    float cut, q, fenv;   // Hz, Q, octaves
+    int8_t env_osc, lfo_osc;
+    bool lfo_shared, filter, unison;  // unison: the sound is already a unison cluster
+    bool uni_ok;          // its oscillators can be a unison cluster (not KS, PCM or FM)
+} EditInfo;
+
+static const EditInfo kEdit[S_COUNT] = {
+    [S_JUNO] = {5, 600, 0.7f, 300, 2000, 1.5f, 2.0f, 0, -1, false, false, false, true},
+    [S_DX7] = {1, 1500, 0.5f, 400, 16000, 0.7f, 0, 0, -1, false, false, false, false},
+    [S_PLUCK] = {1, 6000, 1.0f, 900, 16000, 0.7f, 0, 0, 1, false, false, false, false},
+    [S_SQUELCH] = {3, 250, 0.45f, 120, 250, 4.0f, 3.5f, 0, 1, true, true, false, true},
+    [S_BELL] = {1, 3000, 0.0f, 600, 16000, 0.7f, 0, 1, 3, false, false, false, false},
+    [S_BREEZE] = {250, 600, 0.6f, 900, 440, 10.0f, 0, 0, 1, false, true, false, false},
+    [S_SUPERSAW] = {10, 400, 0.7f, 300, 1800, 1.2f, 2.0f, 0, 1, false, true, true, true},
+    [S_FOLD] = {5, 350, 0.6f, 250, 16000, 0.7f, 0, 0, 1, false, false, false, true},
+    [S_WAVY] = {20, 500, 0.7f, 400, 16000, 0.7f, 0, 0, 1, true, false, false, true},
+    [S_MIC] = {2, 30, 1.0f, 250, 9000, 0.8f, 0, 0, 1, false, true, false, false},
+    [S_DRAW] = {5, 300, 0.8f, 250, 7000, 0.7f, 0, 0, 1, false, true, false, true},
+};
+
+static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
+static int sidx(int index) { return clampi(index, 0, S_COUNT - 1); }
+static bool is_set(const SynthEdit *e, EditParam p) { return (e->set >> p) & 1u; }
+
+void sound_edit_defaults(int index, float out[ED_PARAMS]) {
+    const EditInfo *k = &kEdit[sidx(index)];
+    out[ED_ATTACK] = edit_norm(ED_ATTACK, k->a);
+    out[ED_DECAY] = edit_norm(ED_DECAY, k->d);
+    out[ED_SUSTAIN] = k->s;
+    out[ED_RELEASE] = edit_norm(ED_RELEASE, k->r);
+    out[ED_CUTOFF] = edit_norm(ED_CUTOFF, k->cut);
+    out[ED_RESO] = edit_norm(ED_RESO, k->q);
+    out[ED_FENV] = edit_norm(ED_FENV, k->fenv);
+    out[ED_LFO_RATE] = edit_norm(ED_LFO_RATE, 4.0f);
+    out[ED_LFO_DEPTH] = 0.0f;
+    out[ED_GLIDE] = 0.0f;
+    out[ED_DETUNE] = edit_norm(ED_DETUNE, k->unison ? 14.0f : 8.0f);
+    out[ED_BRIGHT] = 0.5f;  // x1
+}
+
+static bool lfo_on(int index, const SynthEdit *e) {
+    return kSounds[sidx(index)].kind == SOUND_CUSTOM && is_set(e, ED_LFO_DEPTH) && e->p[ED_LFO_DEPTH] > 0.01f;
+}
+static int unison_of(int index, const SynthEdit *e) {
+    const EditInfo *k = &kEdit[sidx(index)];
+    return k->unison || !k->uni_ok ? 1 : clampi(e->unison, 1, UNISON_MAX);
+}
+
+int sound_edit_voices(int index, const SynthEdit *e) {
+    const int v = kSounds[sidx(index)].voices;
+    if (e->mono) return 1;
+    const int n = v / unison_of(index, e);
+    return n < 1 ? 1 : n;
+}
+
+uint32_t sound_edit_key(int index, const SynthEdit *e) {
+    const bool extra_lfo = lfo_on(index, e) && !kEdit[sidx(index)].lfo_shared;
+    return (uint32_t)sound_edit_voices(index, e) | (uint32_t)unison_of(index, e) << 8 | (uint32_t)extra_lfo << 12;
+}
+
+void sound_edit_patch(int index, const SynthEdit *e, char *out, size_t len) {
+    const Sound *s = &kSounds[sidx(index)];
+    const EditInfo *k = &kEdit[sidx(index)];
+    int n = snprintf(out, len, "%s", s->patch ? s->patch : "");
+    if (lfo_on(index, e) && !k->lfo_shared && n > 0 && (size_t)n < len)
+        n += snprintf(out + n, len - (size_t)n, "Zv%dw0f4,0a1,,0,0Zv0L%d", k->lfo_osc, k->lfo_osc);
+}
+
+int sound_edit_wire(int index, const SynthEdit *e, int synth, char *out, int width, int max) {
+    const int i = sidx(index);
+    const EditInfo *k = &kEdit[i];
+    const float *p = e->p;
+    int n = 0;
+#define EMIT(...)                                                           \
+    do {                                                                    \
+        if (n < max) snprintf(out + n * width, (size_t)width, __VA_ARGS__); \
+        n++;                                                                \
+    } while (0)
+    const bool env = is_set(e, ED_ATTACK) || is_set(e, ED_DECAY) || is_set(e, ED_SUSTAIN) || is_set(e, ED_RELEASE);
+    const int at = (int)edit_real(ED_ATTACK, p[ED_ATTACK]), de = (int)edit_real(ED_DECAY, p[ED_DECAY]);
+    const int re = (int)edit_real(ED_RELEASE, p[ED_RELEASE]);
+    const float su = p[ED_SUSTAIN];
+    // Glide: on every oscillator that carries the pitch. ("i<s>m" reaches
+    // them all, which a Juno needs; DX7 and the CUSTOM sounds take it on
+    // osc 0 and the rest follow.)
+    if (is_set(e, ED_GLIDE)) {
+        const int ms = (int)edit_real(ED_GLIDE, p[ED_GLIDE]);
+        EMIT("i%dm%d", synth, ms);
+        EMIT("i%dv0m%d", synth, ms);
+    }
+    // The amp envelope. DX7: osc 0's A is its pitch envelope, so the level
+    // goes through B (amp eg1) instead, and the operators' own releases are
+    // stretched to match (else they'd cut it short).
+    if (env && i == S_DX7) {
+        EMIT("i%dv0a1,0,1,0,1B%d,1,%d,%.3f,%d,0X0", synth, at, de, (double)su, re * 2);
+        for (int op = 2; op <= 7; op++) EMIT("i%dv%dA,,,,,,,,%d,", synth, op, re * 2);
+    } else if (env) {
+        EMIT("i%dv%dA%d,1,%d,%.3f,%d,0", synth, k->env_osc, at, de, (double)su, re);
+    }
+    // Filter on osc 0 (DX7 gets one: LP24). BRIGHT moves the cutoff on the
+    // filtered sounds; on DX7 it's how hard the modulators hit (engine.c).
+    // Sounds without a filter get one (AMY takes the type live) as soon
+    // as anything filter-ish is touched.
+    const bool add = !k->filter && kSounds[i].kind == SOUND_CUSTOM &&
+                     (is_set(e, ED_CUTOFF) || is_set(e, ED_RESO) || is_set(e, ED_FENV) || is_set(e, ED_BRIGHT));
+    const bool cut = add || is_set(e, ED_CUTOFF) || (is_set(e, ED_BRIGHT) && i != S_DX7 && i != S_JUNO);
+    if (cut) {
+        float c = is_set(e, ED_CUTOFF) ? edit_real(ED_CUTOFF, p[ED_CUTOFF]) : k->cut;
+        if (i != S_DX7 && i != S_JUNO && is_set(e, ED_BRIGHT)) c *= edit_real(ED_BRIGHT, p[ED_BRIGHT]);
+        if (c > 16000.0f) c = 16000.0f;
+        EMIT(i == S_DX7 ? "i%dv0G4F%.1f" : add ? "i%dv0G1F%.1f" : "i%dv0F%.1f", synth, (double)c);
+    }
+    if (is_set(e, ED_RESO)) EMIT(i == S_DX7 ? "i%dv0G4R%.2f" : "i%dv0R%.2f", synth, (double)edit_real(ED_RESO, p[ED_RESO]));
+    if (is_set(e, ED_FENV) && i != S_DX7) EMIT("i%dv0F,,,%.2f", synth, (double)edit_real(ED_FENV, p[ED_FENV]));
+    // LFO: its speed, and how far it moves its target (the others get 0).
+    // Banks have their own LFO on osc 1; a Juno's pitch lives on oscs 2-4.
+    const bool bank = i == S_JUNO || i == S_DX7;
+    const int lfo = bank ? 1 : k->lfo_osc;
+    const bool on = (bank || kSounds[i].kind == SOUND_CUSTOM) && is_set(e, ED_LFO_DEPTH) && p[ED_LFO_DEPTH] > 0.01f;
+    if (on || (is_set(e, ED_LFO_DEPTH) && !k->lfo_shared)) {
+        const float d = on ? p[ED_LFO_DEPTH] : 0.0f;
+        const int t = e->lfo_target;
+        if (on) EMIT("i%dv%df%.2f", synth, lfo, (double)edit_real(ED_LFO_RATE, p[ED_LFO_RATE]));
+        if (on && i == S_JUNO) EMIT("i%dv1A0,1,10000,1", synth);  // no LFO delay
+        if (on && i == S_DX7) EMIT("i%dv0L1", synth);
+        const double pitch = t == LFO_PITCH ? d * d * 0.5f : 0.0f;  // octaves
+        if (i == S_JUNO)
+            for (int o = 2; o <= 4; o++) EMIT("i%dv%df,,,,,%.3f", synth, o, pitch);
+        else
+            EMIT("i%dv0f,,,,,%.3f", synth, pitch);
+        EMIT("i%dv0F,,,,,%.3f", synth, (double)(t == LFO_FILTER ? d * 4.0f : 0.0f));  // octaves
+        EMIT("i%dv%da,,,,,%.3f", synth, bank ? 0 : k->env_osc, (double)(t == LFO_AMP ? d : 0.0f));
+        EMIT("i%dv0Q%s,,,,,%.3f", synth, t == LFO_PAN ? "0.5" : "", (double)(t == LFO_PAN ? d : 0.0f));
+    } else if (is_set(e, ED_LFO_RATE) && (k->lfo_shared || bank)) {
+        EMIT("i%dv%df%.2f", synth, lfo, (double)edit_real(ED_LFO_RATE, p[ED_LFO_RATE]));
+    }
+    // Unison: copies of each voice, spread by DETUNE, centred on the note.
+    const int u = unison_of(i, e);
+    const float sp = edit_real(ED_DETUNE, p[ED_DETUNE]) / 1200.0f;
+    if (k->unison && is_set(e, ED_DETUNE)) {
+        EMIT("i%dv0C5,%.4f,%.4f,0.85", synth, (double)sp, (double)(-2.0f * sp));
+    } else if (u > 1) {
+        const double off = -0.5f * (float)(u - 1) * sp;
+        if (i == S_JUNO)
+            for (int o = 2; o <= 4; o++) EMIT("i%dv%dC%d,%.4f,%.4f,1", synth, o, u, (double)sp, off);
+        else
+            EMIT("i%dv0C%d,%.4f,%.4f,1", synth, u, (double)sp, off);
+    }
+#undef EMIT
+    return n < max ? n : max;
+}
+
+float sound_edit_bright(int index, const SynthEdit *e) {
+    return sidx(index) == S_DX7 && is_set(e, ED_BRIGHT) ? edit_real(ED_BRIGHT, e->p[ED_BRIGHT]) : 1.0f;
+}
+
+int sound_dx7_index(void) { return S_DX7; }
+
+int sound_unison_kind(int index) {
+    const EditInfo *k = &kEdit[sidx(index)];
+    return k->unison ? 2 : k->uni_ok ? 1 : 0;
+}

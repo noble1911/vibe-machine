@@ -374,10 +374,11 @@ static void draw_songs_page(const AppState *app) {
         sh_card(SONG_LIST_X, SONG_LIST_Y0, SONG_LIST_W, SONG_ROWS * SONG_ROW_PITCH - 4, rgba(t->card, 0xFF), ink, 3);
         sh_floppy(SONG_LIST_X + SONG_LIST_W / 2.0f - 14, SONG_LIST_Y0 + 22, 28, rgba(t->pal[1], 0xFF), rgba(t->card, 0xFF), ink);
         ui_text(SONG_LIST_X + SONG_LIST_W / 2.0f, SONG_LIST_Y0 + 60, 0.45f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter,
-                smp ? "no samples yet" : "no songs yet");
+                app->lib_presets ? "no sounds saved yet" : smp ? "no samples yet" : "no songs yet");
         ui_text(SONG_LIST_X + SONG_LIST_W / 2.0f, SONG_LIST_Y0 + 78, 0.36f, rgba(ink_on(t, t->card), 0xA0), C2D_AlignCenter,
-                smp ? "SAVE AS keeps the MIC take" : "tap SAVE AS to keep this one");
-        if (smp)
+                app->lib_presets ? "SAVE AS keeps this part's sound" : smp ? "SAVE AS keeps the MIC take"
+                                                                           : "tap SAVE AS to keep this one");
+        if (smp && !app->lib_presets)
             ui_text(SONG_LIST_X + SONG_LIST_W / 2.0f, SONG_LIST_Y0 + 94, 0.32f, rgba(ink_on(t, t->card), 0xA0),
                     C2D_AlignCenter, "or copy WAVs to 3ds/vibe-machine/samples");
     }
@@ -426,7 +427,7 @@ static void draw_songs_page(const AppState *app) {
     const bool has_sel = app->song_sel >= 0 && app->song_sel < app->song_count;
     if (smp)
         ui_text(SONG_BTN_X + SONG_BTN_W / 2.0f, SONG_BTN_Y0 + SONG_BTN_PITCH + 4, 0.4f, rgba(ink_on(t, t->bg_b), 0xFF),
-                C2D_AlignCenter, "SAMPLES");
+                C2D_AlignCenter, app->lib_presets ? "SOUNDS" : "SAMPLES");
     for (int b = 0; b < 5; b++) {
         const float y = SONG_BTN_Y0 + b * SONG_BTN_PITCH;
         if (smp && !smp_labels[b]) continue;
@@ -721,6 +722,9 @@ static void draw_roll(const AppState *app) {
             sh_rect(x + lift + 2, y + lift + 2, w - 4, ROLL_ROW_H - 5, rgba(t->card, 0x90));
         else if (n->vel > 200)  // loud: a bar along the top
             sh_rect(x + lift + 2, y + lift + 1.5f, w - 4, 1.5f, rgba(ink_on(t, face), 0xFF));
+        if (n->flags & SEQ_NOTE_SLIDE)  // slides into the next note: a ramp off its end
+            sh_quad(x + w - 1 + lift, y + ROLL_ROW_H - 2 + lift, x + w + 5 + lift, y + lift, x + w + 7 + lift, y + lift,
+                    x + w + 1 + lift, y + ROLL_ROW_H - 2 + lift, ink);
     }
     // Scroll hints at the strip's ends.
     if (app->roll_scroll + ROLL_ROWS < rows) sh_tri(ROLL_KEYS_X + ROLL_KEYS_W / 2.0f, gy - 2, 3, -1.5708f, rgba(t->pal[2], 0xFF));
@@ -829,9 +833,22 @@ static void draw_sound_tiles(const AppState *app) {
         sh_card(x, y, SYN_TILE_W, SYN_TILE_H, rgba(face, 0xFF), rgba(t->ink, 0xFF), on ? 3.0f : 1.5f);
         uint32_t body = on ? t->card : t->pal[i % THEME_PALETTE];
         float bob = on ? sinf(s_frame * 0.15f) * 1.2f : 0.0f;
-        draw_mascot(i, x + 12, y + SYN_TILE_H / 2.0f + bob, on ? 8.5f : 7.0f, 0, 0, body);
-        ui_text(x + 33, y + 5, 0.36f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter, "%s", sound_get(i)->tag);
+        draw_mascot(i, x + 10, y + SYN_TILE_H / 2.0f + bob, on ? 6.5f : 5.5f, 0, 0, body);
+        ui_text(x + 32, y + 1.5f, 0.34f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter, "%s", sound_get(i)->tag);
     }
+    // PRESETS (after the last sound) and EDIT (across the bottom).
+    const int n = sound_count();
+    const float px = SYN_TILE_X0 + (n % SYN_TILE_COLS) * SYN_TILE_PITCH_X, py = SYN_TILE_Y0 + (n / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
+    const uint32_t pf = colourful(t, 4);
+    sh_card(px, py, SYN_TILE_W, SYN_TILE_H, rgba(pf, 0xFF), rgba(t->ink, 0xFF), 1.5f);
+    sh_floppy(px + 3, py + 3, 11, rgba(t->pal[1], 0xFF), rgba(t->card, 0xFF), rgba(t->ink, 0xFF));
+    ui_text(px + 31, py + 1.5f, 0.32f, rgba(ink_on(t, pf), 0xFF), C2D_AlignCenter, "PRESET");
+    const uint32_t ef = app->edit_view ? t->pal[0] : colourful(t, 2);
+    sticker(SYN_TILE_X0, SYN_EDIT_Y, SYN_EDIT_W, SYN_TILE_H, ef, app->edit_view, 0);
+    const PartEdit *pe = &app->parts[app->part].pe;
+    const float o = app->edit_view ? 2.0f : 0.0f;
+    ui_text(SYN_TILE_X0 + SYN_EDIT_W / 2.0f + o, SYN_EDIT_Y + 1.5f + o, 0.38f, rgba(ink_on(t, ef), 0xFF), C2D_AlignCenter,
+            pe->cur.set ? "EDIT *" : "EDIT");
 }
 
 static void draw_bank_grid(const AppState *app, const Sound *s) {
@@ -966,6 +983,41 @@ static void draw_creature_pad(const AppState *app, const Sound *s) {
     (void)ink;
 }
 
+// DRAW: the wave you drew, as you hear it (smoothed, centred, levelled),
+// over the raw points; drag across to redraw it.
+static void draw_drawpad(const AppState *app, const Sound *s) {
+    const Theme *t = ui_theme();
+    const float x0 = SYN_PAD_X + 8, y0 = SYN_PAD_Y + 20, w = SYN_PAD_W - 16, h = SYN_PAD_H - 28;
+    sh_grid(x0, y0, w, h, 13, rgba(t->ink, 0x16));
+    sh_rect(x0, y0 + h / 2.0f - 0.5f, w, 1, rgba(t->ink, 0x50));  // zero
+    ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, "%s", s->name);
+    static const char *const shapes[4] = {"SIN", "SAW", "SQR", "TRI"};
+    for (int i = 0; i < 4; i++) {
+        const float cx = DRAW_CHIP_X + i * DRAW_CHIP_PITCH;
+        sh_card(cx, DRAW_CHIP_Y, DRAW_CHIP_W, DRAW_CHIP_H, rgba(colourful(t, i), 0xFF), rgba(t->ink, 0xFF), 1.5f);
+        ui_text(cx + DRAW_CHIP_W / 2.0f, DRAW_CHIP_Y + 0.5f, 0.3f, rgba(ink_on(t, colourful(t, i)), 0xFF), C2D_AlignCenter, "%s",
+                shapes[i]);
+    }
+    const DrawWave *wv = &app->parts[app->part].wave;
+    for (int i = 0; i < DRAW_POINTS; i++) {  // the points you drew
+        const float px = x0 + w * i / (DRAW_POINTS - 1.0f), py = y0 + h * (0.5f - wv->pt[i] / 254.0f);
+        sh_rect(px - 1, py - 1, 2, 2, rgba(t->ink, 0x50));
+    }
+    static int16_t cyc[DRAW_CYCLE];
+    draw_render(wv, cyc);
+    const uint32_t col = part_rgb(t, app->part);
+    float lx = x0, ly = y0 + h * (0.5f - cyc[0] / 65536.0f);
+    for (int i = 2; i <= DRAW_CYCLE; i += 2) {  // what plays
+        const float nx = x0 + w * i / (float)DRAW_CYCLE, ny = y0 + h * (0.5f - cyc[i % DRAW_CYCLE] / 65536.0f);
+        const float dx = nx - lx, dy = ny - ly;
+        sh_bar((lx + nx) / 2, (ly + ny) / 2, sqrtf(dx * dx + dy * dy) + 1.0f, 3, atan2f(dy, dx), rgba(col, 0xFF));
+        lx = nx;
+        ly = ny;
+    }
+    if (!app->pad_touch)
+        ui_text(x0 + w / 2.0f, y0 + h - 12, 0.34f, rgba(ink_on(t, t->card), 0x90), C2D_AlignCenter, "draw a wave with the stylus");
+}
+
 // Part stickers in the tab row: tap to pick, hold to mute.
 static void draw_part_tabs(const AppState *app) {
     const Theme *t = ui_theme();
@@ -986,14 +1038,152 @@ static void draw_part_tabs(const AppState *app) {
     }
 }
 
+// ------------------------------------------------------------ EDIT ----
+
+// A horizontal slider in a sticker: label on the left, value on the right.
+static void edit_slider(float x, float y, float w, float v, const char *label, const char *value, bool set, bool bipolar,
+                        uint32_t col) {
+    const Theme *t = ui_theme();
+    sh_card(x, y, w, ED_ROW_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 1.5f);
+    const float ix = x + 2, iw = w - 4;
+    if (bipolar) {  // fills from the middle
+        const float mid = ix + iw / 2.0f, end = ix + iw * v;
+        sh_rect(mid < end ? mid : end, y + 2, fabsf(end - mid), ED_ROW_H - 4, rgba(col, set ? 0xFF : 0x60));
+        sh_rect(mid - 0.5f, y + 2, 1, ED_ROW_H - 4, rgba(t->ink, 0x80));
+    } else {
+        sh_rect(ix, y + 2, iw * v, ED_ROW_H - 4, rgba(col, set ? 0xFF : 0x60));
+    }
+    const u32 c = rgba(ink_on(t, t->card), 0xFF);
+    ui_text(x + 4, y + 0.5f, 0.32f, c, 0, "%s", label);
+    ui_text(x + w - 4, y + 0.5f, 0.32f, c, C2D_AlignRight, "%s", value);
+}
+
+static void edit_chip(float x, float y, float w, const char *label, bool on, uint32_t col) {
+    const Theme *t = ui_theme();
+    sticker(x, y, w, ED_ROW_H, on ? col : t->card, on, 0);
+    const float o = on ? 2.0f : 0.0f;
+    ui_text(x + w / 2.0f + o, y + 0.5f + o, 0.32f, rgba(ink_on(t, on ? col : t->card), 0xFF), C2D_AlignCenter, "%s", label);
+}
+
+// An XY pad with a ball, the axis names and values.
+static void edit_xy(const SynthEdit *e, EditParam px, EditParam py, uint32_t col) {
+    const Theme *t = ui_theme();
+    const float x0 = ED_BODY_X, y0 = ED_BODY_Y, w = ED_BODY_W, h = ED_PAD_H;
+    sh_card(x0, y0, w, h, rgba(t->bg_a, 0xFF), rgba(t->ink, 0xFF), 0);
+    sh_grid(x0 + 2, y0 + 2, w - 4, h - 4, 12, rgba(t->ink, 0x18));
+    const bool set = ((e->set >> px) & 1u) || ((e->set >> py) & 1u);
+    const float bx = x0 + 6 + e->p[px] * (w - 12), by = y0 + 6 + (1.0f - e->p[py]) * (h - 12);
+    for (float yy = by + 5; yy < y0 + h - 2; yy += 5) sh_rect(bx - 0.5f, yy, 1, 2.5f, rgba(col, 0xA0));
+    sh_circle(bx + 1.5f, by + 1.5f, 6, rgba(t->ink, 0xFF));
+    sh_circle(bx, by, 6, rgba(col, set ? 0xFF : 0x80));
+    char a[16], b[16];
+    edit_label(px, e->p[px], a, sizeof(a));
+    edit_label(py, e->p[py], b, sizeof(b));
+    const u32 c = rgba(ink_on(t, t->bg_a), 0xFF);
+    ui_text(x0 + w - 4, y0 + h - 13, 0.32f, c, C2D_AlignRight, "%s %s", edit_param_name(px), a);
+    ui_text(x0 + 4, y0 + 2, 0.32f, c, 0, "%s %s", edit_param_name(py), b);
+}
+
+static void draw_edit_view(const AppState *app) {
+    const Theme *t = ui_theme();
+    const PartEdit *pe = &app->parts[app->part].pe;
+    const SynthEdit *e = &pe->cur;
+    static const char *const tabs[EDP_PAGES] = {"ENV", "FILT", "LFO", "VOICE"};
+    for (int i = 0; i < EDP_PAGES; i++) {
+        const bool on = app->edit_page == i;
+        const uint32_t f = on ? t->pal[(i + 1) % THEME_PALETTE] : t->card;
+        sticker(ED_TAB_X0 + i * ED_TAB_PITCH, ED_TAB_Y, ED_TAB_W, ED_TAB_H, f, !on, tabs[i]);
+    }
+    sticker(ED_RESET_X, ED_TAB_Y, ED_RESET_W, ED_TAB_H, e->set ? colourful(t, 0) : t->card, false, "RESET");
+    const uint32_t col = part_rgb(t, app->part);
+    char v[16], w2[16];
+    switch (app->edit_page) {
+        case EDP_ENV: {
+            float hx[3], hy[3];
+            ui_env_handles(e->p, hx, hy);
+            const float gx = ED_ENV_X, gy = ED_ENV_Y, gh = ED_ENV_H, bottom = gy + gh;
+            sh_card(ED_BODY_X, ED_BODY_Y, ED_BODY_W, ED_ENV_H + 12, rgba(t->bg_a, 0xFF), rgba(t->ink, 0xFF), 0);
+            sh_grid(ED_BODY_X + 2, ED_BODY_Y + 2, ED_BODY_W - 4, ED_ENV_H + 8, 12, rgba(t->ink, 0x18));
+            const float sx = ED_ENV_X + ED_ENV_W * (0.28f + 0.24f + 0.14f);  // the end of the sustain plateau
+            const float px[5] = {gx, hx[0], hx[1], sx, hx[2]}, py[5] = {bottom, hy[0], hy[1], hy[1], bottom};
+            for (int i = 0; i < 4; i++) {  // the shape, as a fat line, filled faintly underneath
+                const float dx = px[i + 1] - px[i], dy = py[i + 1] - py[i], len = sqrtf(dx * dx + dy * dy);
+                sh_quad(px[i], py[i], px[i + 1], py[i + 1], px[i + 1], bottom, px[i], bottom, rgba(col, 0x40));
+                if (len > 0.5f) sh_bar((px[i] + px[i + 1]) / 2, (py[i] + py[i + 1]) / 2, len, 3, atan2f(dy, dx), rgba(col, 0xFF));
+            }
+            static const EditParam hp[3] = {ED_ATTACK, ED_DECAY, ED_RELEASE};
+            for (int h = 0; h < 3; h++) {
+                const bool grab = app->edit_grab == h, set = (e->set >> hp[h]) & 1u;
+                sh_circle(hx[h] + 1.5f, hy[h] + 1.5f, grab ? 7 : 5.5f, rgba(t->ink, 0xFF));
+                sh_circle(hx[h], hy[h], grab ? 7 : 5.5f, rgba(set ? t->pal[0] : t->card, 0xFF));
+            }
+            // The four values underneath.
+            static const EditParam vals[4] = {ED_ATTACK, ED_DECAY, ED_SUSTAIN, ED_RELEASE};
+            static const char *const nm[4] = {"A", "D", "S", "R"};
+            for (int i = 0; i < 4; i++) {
+                edit_label(vals[i], e->p[vals[i]], v, sizeof(v));
+                const bool set = (e->set >> vals[i]) & 1u;
+                ui_text(ED_BODY_X + 24 + i * 48, ED_LOW_Y + 2, 0.32f, rgba(ink_on(t, t->card), set ? 0xFF : 0x90),
+                        C2D_AlignCenter, "%s %s", nm[i], v);
+            }
+            break;
+        }
+        case EDP_FILTER:
+            edit_xy(e, ED_CUTOFF, ED_RESO, col);
+            edit_label(ED_FENV, e->p[ED_FENV], v, sizeof(v));
+            edit_slider(ED_BODY_X, ED_LOW_Y, ED_BODY_W, e->p[ED_FENV], "ENV AMOUNT", v, (e->set >> ED_FENV) & 1u, true, col);
+            break;
+        case EDP_LFO:
+            edit_xy(e, ED_LFO_RATE, ED_LFO_DEPTH, col);
+            for (int i = 0; i < LFO_TARGETS; i++)
+                edit_chip(ED_BODY_X + i * 48, ED_LOW_Y, 46, lfo_target_name(i), e->lfo_target == i, col);
+            break;
+        default: {  // VOICE
+            const float y0 = ED_ROW_Y0, cw = ED_SLIDER_X - ED_BODY_X - 4;
+            edit_chip(ED_BODY_X, y0, cw, e->mono ? "MONO" : "POLY", e->mono, col);
+            edit_label(ED_GLIDE, e->p[ED_GLIDE], v, sizeof(v));
+            edit_slider(ED_SLIDER_X, y0, ED_SLIDER_W, e->p[ED_GLIDE], "GLIDE", v, (e->set >> ED_GLIDE) & 1u, false, col);
+            const int uk = sound_unison_kind(app->sound);
+            if (uk == 1) {
+                for (int u = 0; u < UNISON_MAX; u++) {
+                    char lab[8];
+                    snprintf(lab, sizeof(lab), "x%d", u + 1);
+                    edit_chip(ED_BODY_X + u * (ED_CHIP_W + 3), y0 + ED_ROW_PITCH, ED_CHIP_W, lab, e->unison == u + 1, col);
+                }
+            } else {  // no unison chips: say why
+                edit_chip(ED_BODY_X, y0 + ED_ROW_PITCH, cw, uk ? "x5 BUILT IN" : "NO UNISON", uk == 2, col);
+            }
+            edit_label(ED_DETUNE, e->p[ED_DETUNE], v, sizeof(v));
+            edit_slider(ED_SLIDER_X, y0 + ED_ROW_PITCH, ED_SLIDER_W, e->p[ED_DETUNE], "DETUNE", v, (e->set >> ED_DETUNE) & 1u,
+                        false, col);
+            edit_label(ED_BRIGHT, e->p[ED_BRIGHT], v, sizeof(v));
+            edit_slider(ED_BODY_X, y0 + 2 * ED_ROW_PITCH, ED_BODY_W, e->p[ED_BRIGHT], "BRIGHT", v, (e->set >> ED_BRIGHT) & 1u,
+                        true, col);
+            edit_chip(ED_BODY_X, y0 + 3 * ED_ROW_PITCH, cw, "MUTATE", false, colourful(t, 3));
+            ui_text(ED_SLIDER_X + 4, y0 + 3 * ED_ROW_PITCH + 0.5f, 0.32f, rgba(ink_on(t, t->card), 0x90), 0, "nudge it all a little");
+            for (int sn = 0; sn < 2; sn++)
+                edit_chip(ED_BODY_X + sn * 37, y0 + 4 * ED_ROW_PITCH, 34, sn ? "B" : "A", (pe->snaps >> sn) & 1u, colourful(t, 1));
+            snprintf(w2, sizeof(w2), "%d%%", (int)(pe->morph * 100 + 0.5f));
+            edit_slider(ED_SLIDER_X, y0 + 4 * ED_ROW_PITCH, ED_SLIDER_W, pe->morph, "MORPH", w2, pe->snaps == 3, false, col);
+            break;
+        }
+    }
+}
+
 static void draw_synth_page(const AppState *app) {
     const Theme *t = ui_theme();
     const Sound *s = sound_get(app->sound);
     draw_part_tabs(app);
     draw_sound_tiles(app);
     sh_card(SYN_PAD_X, SYN_PAD_Y, SYN_PAD_W, SYN_PAD_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 3);
+    if (app->edit_view) {
+        draw_edit_view(app);
+        return;
+    }
     if (s->kind == SOUND_BANK)
         draw_bank_grid(app, s);
+    else if (app->sound == sound_draw_index())
+        draw_drawpad(app, s);
     else
         draw_creature_pad(app, s);
     draw_die(SYN_DICE_X, SYN_DICE_Y, SYN_DICE_W, t->pal[3]);

@@ -277,7 +277,10 @@ static int fire_step(int step, Event *ev, int n) {
         if ((muted >> rn->part) & 1u) continue;
         float vel = rn->vel / 255.0f;
         if (accent && vel < SEQ_VEL_SYNTH_ACCENT) vel = SEQ_VEL_SYNTH_ACCENT;
-        n = start_note(rn->part, rn->pitch, vel, s_ticks + (rn->len - 1) + SEQ_GATE, ev, n);
+        // A slide holds on past the start of the next step, so the next note
+        // arrives while this one still sounds (legato).
+        const double gate = (rn->flags & SEQ_NOTE_SLIDE) ? 1.15 : SEQ_GATE;
+        n = start_note(rn->part, rn->pitch, vel, s_ticks + (rn->len - 1) + gate, ev, n);
     }
     s_step = step;
     s_fired++;
@@ -574,7 +577,7 @@ static int add_locked(SeqPattern *p, int part, int step, int pitch, int len, int
             p->notes[i].vel = (uint8_t)vel;
             return i;
         }
-    p->notes[p->count] = (SeqRollNote){(uint8_t)step, (uint8_t)pitch, (uint8_t)len, (uint8_t)vel, (uint8_t)part};
+    p->notes[p->count] = (SeqRollNote){(uint8_t)step, (uint8_t)pitch, (uint8_t)len, (uint8_t)vel, (uint8_t)part, 0};
     return p->count++;
 }
 
@@ -667,6 +670,13 @@ void seq_set_fx(int step, int kind1, float x, float y) {
     p->fx[step] = (uint8_t)(kind1 < 0 ? 0 : kind1);
     p->fx_x[step] = (uint8_t)(x <= 0.0f ? 0 : x >= 1.0f ? 255 : x * 255.0f + 0.5f);
     p->fx_y[step] = (uint8_t)(y <= 0.0f ? 0 : y >= 1.0f ? 255 : y * 255.0f + 0.5f);
+    UNLOCK(&s_lock);
+}
+
+void seq_roll_set_flags(int index, int flags) {
+    LOCK(&s_lock);
+    SeqPattern *p = &s_pats[s_cur];
+    if (index >= 0 && index < p->count) p->notes[index].flags = (uint8_t)flags;
     UNLOCK(&s_lock);
 }
 

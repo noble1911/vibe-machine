@@ -13,6 +13,7 @@
 set -e
 REC="$1"
 OUT="${2:-.}"
+NAME="${3:-zero-to-song}"
 FPS=15
 mkdir -p "$OUT"
 TMP=$(mktemp -d)
@@ -50,6 +51,6 @@ ffmpeg -y -loglevel error \
     -i "$REC/audio.wav" \
     -filter_complex "[0:v]transpose=2[t];[1:v]transpose=2,pad=400:240:40:0:color=0x111111[b];[t][b]vstack,scale=800:960:flags=neighbor,format=yuv420p[v]" \
     -map "[v]" -map 2:a -c:v libx264 -crf 34 -preset slower -tune animation -r 15 -c:a aac -b:a 160k -shortest -movflags +faststart \
-    "$OUT/zero-to-song.mp4"
+    "$OUT/$NAME.mp4"
 rm -rf "$TMP"
-echo "wrote $OUT/zero-to-song.mp4"
+echo "wrote $OUT/$NAME.mp4"

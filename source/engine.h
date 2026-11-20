@@ -33,7 +33,16 @@ void engine_note_on(int synth, int note, float velocity);
 void engine_note_off(int synth, int note);
 // Load a sound from sounds.c onto a part's synth. For a BANK sound, `patch`
 // is the AMY patch number to use; CUSTOM sounds ignore it.
-void engine_load_sound(int part, int sound, int patch);
+// `edit` (may be NULL) is the part's EDIT layer, applied on top.
+#include "synthedit.h"
+void engine_load_sound(int part, int sound, int patch, const SynthEdit *edit);
+// Apply a changed EDIT live (reloading the patch only when its structure,
+// e.g. MONO or UNISON, changed). Call after the macros have been set.
+void engine_apply_edit(int part, const SynthEdit *edit);
+// The DRAW sound's wave for a part: one cycle of DRAW_CYCLE samples (-1..1).
+void engine_load_wave(int part, const int16_t *cycle, int n);
+// Pitch bend, in semitones (+-2 at full tilt), on every part.
+void engine_pitch_bend(float semitones);
 // Set macro m (0..1) of the CUSTOM sound a part is playing.
 void engine_set_macro(int part, int sound, int m, float value);
 // Replace the MIC sound's sample (mono, `rate` Hz). Silences the lead

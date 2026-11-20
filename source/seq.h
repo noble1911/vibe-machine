@@ -45,7 +45,12 @@ typedef struct {
     uint8_t len;    // 1..SEQ_STEPS_MAX steps (may run past the end of the pattern)
     uint8_t vel;    // 1..255 (velocity = vel / 255)
     uint8_t part;   // which instrument part plays it (0..PARTS-1)
+    uint8_t flags;  // SEQ_NOTE_SLIDE...
 } SeqRollNote;
+
+// A sliding note holds on into the next one (legato): on a MONO sound with
+// GLIDE the pitch slides across instead of the note restriking (acid).
+#define SEQ_NOTE_SLIDE 1
 
 typedef struct {
     uint8_t len;                   // steps: 16, 32 or 64 (0 counts as 16)
@@ -157,6 +162,7 @@ int seq_roll_add(int part, int step, int pitch, int len, int vel);  // index, or
 void seq_roll_set(int index, int step, int pitch, int len);
 void seq_roll_remove(int index);
 void seq_roll_set_vel(int index, int vel);  // 1..255
+void seq_roll_set_flags(int index, int flags);
 // FX automation on `step` of the current slot: kind1 = FxKind + 1, or 0 to
 // erase; x, y 0..1.
 void seq_set_fx(int step, int kind1, float x, float y);

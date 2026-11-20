@@ -17,6 +17,7 @@
 #include "engine.h"
 #include "music.h"
 #include "patch_names.h"
+#include "presets.h"
 #include "dice.h"
 #include "mic.h"
 #include "sampler.h"
@@ -84,6 +85,10 @@ typedef enum {
     TOUCH_SMP,
     TOUCH_SONG_BTN,
     TOUCH_BAR_BTN,
+    TOUCH_EDIT_ENV,     // dragging an envelope handle (s_app.edit_grab)
+    TOUCH_EDIT_PAD,     // the FILT / LFO XY pad
+    TOUCH_EDIT_SLIDER,  // a slider on the EDIT view (s_edit_slider)
+    TOUCH_DRAW,         // drawing the DRAW sound's wave
 } TouchMode;
 
 #define BAR_LEN_FRAMES 30  // hold BAR this long to change the pattern's length
@@ -254,6 +259,55 @@ static void sound_row(int hit) {
     }
 }
 
+// ----------------------------------------------------------------- EDIT ----
+
+static PartEdit *part_edit(void) { return &s_app.parts[s_app.part].pe; }
+static uint32_t s_edit_key[PARTS];  // the structure each part's patch was loaded with
+
+static void upload_wave(int part) {
+    static int16_t cycle[DRAW_CYCLE];
+    DrawWave *w = &s_app.parts[part].wave;
+    bool empty = true;
+    for (int i = 0; i < DRAW_POINTS; i++) empty = empty && w->pt[i] == 0;
+    if (empty) draw_preset(w, 1);  // a saw to start from
+    draw_render(w, cycle);
+    engine_load_wave(part, cycle, DRAW_CYCLE);
+}
+
+// Send the current part's sound again: patch, macros, then the EDIT layer
+// on top (so the edit wins where both touch the same thing).
+static void reload_sound(void) {
+    const SynthEdit *e = &part_edit()->cur;
+    engine_load_sound(s_app.part, s_app.sound, s_app.patch, e);
+    s_edit_key[s_app.part] = sound_edit_key(s_app.sound, e);
+    if (s_app.sound == sound_draw_index()) upload_wave(s_app.part);
+    for (int m = 0; m < SOUND_MACROS; m++) engine_set_macro(s_app.part, s_app.sound, m, s_app.macro[m]);
+    engine_apply_edit(s_app.part, e);
+    reapply_params();
+}
+
+// The EDIT layer changed: live, unless MONO / UNISON / the LFO's extra
+// oscillator changed the patch's shape (then it's reloaded, notes let go).
+static void apply_edit(void) {
+    const SynthEdit *e = &part_edit()->cur;
+    if (sound_edit_key(s_app.sound, e) != s_edit_key[s_app.part]) {
+        release_all();
+        reload_sound();
+    } else {
+        engine_apply_edit(s_app.part, e);
+    }
+}
+
+static void edit_reset_sound(void) {
+    float d[ED_PARAMS];
+    sound_edit_defaults(s_app.sound, d);
+    PartEdit *pe = part_edit();
+    edit_reset(&pe->cur, d);
+    pe->snap[0] = pe->snap[1] = pe->cur;
+    pe->snaps = 0;
+    pe->morph = 0.0f;
+}
+
 static void select_sound(int index) {
     int n = sound_count();
     index = ((index % n) + n) % n;
@@ -261,12 +315,9 @@ static void select_sound(int index) {
     release_all();
     s_app.sound = index;
     if (snd->kind == SOUND_BANK) s_app.patch = snd->bank_first;
-    engine_load_sound(s_app.part, index, s_app.patch);
-    for (int m = 0; m < SOUND_MACROS; m++) {
-        s_app.macro[m] = snd->macro_default[m];
-        engine_set_macro(s_app.part, index, m, s_app.macro[m]);
-    }
-    reapply_params();
+    for (int m = 0; m < SOUND_MACROS; m++) s_app.macro[m] = snd->macro_default[m];
+    edit_reset_sound();  // a new sound starts as designed
+    reload_sound();
 }
 
 // Step through the current BANK sound's patches (wrapping inside the bank).
@@ -277,8 +328,7 @@ static void change_patch(int patch) {
     patch = first + (((patch - first) % n) + n) % n;
     release_all();
     s_app.patch = patch;
-    engine_load_sound(s_app.part, s_app.sound, patch);
-    reapply_params();
+    reload_sound();  // keeps the EDIT layer: try the same shaping on another patch
 }
 
 // ---------------------------------------------------------------- parts ----
@@ -307,23 +357,38 @@ static void switch_part(int part) {
 }
 
 // Load a sound (patch and macros optional) onto a part.
-static void load_part(int part, int sound, int patch, const float *macro) {
+static void load_part(int part, int sound, int patch, const float *macro, const PartEdit *pe, const DrawWave *wave) {
     switch_part(part);
     select_sound(sound);
     const Sound *snd = sound_get(s_app.sound);
-    if (snd->kind == SOUND_BANK && patch >= snd->bank_first && patch < snd->bank_first + snd->bank_count)
-        change_patch(patch);
-    if (macro)
-        for (int m = 0; m < SOUND_MACROS; m++) {
-            s_app.macro[m] = macro[m];
-            engine_set_macro(s_app.part, s_app.sound, m, macro[m]);
-        }
+    bool again = false;
+    if (snd->kind == SOUND_BANK && patch >= snd->bank_first && patch < snd->bank_first + snd->bank_count) {
+        s_app.patch = patch;
+        again = true;
+    }
+    if (macro) {
+        memcpy(s_app.macro, macro, sizeof(s_app.macro));
+        again = true;
+    }
+    if (pe) {
+        *part_edit() = *pe;
+        edit_clamp(&part_edit()->cur);
+        edit_clamp(&part_edit()->snap[0]);
+        edit_clamp(&part_edit()->snap[1]);
+        again = true;
+    }
+    if (wave) {
+        s_app.parts[part].wave = *wave;
+        again = true;
+    }
+    if (again) reload_sound();
     sync_part_out();
 }
 
 static void default_parts(void) {
     for (int k = PARTS - 1; k >= 0; k--) {
-        load_part(k, kPartDefault[k], -1, NULL);
+        load_part(k, kPartDefault[k], -1, NULL, NULL, NULL);
+        upload_wave(k);
         seq_set_part_mute(k, false);
     }
 }
@@ -627,7 +692,10 @@ static void capture(SaveState *st) {
         st->parts[k].sound = s_app.parts[k].sound;
         st->parts[k].patch = s_app.parts[k].patch;
         memcpy(st->parts[k].macro, s_app.parts[k].macro, sizeof(st->parts[k].macro));
+        st->parts[k].pe = s_app.parts[k].pe;
+        st->parts[k].wave = s_app.parts[k].wave;
     }
+    st->has_edit = true;
     st->part = s_app.part;
     st->muted = seq.muted;
     memcpy(st->mix, s_app.mix, sizeof(st->mix));
@@ -667,9 +735,11 @@ static void restore(const SaveState *st) {
         memcpy(macro, st->parts[k].macro, sizeof(macro));
         if (st->old_mic_macros && st->parts[k].sound == sound_mic_index()) macro[0] = 1.0f;  // START became DECAY
         if (st->parts[k].sound >= 0)
-            load_part(k, st->parts[k].sound, st->parts[k].patch, macro);
+            load_part(k, st->parts[k].sound, st->parts[k].patch, macro, st->has_edit ? &st->parts[k].pe : NULL,
+                      st->has_edit ? &st->parts[k].wave : NULL);
         else  // an older song: this part gets its default sound
-            load_part(k, kPartDefault[k], -1, NULL);
+            load_part(k, kPartDefault[k], -1, NULL, NULL, NULL);
+        upload_wave(k);
         seq_set_part_mute(k, (st->muted >> k) & 1u);
     }
     switch_part(st->part);
@@ -950,11 +1020,15 @@ static void sync_scratch_mic(void) {
 // The sample library (the SONGS page's other mode): the files behind the
 // names in s_app.songs.
 #define SAMPLES_ROOT STORAGE_DIR "/samples"
+#define PRESETS_ROOT STORAGE_DIR "/presets"
+#define PRESET_EXT ".vmp"
 static SampleFile s_sample_files[SONGS_MAX];
+static const char *lib_root(void) { return s_app.lib_presets ? PRESETS_ROOT : SAMPLES_ROOT; }
 
 static void refresh_songs(void) {
     if (s_app.lib_samples) {
-        s_app.song_count = sample_list(SAMPLES_ROOT, s_sample_files, SONGS_MAX);
+        s_app.song_count = s_app.lib_presets ? sample_list_ext(PRESETS_ROOT, PRESET_EXT, s_sample_files, SONGS_MAX)
+                                             : sample_list(SAMPLES_ROOT, s_sample_files, SONGS_MAX);
         for (int i = 0; i < s_app.song_count; i++) {
             memcpy(s_app.songs[i].name, s_sample_files[i].name, sizeof(s_app.songs[i].name));
             s_app.songs[i].bpm = 0;  // nothing more to read for a sample
@@ -1108,13 +1182,16 @@ static void new_song(void) {
 }
 
 // Ask for a name with the 3DS keyboard, offering a random one.
+#ifdef VM_STORY
+static const char *s_story_name = "MY FIRST SONG";  // what the script "types" when asked for a name
+#endif
 static bool ask_name(char *out, const char *hint) {
     char suggestion[SONG_NAME_MAX + 1], buf[48];
     song_random_name((uint32_t)svcGetSystemTick(), suggestion);
 #if defined(VM_STORY)
     (void)buf;
     (void)hint;
-    strcpy(out, "MY FIRST SONG");
+    snprintf(out, SONG_NAME_MAX + 1, "%s", s_story_name);
     return true;
 #elif defined(VM_DEMO)
     (void)buf;
@@ -1169,6 +1246,7 @@ static uint8_t s_restored_tape_changed;
 
 static void open_library(bool samples) {
     s_app.lib_samples = samples;
+    s_app.lib_presets = false;
     s_app.page = PAGE_SONGS;
     s_app.confirm_name[0] = '\0';
     if (samples) {
@@ -1204,6 +1282,51 @@ static void save_sample(const char *name) {
     for (int i = 0; i < s_app.song_count; i++)
         if (strcmp(s_sample_files[i].name, name) == 0) s_app.song_sel = i;
     notice("SAMPLE SAVED");
+}
+
+// PRESETS: the part's sound as it is now (patch, macros, EDIT, DRAW wave).
+static void save_preset(const char *name) {
+    mkdir(PRESETS_ROOT, 0777);
+    Preset p;
+    memset(&p, 0, sizeof(p));
+    p.sound = s_app.sound;
+    p.patch = s_app.patch;
+    memcpy(p.macro, s_app.macro, sizeof(p.macro));
+    p.edit = part_edit()->cur;
+    p.wave = s_app.parts[s_app.part].wave;
+    char file[64], path[160];
+    sample_file_for_ext(name, PRESET_EXT, file, sizeof(file));
+    sample_path(PRESETS_ROOT, file, path, sizeof(path));
+    if (!preset_save(path, &p)) {
+        notice("SAVE FAILED");
+        return;
+    }
+    refresh_songs();
+    for (int i = 0; i < s_app.song_count; i++)
+        if (strcmp(s_sample_files[i].name, name) == 0) s_app.song_sel = i;
+    notice("SOUND SAVED");
+}
+
+static void load_preset_file(int i) {
+    char path[160];
+    sample_path(PRESETS_ROOT, s_sample_files[i].file, path, sizeof(path));
+    Preset p;
+    if (!preset_load(path, &p) || p.sound < 0 || p.sound >= sound_count()) {
+        notice("CAN'T READ THAT PRESET");
+        return;
+    }
+    PartEdit pe = *part_edit();
+    pe.cur = p.edit;
+    load_part(s_app.part, p.sound, p.patch, p.macro, &pe, &p.wave);
+    char msg[sizeof(s_app.notice)];
+    snprintf(msg, sizeof(msg), "%s ON PART %d", s_sample_files[i].name, s_app.part + 1);
+    notice(msg);
+}
+
+static void open_presets(void) {
+    open_library(true);
+    s_app.lib_presets = true;
+    refresh_songs();
 }
 
 // Any 16-bit WAV: resampled to the sampler's rate, the first few seconds.
@@ -1249,14 +1372,16 @@ static void samples_touch(int x, int y) {
             if (s_app.song_scroll + SONG_ROWS < s_app.song_count) s_app.song_scroll++;
             break;
         case SONG_HIT_SAVE_AS:
-            if (!ask_name(name, "Name your sample")) break;
+            if (!ask_name(name, s_app.lib_presets ? "Name this sound" : "Name your sample")) break;
             if (sample_named(name))
                 snprintf(s_app.confirm_name, sizeof(s_app.confirm_name), "%s", name);
+            else if (s_app.lib_presets)
+                save_preset(name);
             else
                 save_sample(name);
             break;
         case SONG_HIT_LOAD:
-            if (has_sel) load_sample(s_app.song_sel);
+            if (has_sel) s_app.lib_presets ? load_preset_file(s_app.song_sel) : load_sample(s_app.song_sel);
             break;
         case SONG_HIT_DELETE:
             if (!has_sel) break;
@@ -1275,12 +1400,12 @@ static void song_hold_done(int button) {
     if (s_app.lib_samples) {
         if (button == SONG_HIT_DELETE && s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count) {
             char path[160];
-            sample_path(SAMPLES_ROOT, s_sample_files[s_app.song_sel].file, path, sizeof(path));
+            sample_path(lib_root(), s_sample_files[s_app.song_sel].file, path, sizeof(path));
             remove(path);
             refresh_songs();
         }
         if (button == SONG_HIT_CONFIRM) {
-            save_sample(s_app.confirm_name);
+            s_app.lib_presets ? save_preset(s_app.confirm_name) : save_sample(s_app.confirm_name);
             s_app.confirm_name[0] = '\0';
         }
         return;
@@ -1612,6 +1737,15 @@ static void roll_begin(int x, int y) {
     step = page_step(step);
     const int pitch = roll_pitch(row);
     int idx = seq_roll_find(s_app.part, step, pitch);
+    if (idx >= 0 && s_app.mode == PLAY_DRUM) {  // R + tap a note: SLIDE on / off
+        SeqPattern pat;
+        seq_snapshot(&pat);
+        const int f = pat.notes[idx].flags;
+        seq_roll_set_flags(idx, f ^ SEQ_NOTE_SLIDE);
+        notice(f & SEQ_NOTE_SLIDE ? "SLIDE OFF" : "SLIDE: GLIDES ON (MONO + GLIDE)");
+        s_touch = TOUCH_IGNORE;
+        return;
+    }
     s_roll_moved = s_roll_created = false;
     if (idx < 0) {  // empty: a new note, which a drag to the right stretches
         idx = seq_roll_add(s_app.part, step, pitch, s_roll_len, (int)(SEQ_VEL_SYNTH * 255));
@@ -1801,6 +1935,208 @@ static void follow_sequencer(void) {
 
 // --------------------------------------------------------------- input ----
 
+// --- the EDIT view -------------------------------------------------------
+
+static float s_edit_tmp[ED_PARAMS];  // the envelope while a handle is dragged
+static int s_edit_slider = -1;       // EditParam, or ED_PARAMS for MORPH
+static int s_edit_slider_x0, s_edit_slider_w;
+static bool s_draw_started;          // DRAW: s_draw_x / _y hold the last point drawn
+static float s_draw_x, s_draw_y;
+static void open_presets(void);
+
+static void edit_env_from(const float *p) {
+    SynthEdit *e = &part_edit()->cur;
+    static const EditParam env[4] = {ED_ATTACK, ED_DECAY, ED_SUSTAIN, ED_RELEASE};
+    for (int i = 0; i < 4; i++)
+        if (fabsf(p[env[i]] - e->p[env[i]]) > 0.001f) edit_set(e, env[i], p[env[i]]);
+    apply_edit();
+}
+
+static void edit_pad(int x, int y) {
+    float nx, ny;
+    ui_edit_pad_pos(x, y, &nx, &ny);
+    SynthEdit *e = &part_edit()->cur;
+    if (s_app.edit_page == EDP_FILTER) {
+        edit_set(e, ED_CUTOFF, nx);
+        edit_set(e, ED_RESO, ny);
+    } else {
+        edit_set(e, ED_LFO_RATE, nx);
+        edit_set(e, ED_LFO_DEPTH, ny);
+    }
+    apply_edit();
+}
+
+// MORPH: the edit (and the two macros) t of the way from A to B.
+static void edit_morph_to(float t) {
+    PartEdit *pe = part_edit();
+    pe->morph = t;
+    if (pe->snaps != 3) return;
+    edit_morph(&pe->snap[0], &pe->snap[1], t, &pe->cur);
+    for (int m = 0; m < SOUND_MACROS; m++)
+        s_app.macro[m] = pe->snap_macro[0][m] + (pe->snap_macro[1][m] - pe->snap_macro[0][m]) * t;
+    if (sound_edit_key(s_app.sound, &pe->cur) != s_edit_key[s_app.part]) {
+        apply_edit();  // reloads, macros included
+    } else {
+        for (int m = 0; m < SOUND_MACROS; m++) engine_set_macro(s_app.part, s_app.sound, m, s_app.macro[m]);
+        engine_apply_edit(s_app.part, &pe->cur);
+    }
+}
+
+static void edit_slider_move(int x) {
+    const float v = ui_edit_slider(x, s_edit_slider_x0, s_edit_slider_w);
+    if (s_edit_slider == ED_PARAMS) {
+        edit_morph_to(v);
+        return;
+    }
+    edit_set(&part_edit()->cur, (EditParam)s_edit_slider, v);
+    apply_edit();
+}
+
+static void edit_grab_slider(int param, int x0, int w, int x) {
+    s_edit_slider = param;
+    s_edit_slider_x0 = x0;
+    s_edit_slider_w = w;
+    s_touch = TOUCH_EDIT_SLIDER;
+    edit_slider_move(x);
+}
+
+static void edit_voice_touch(int x, int y) {
+    PartEdit *pe = part_edit();
+    SynthEdit *e = &pe->cur;
+    const int row = (y - ED_ROW_Y0 + 2) / ED_ROW_PITCH;
+    const bool chips = x < ED_SLIDER_X - 2;
+    s_touch = TOUCH_IGNORE;
+    switch (row) {
+        case 0:
+            if (chips) {
+                e->mono = !e->mono;
+                apply_edit();
+                notice(e->mono ? "MONO: ONE NOTE AT A TIME, GLIDES" : "POLY: CHORDS AGAIN");
+            } else {
+                edit_grab_slider(ED_GLIDE, ED_SLIDER_X, ED_SLIDER_W, x);
+            }
+            break;
+        case 1:
+            if (chips && sound_unison_kind(s_app.sound) != 1) {
+                notice(sound_unison_kind(s_app.sound) ? "BUILT IN: DETUNE SPREADS IT" : "NO UNISON ON THIS SOUND");
+            } else if (chips) {
+                int u = 1 + (x - ED_BODY_X) / (ED_CHIP_W + 3);
+                e->unison = (uint8_t)(u < 1 ? 1 : u > UNISON_MAX ? UNISON_MAX : u);
+                apply_edit();
+                char msg[sizeof(s_app.notice)];
+                snprintf(msg, sizeof(msg), "UNISON x%d: %d VOICES LEFT", e->unison, sound_edit_voices(s_app.sound, e));
+                notice(msg);
+            } else {
+                edit_grab_slider(ED_DETUNE, ED_SLIDER_X, ED_SLIDER_W, x);
+            }
+            break;
+        case 2: edit_grab_slider(ED_BRIGHT, ED_BODY_X, ED_BODY_W, x); break;
+        case 3:
+            if (chips) {
+                edit_mutate(e, 0.12f, (uint32_t)svcGetSystemTick() ^ (s_app.frame * 2654435761u));
+                apply_edit();
+                ui_key_struck((int)(s_app.frame % MUSIC_KEYS), PLAY_NOTE);
+            }
+            break;
+        default:
+            if (row != 4) break;
+            if (chips) {  // A / B: store the sound as it is now
+                const int sn = x < ED_BODY_X + 35 ? 0 : 1;
+                pe->snap[sn] = pe->cur;
+                memcpy(pe->snap_macro[sn], s_app.macro, sizeof(pe->snap_macro[sn]));
+                pe->snaps |= (uint8_t)(1u << sn);
+                pe->morph = (float)sn;
+                notice(pe->snaps == 3 ? "A AND B STORED: SLIDE MORPH" : sn ? "B STORED" : "A STORED");
+            } else if (pe->snaps == 3) {
+                edit_grab_slider(ED_PARAMS, ED_SLIDER_X, ED_SLIDER_W, x);
+            } else {
+                notice("STORE A AND B FIRST");
+            }
+            break;
+    }
+}
+
+// A touch on the SYNTH page that's the EDIT / PRESETS tiles or the EDIT view.
+static bool edit_touch(int x, int y) {
+    const int extra = ui_hit_synth_extra(x, y);
+    if (extra == SYN_HIT_EDIT) {
+        s_app.edit_view = !s_app.edit_view;
+        s_touch = TOUCH_IGNORE;
+        return true;
+    }
+    if (extra == SYN_HIT_PRESETS) {
+        open_presets();
+        s_touch = TOUCH_IGNORE;
+        return true;
+    }
+    if (!s_app.edit_view || !ui_in_synth_pad(x, y)) return false;
+    s_touch = TOUCH_IGNORE;
+    const int hit = ui_hit_edit(x, y);
+    if (hit >= EDH_TAB && hit < EDH_TAB + EDP_PAGES) {
+        s_app.edit_page = hit - EDH_TAB;
+    } else if (hit == EDH_RESET) {
+        release_all();
+        edit_reset_sound();
+        reload_sound();
+        notice("EDIT RESET: THE SOUND AS DESIGNED");
+    } else if (hit == EDH_BODY) {
+        SynthEdit *e = &part_edit()->cur;
+        switch (s_app.edit_page) {
+            case EDP_ENV: {
+                float hx[3], hy[3];
+                ui_env_handles(e->p, hx, hy);
+                int best = -1;
+                float bd = 26.0f * 26.0f;
+                for (int h = 0; h < 3; h++) {
+                    const float d = (hx[h] - x) * (hx[h] - x) + (hy[h] - y) * (hy[h] - y);
+                    if (d < bd) bd = d, best = h;
+                }
+                if (best >= 0) {
+                    s_app.edit_grab = best;
+                    memcpy(s_edit_tmp, e->p, sizeof(s_edit_tmp));
+                    s_touch = TOUCH_EDIT_ENV;
+                }
+                break;
+            }
+            case EDP_FILTER:
+            case EDP_LFO:
+                if (y < ED_BODY_Y + ED_PAD_H + 2) {
+                    s_touch = TOUCH_EDIT_PAD;
+                    edit_pad(x, y);
+                } else if (y >= ED_LOW_Y - 3) {
+                    if (s_app.edit_page == EDP_FILTER) {
+                        edit_grab_slider(ED_FENV, ED_BODY_X, ED_BODY_W, x);
+                    } else {
+                        int t = (x - ED_BODY_X) / 48;
+                        e->lfo_target = (uint8_t)(t < 0 ? 0 : t >= LFO_TARGETS ? LFO_TARGETS - 1 : t);
+                        if (!((e->set >> ED_LFO_DEPTH) & 1u)) edit_set(e, ED_LFO_DEPTH, 0.4f);  // so you hear it
+                        apply_edit();
+                    }
+                }
+                break;
+            default: edit_voice_touch(x, y); break;
+        }
+    }
+    return true;
+}
+
+// DRAW: the stylus draws the wave across the pad (left to right is one
+// cycle); the sound updates as you go.
+static void draw_touch(int x, int y) {
+    float nx, ny;
+    ui_synth_pad_pos(x, y, &nx, &ny);
+    s_app.pad_touch = true;
+    s_app.pad_x = nx;
+    s_app.pad_y = ny;
+    DrawWave *w = &s_app.parts[s_app.part].wave;
+    const float wy = ny * 2.0f - 1.0f;  // up is +
+    draw_stroke(w, s_draw_started ? s_draw_x : nx, s_draw_started ? s_draw_y : wy, nx, wy);
+    s_draw_started = true;
+    s_draw_x = nx;
+    s_draw_y = wy;
+    if (s_app.frame % 3 == 0) upload_wave(s_app.part);  // a few times a second is plenty
+}
+
 static void touch_begin(int x, int y) {
     int tab = ui_hit_tab(x, y);
     if (tab >= 0) {
@@ -1853,6 +2189,7 @@ static void touch_begin(int x, int y) {
         }
         return;
     }
+    if (s_app.page == PAGE_SYNTH && edit_touch(x, y)) return;
     if (s_app.page == PAGE_SYNTH && s_app.sound == sound_mic_index() && ui_hit_synth_rec(x, y)) {
         if (s_app.mic_ok) {
             release_all();
@@ -1886,6 +2223,14 @@ static void touch_begin(int x, int y) {
             if (sound_get(s_app.sound)->kind == SOUND_BANK) {
                 s_touch = TOUCH_BANK;
                 s_paint_step = -1;
+            } else if (s_app.sound == sound_draw_index() && ui_hit_draw_shape(x, y) >= 0) {
+                draw_preset(&s_app.parts[s_app.part].wave, ui_hit_draw_shape(x, y));
+                upload_wave(s_app.part);
+                s_touch = TOUCH_IGNORE;
+            } else if (s_app.sound == sound_draw_index()) {
+                s_draw_started = false;
+                s_touch = TOUCH_DRAW;
+                draw_touch(x, y);
             } else {
                 s_touch = TOUCH_SYNTH_PAD;
             }
@@ -2028,6 +2373,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         s_app.song_hold = -1;
         s_app.song_hold_t = 0.0f;
         s_app.pad_touch = false;
+        s_app.edit_grab = -1;
         source_release(SOURCE_TOUCH);
         s_app.active_slider = -1;
         s_touch = TOUCH_NONE;
@@ -2068,6 +2414,13 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             set_macro(1, ny);
             break;
         }
+        case TOUCH_EDIT_ENV:
+            ui_env_drag(s_app.edit_grab, tp.px, tp.py, s_edit_tmp);
+            edit_env_from(s_edit_tmp);
+            break;
+        case TOUCH_EDIT_PAD: edit_pad(tp.px, tp.py); break;
+        case TOUCH_EDIT_SLIDER: edit_slider_move(tp.px); break;
+        case TOUCH_DRAW: draw_touch(tp.px, tp.py); break;
         case TOUCH_BANK: {
             // Slide across the dots to audition patches.
             int cell = ui_hit_bank_cell(tp.px, tp.py);
@@ -2171,6 +2524,9 @@ static void handle_touch(u32 down, u32 held, u32 up) {
     }
 }
 
+#ifdef VM_STORY
+static int s_story_cpad_x;  // the script's circle pad (x), for bends
+#endif
 static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
     s_app.mode = (held & KEY_L) ? PLAY_CHORD : (held & KEY_R) ? PLAY_DRUM : PLAY_NOTE;
 
@@ -2179,13 +2535,40 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
         if (up & kKeyButtons[k]) source_release(k);
     }
 
-    // Circle pad left/right: next patch inside a bank, otherwise next sound.
-    bool bank = sound_get(s_app.sound)->kind == SOUND_BANK;
-    if (repeat & KEY_CPAD_RIGHT) bank ? change_patch(s_app.patch + 1) : select_sound(s_app.sound + 1);
-    if (repeat & KEY_CPAD_LEFT) bank ? change_patch(s_app.patch - 1) : select_sound(s_app.sound - 1);
-    if ((down & KEY_CPAD_UP) && s_app.octave < MUSIC_OCTAVE_MAX) s_app.octave++;
-    if ((down & KEY_CPAD_DOWN) && s_app.octave > MUSIC_OCTAVE_MIN) s_app.octave--;
-    if (down & KEY_SELECT) select_sound(s_app.sound + 1);
+    // SELECT held: the circle pad bends the pitch (springs back when you
+    // let go). SELECT tapped without bending: next sound.
+    static bool s_bent;
+    if (held & KEY_SELECT) {
+        circlePosition c;
+        hidCircleRead(&c);
+#ifdef VM_STORY
+        c.dx = (s16)s_story_cpad_x;
+#endif
+        float b = c.dx / 150.0f;
+        b = b < -1.0f ? -1.0f : b > 1.0f ? 1.0f : b;
+        if (fabsf(b) < 0.08f) b = 0.0f;  // a dead zone, so a resting pad doesn't detune
+        if (b != 0.0f) s_bent = true;
+        if (fabsf(b - s_app.bend) > 0.01f || (b == 0.0f && s_app.bend != 0.0f)) {
+            s_app.bend = b;
+            engine_pitch_bend(b * 2.0f);  // +-2 semitones
+        }
+    } else if (s_app.bend != 0.0f) {
+        s_app.bend = 0.0f;
+        engine_pitch_bend(0.0f);
+    }
+    if (up & KEY_SELECT) {
+        if (!s_bent) select_sound(s_app.sound + 1);
+        s_bent = false;
+    }
+    // Circle pad left/right: next patch inside a bank, otherwise next sound;
+    // up/down: octave. (Not while SELECT is held: then it's bending.)
+    if (!(held & KEY_SELECT)) {
+        const bool bank = sound_get(s_app.sound)->kind == SOUND_BANK;
+        if (repeat & KEY_CPAD_RIGHT) bank ? change_patch(s_app.patch + 1) : select_sound(s_app.sound + 1);
+        if (repeat & KEY_CPAD_LEFT) bank ? change_patch(s_app.patch - 1) : select_sound(s_app.sound - 1);
+        if ((down & KEY_CPAD_UP) && s_app.octave < MUSIC_OCTAVE_MAX) s_app.octave++;
+        if ((down & KEY_CPAD_DOWN) && s_app.octave > MUSIC_OCTAVE_MIN) s_app.octave--;
+    }
 
     // START: tap to play/stop; holding it quits (checked in the main loop).
     if (down & KEY_START) s_start_down = s_app.frame;
@@ -2221,7 +2604,7 @@ static void update_lit_keys(void) {
 // and holds that go through the real touch handlers (so it's an end-to-end
 // test of the UI as well as the demo video). Captions say what's happening.
 
-typedef enum { S_CAP, S_WAIT, S_WAITSEC, S_TAP, S_HOLD, S_DRAG, S_ROLL, S_CALL, S_KEYS } StoryKind;
+typedef enum { S_CAP, S_WAIT, S_WAITSEC, S_TAP, S_HOLD, S_DRAG, S_ROLL, S_CALL, S_KEYS, S_DRAGH } StoryKind;
 typedef struct {
     StoryKind k;
     int a, b, c, d, n;  // TAP/HOLD: x y; DRAG: x y x2 y2 frames; ROLL: step pitch len
@@ -2239,6 +2622,9 @@ typedef struct {
 #define ROLL(step, pitch, len) {S_ROLL, step, pitch, len, 0, 0, NULL, NULL}
 #define CALL(f) {S_CALL, 0, 0, 0, 0, 0, NULL, f}
 #define KEYS(mask) {S_KEYS, (int)(mask), 0, 0, 0, 0, NULL, NULL}  // buttons held from now on
+#define PRESS(mask, f) KEYS(mask), WAIT(f), KEYS(0), WAIT(5)          // a button tapped, held f frames
+#define DRAGH(h, x2, y2, f) {S_DRAGH, h, 0, x2, y2, f, NULL, NULL}   // an EDIT envelope handle, dragged
+#define ROLLTAP(step, pitch) {S_ROLL, step, pitch, 0, 0, 0, NULL, NULL}  // a tap on a roll note
 
 // Where things are (the middles of the stickers the hit tests answer for).
 #define TABX(p) (TAB_X0 + (p) * TAB_PITCH + TAB_W / 2)
@@ -2329,9 +2715,325 @@ static void rec_start(void) {}
 static void rec_stop(void) {}
 #endif
 
+#ifndef VM_TOUR
 static void story_scroll_bass(void) { s_app.roll_scroll = music_roll_row(36, false); }    // C2 at the bottom
 static void story_scroll_chords(void) { s_app.roll_scroll = music_roll_row(57, false); }  // A3 at the bottom
+#endif
 
+#ifdef VM_TOUR
+// --- the feature tour (make STORY=1 TOUR=1): every feature, one at a time ---
+
+#define EDITX (SYN_TILE_X0 + SYN_EDIT_W / 2)
+#define EDITY (SYN_EDIT_Y + SYN_TILE_H / 2)
+#define ETABX(i) (ED_TAB_X0 + (i) * ED_TAB_PITCH + ED_TAB_W / 2)
+#define ETABY (ED_TAB_Y + ED_TAB_H / 2)
+#define EPADX(f) ((int)(ED_BODY_X + 6 + (f) * (ED_BODY_W - 12)))
+#define EPADY(f) ((int)(ED_BODY_Y + 6 + (1.0f - (f)) * (ED_PAD_H - 12)))
+#define ELOWY (ED_LOW_Y + ED_ROW_H / 2)
+#define EROWY(r) (ED_ROW_Y0 + (r) * ED_ROW_PITCH + ED_ROW_H / 2)
+#define ESLX(f) ((int)(ED_SLIDER_X + 3 + (f) * (ED_SLIDER_W - 6)))
+#define EFULLX(f) ((int)(ED_BODY_X + 3 + (f) * (ED_BODY_W - 6)))
+#define ECHIPX (ED_BODY_X + 20)
+#define EUNIX(u) (ED_BODY_X + ((u) - 1) * (ED_CHIP_W + 3) + ED_CHIP_W / 2)
+#define EABX(b) (ED_BODY_X + (b) * 37 + 17)
+#define ETGTX(i) (ED_BODY_X + (i) * 48 + 23)
+#define PADX(f) ((int)(SYN_PAD_X + 8 + (f) * (SYN_PAD_W - 16)))
+#define PADY(f) ((int)(SYN_PAD_Y + 20 + (1.0f - (f)) * (SYN_PAD_H - 28)))
+#define DOTX(c) (BANK_X0 + (c) * BANK_CELL_W + BANK_CELL_W / 2)
+#define DOTY(r) (BANK_Y0 + (r) * BANK_CELL_H + BANK_CELL_H / 2)
+#define SHAPEX(i) (DRAW_CHIP_X + (i) * DRAW_CHIP_PITCH + DRAW_CHIP_W / 2)
+#define SHAPEY (DRAW_CHIP_Y + DRAW_CHIP_H / 2)
+#define ACCY (SEQ_ACC_Y + SEQ_ACC_H / 2)
+#define BARX (SEQ_BAR_X + SEQ_BAR_W / 2)
+#define SWINGX(f) ((int)(SEQ_SWING_X + 3 + (f) * (SEQ_SWING_W - 6)))
+#define CHOPX (SMP_CHOP_X + SMP_CHOP_W / 2)
+#define CHOPY (SYN_DICE_Y + SYN_DICE_W / 2)
+#define GRIPY (SMP_WAVE_Y + SMP_WAVE_H + SMP_GRIP_H / 2)
+#define GRIPX(f) ((int)(SMP_WAVE_X + (f) * SMP_WAVE_W))
+#define FXPX(f) ((int)(FX_PAD_X + 10 + (f) * (FX_PAD_W - 20)))
+#define FXPY(f) ((int)(FX_PAD_Y + 10 + (1.0f - (f)) * (FX_PAD_H - 30)))
+#define TBTNY (TAPE_BTN_Y + TAPE_BTN_H / 2)
+#define TWINY (TAPE_WIN_Y + TAPE_WIN_H / 2)
+#define SONGBTNY(i) (SONG_BTN_Y0 + (i) * SONG_BTN_PITCH + SONG_BTN_H / 2)
+#define SONGBTNX (SONG_BTN_X + SONG_BTN_W / 2)
+enum { T_JUNO, T_DX7, T_PLUCK, T_SQUELCH, T_BELL, T_BREEZE, T_SAW, T_FOLD, T_WAVY, T_MIC, T_DRAW, T_PRESET };
+
+static void tour_setup(void) {
+    story_blank();
+    seq_set_bpm(112);
+    s_story_name = "TOUR SONG";
+    song_delete(SONGS_ROOT, "TOUR SONG");
+    char path[160];  // a preset from an earlier run would make SAVE AS ask to replace it
+    sample_path(PRESETS_ROOT, "WIDE WAVY" PRESET_EXT, path, sizeof(path));
+    remove(path);
+}
+static void tour_name_preset(void) { s_story_name = "WIDE WAVY"; }
+static void tour_name_song(void) { s_story_name = "TOUR SONG"; }
+static void tour_bass_rows(void) { s_app.roll_scroll = music_roll_row(41, false); }   // F2 at the bottom
+static void tour_chord_rows(void) { s_app.roll_scroll = music_roll_row(53, false); }  // F3 at the bottom
+static void bend_0(void) { s_story_cpad_x = 0; }
+static void bend_up(void) { s_story_cpad_x = 150; }
+static void bend_half(void) { s_story_cpad_x = 75; }
+static void bend_down(void) { s_story_cpad_x = -150; }
+
+static const StoryEv kStory[] = {
+    CAP(0, "VIBE MACHINE: EVERY FEATURE, ONE BY ONE"),
+    CALL(tour_setup),
+    CALL(rec_start),
+    WAIT(120),
+
+    CAP(1, "PLAY: D-PAD AND Y B A X ARE THE KEYS"),
+    PRESS(KEY_DLEFT, 12), PRESS(KEY_DDOWN, 12), PRESS(KEY_DRIGHT, 12), PRESS(KEY_DUP, 12),
+    PRESS(KEY_Y, 12), PRESS(KEY_B, 12), PRESS(KEY_A, 12), PRESS(KEY_X, 30),
+    CAP(2, "HOLD L: EVERY KEY PLAYS A CHORD"),
+    PRESS(KEY_L | KEY_DLEFT, 40), PRESS(KEY_L | KEY_DUP, 40), PRESS(KEY_L | KEY_Y, 40), PRESS(KEY_L | KEY_B, 50),
+    CAP(3, "HOLD R: THE KEYS ARE DRUMS"),
+    PRESS(KEY_R | KEY_DLEFT, 8), PRESS(KEY_R | KEY_DRIGHT, 8), PRESS(KEY_R | KEY_DDOWN, 8), PRESS(KEY_R | KEY_DLEFT, 8),
+    PRESS(KEY_R | KEY_DLEFT, 8), PRESS(KEY_R | KEY_DRIGHT, 8), PRESS(KEY_R | KEY_DDOWN, 8), PRESS(KEY_R | KEY_A, 12),
+
+    CAP(4, "SOUND PAGE: THE SONG'S KEY (A MINOR)"),
+    TAP(ROOTX(0), KEYROWY), TAP(ROOTX(0), KEYROWY), TAP(ROOTX(0), KEYROWY),
+    TAP(SCALEX(1), KEYROWY),
+    PRESS(KEY_DLEFT, 10), PRESS(KEY_DRIGHT, 10), PRESS(KEY_Y, 10), PRESS(KEY_X, 20),
+
+    CAP(5, "THE ARPEGGIATOR: HOLD A CHORD"),
+    TAP(ARPX(0), ARPROWY),
+    KEYS(KEY_L | KEY_DLEFT), WAITSEC(2), KEYS(0),
+    TAP(ARPX(1), ARPROWY), TAP(ARPX(3), ARPROWY),
+    KEYS(KEY_L | KEY_Y), WAITSEC(2), KEYS(0),
+    TAP(ARPX(1), ARPROWY), TAP(ARPX(1), ARPROWY), TAP(ARPX(1), ARPROWY), TAP(ARPX(3), ARPROWY),
+    TAP(ARPX(0), ARPROWY),
+
+    CAP(6, "NINE COLOUR THEMES"),
+    TAP(THEME_X + THEME_W / 2, THEME_Y + THEME_H / 2), WAIT(30),
+    TAP(THEME_X + THEME_W / 2, THEME_Y + THEME_H / 2), WAIT(30),
+
+    CAP(7, "STEP SEQUENCER: TAP IN A BEAT"),
+    TAP(TABX(PAGE_SEQ), TABY),
+    TAP(GX(0), DY(0)), TAP(GX(6), DY(0)), TAP(GX(8), DY(0)), TAP(GX(11), DY(0)),
+    TAP(GX(4), DY(1)), TAP(GX(12), DY(1)),
+    DRAG(GX(0), DY(2), GX(15), DY(2), 60),
+    TAP(PLAYX, TABY),
+    WAIT(90),
+    CAP(8, "ACCENTS HIT HARDER; SWING SHUFFLES"),
+    TAP(GX(0), ACCY), TAP(GX(8), ACCY), TAP(GX(14), ACCY),
+    DRAG(SWINGX(0.0f), SLY, SWINGX(0.45f), SLY, 30),
+    WAIT(120),
+    CAP(9, "HOLD BAR: PATTERNS OF 1, 2 OR 4 BARS"),
+    HOLD(BARX, SLY, 40),
+    TAP(BARX, SLY),  // bar 2 on screen: vary it
+    TAP(GX(14), DY(1)), TAP(GX(15), DY(1)), TAP(GX(13), DY(3)),
+    WAIT(90),
+    TAP(BARX, SLY),
+
+    CAP(10, "SYNTH: ELEVEN SOUNDS, A MASCOT EACH"),
+    TAP(TABX(PAGE_SYNTH), TABY),
+    TAP(TILEX(T_PLUCK), TILEY(T_PLUCK)), PRESS(KEY_DLEFT, 8), PRESS(KEY_DRIGHT, 8), PRESS(KEY_Y, 14),
+    TAP(TILEX(T_BELL), TILEY(T_BELL)), PRESS(KEY_DLEFT, 14), PRESS(KEY_A, 14),
+    TAP(TILEX(T_BREEZE), TILEY(T_BREEZE)), PRESS(KEY_DUP, 40),
+    TAP(TILEX(T_FOLD), TILEY(T_FOLD)), PRESS(KEY_DLEFT, 14), PRESS(KEY_DRIGHT, 14),
+    TAP(TILEX(T_WAVY), TILEY(T_WAVY)), PRESS(KEY_Y, 30),
+    CAP(11, "DRAG THE CREATURE: ITS TWO MACROS"),
+    TAP(TILEX(T_SAW), TILEY(T_SAW)),
+    KEYS(KEY_L | KEY_DLEFT),
+    DRAG(PADX(0.2f), PADY(0.3f), PADX(0.9f), PADY(0.8f), 60),
+    DRAG(PADX(0.9f), PADY(0.8f), PADX(0.4f), PADY(0.2f), 50),
+    KEYS(0),
+    CAP(12, "JUNO AND DX7: SLIDE ACROSS 128 PATCHES"),
+    TAP(TILEX(T_JUNO), TILEY(T_JUNO)),
+    KEYS(KEY_L | KEY_DLEFT),
+    DRAG(DOTX(0), DOTY(1), DOTX(9), DOTY(1), 70),
+    KEYS(0),
+    TAP(TILEX(T_DX7), TILEY(T_DX7)),
+    PRESS(KEY_DLEFT, 14), PRESS(KEY_DRIGHT, 14),
+    DRAG(DOTX(2), DOTY(3), DOTX(7), DOTY(3), 50),
+    PRESS(KEY_DLEFT, 14), PRESS(KEY_Y, 20),
+
+    CAP(13, "EDIT: DRAW THE ENVELOPE (ON WAVY)"),
+    TAP(TILEX(T_WAVY), TILEY(T_WAVY)),
+    TAP(EDITX, EDITY),
+    PRESS(KEY_L | KEY_DLEFT, 40),
+    DRAGH(0, ED_ENV_X + 50, ED_ENV_Y, 25),                                // slow attack
+    PRESS(KEY_L | KEY_DLEFT, 50),
+    DRAGH(1, ED_ENV_X + ED_ENV_W * 52 / 100, ED_ENV_Y + ED_ENV_H * 7 / 10, 25),  // lower sustain
+    DRAGH(2, ED_ENV_X + ED_ENV_W - 6, ED_ENV_Y + ED_ENV_H, 25),            // long release
+    PRESS(KEY_L | KEY_DUP, 40), WAIT(60),
+    DRAGH(0, ED_ENV_X + 4, ED_ENV_Y, 20),                                 // snappy again
+    CAP(14, "FILTER: CUTOFF x RESONANCE, ENV AMOUNT"),
+    TAP(ETABX(EDP_FILTER), ETABY),
+    KEYS(KEY_L | KEY_DLEFT),
+    DRAG(EPADX(0.75f), EPADY(0.1f), EPADX(0.25f), EPADY(0.75f), 60),
+    DRAG(EPADX(0.25f), EPADY(0.75f), EPADX(0.6f), EPADY(0.5f), 40),
+    KEYS(0),
+    DRAG(EFULLX(0.5f), ELOWY, EFULLX(0.85f), ELOWY, 25),
+    PRESS(KEY_L | KEY_DDOWN, 30), PRESS(KEY_L | KEY_DLEFT, 30),
+    CAP(15, "LFO: SPEED x DEPTH, FOUR TARGETS"),
+    TAP(ETABX(EDP_LFO), ETABY),
+    TAP(ETGTX(LFO_FILTER), ELOWY),
+    KEYS(KEY_L | KEY_DLEFT),
+    DRAG(EPADX(0.2f), EPADY(0.2f), EPADX(0.45f), EPADY(0.7f), 50),
+    WAIT(30),
+    TAP(ETGTX(LFO_PAN), ELOWY), WAIT(50),
+    TAP(ETGTX(LFO_PITCH), ELOWY),
+    DRAG(EPADX(0.45f), EPADY(0.7f), EPADX(0.6f), EPADY(0.25f), 30),
+    WAIT(40),
+    KEYS(0),
+    DRAG(EPADX(0.6f), EPADY(0.25f), EPADX(0.6f), EPADY(0.0f), 15),  // depth off
+    CAP(16, "UNISON x3: FATTER, ON FEWER VOICES"),
+    TAP(ETABX(EDP_VOICE), ETABY),
+    TAP(EUNIX(3), EROWY(1)),
+    KEYS(KEY_DLEFT),
+    DRAG(ESLX(0.1f), EROWY(1), ESLX(0.7f), EROWY(1), 50),
+    KEYS(0),
+    CAP(17, "MUTATE: NUDGE EVERYTHING A LITTLE"),
+    TAP(ECHIPX, EROWY(3)), PRESS(KEY_L | KEY_DLEFT, 30),
+    TAP(ECHIPX, EROWY(3)), PRESS(KEY_L | KEY_DLEFT, 30),
+    CAP(18, "STORE A AND B, THEN MORPH BETWEEN"),
+    TAP(EABX(0), EROWY(4)),
+    TAP(ECHIPX, EROWY(3)), TAP(ECHIPX, EROWY(3)), TAP(ECHIPX, EROWY(3)),
+    TAP(EABX(1), EROWY(4)),
+    KEYS(KEY_L | KEY_DLEFT),
+    DRAG(ESLX(1.0f), EROWY(4), ESLX(0.0f), EROWY(4), 50),
+    DRAG(ESLX(0.0f), EROWY(4), ESLX(0.6f), EROWY(4), 40),
+    KEYS(0),
+    CAP(19, "PRESETS: SAVE THE SOUND YOU MADE"),
+    CALL(tour_name_preset),
+    TAP(TILEX(T_PRESET), TILEY(T_PRESET)),
+    TAP(SONGBTNX, SONGBTNY(0)),  // SAVE AS
+    WAIT(60),
+    TAP(SONGBTNX, SONGBTNY(4)),  // BACK
+    CALL(tour_name_song),
+    CAP(20, "DX7 BRIGHT: HOW HARD THE FM HITS"),
+    TAP(TILEX(T_DX7), TILEY(T_DX7)),
+    TAP(ETABX(EDP_VOICE), ETABY),
+    PRESS(KEY_DLEFT, 20),
+    DRAG(EFULLX(0.5f), EROWY(2), EFULLX(0.05f), EROWY(2), 20),
+    PRESS(KEY_DLEFT, 20), PRESS(KEY_DRIGHT, 20),
+    DRAG(EFULLX(0.05f), EROWY(2), EFULLX(0.95f), EROWY(2), 30),
+    PRESS(KEY_DLEFT, 20), PRESS(KEY_DRIGHT, 20),
+    TAP(EDITX, EDITY),
+
+    CAP(21, "DRAW: A WAVE YOU DRAW YOURSELF"),
+    TAP(TILEX(T_DRAW), TILEY(T_DRAW)),
+    TAP(SHAPEX(0), SHAPEY), PRESS(KEY_DLEFT, 20),
+    TAP(SHAPEX(2), SHAPEY), PRESS(KEY_DLEFT, 20),
+    KEYS(KEY_L | KEY_DLEFT),
+    DRAG(PADX(0.0f), PADY(0.5f), PADX(0.2f), PADY(0.95f), 15),
+    DRAG(PADX(0.2f), PADY(0.95f), PADX(0.45f), PADY(0.2f), 15),
+    DRAG(PADX(0.45f), PADY(0.2f), PADX(0.6f), PADY(0.75f), 15),
+    DRAG(PADX(0.6f), PADY(0.75f), PADX(0.8f), PADY(0.05f), 15),
+    DRAG(PADX(0.8f), PADY(0.05f), PADX(1.0f), PADY(0.5f), 15),
+    WAIT(20),
+    KEYS(0),
+    CAP(22, "PITCH BEND: SELECT + CIRCLE PAD"),
+    KEYS(KEY_DLEFT), WAIT(20),
+    CALL(bend_half), KEYS(KEY_DLEFT | KEY_SELECT), WAIT(12),
+    CALL(bend_up), WAIT(25), CALL(bend_0), WAIT(15), CALL(bend_down), WAIT(25), CALL(bend_up), WAIT(25),
+    CALL(bend_0), KEYS(KEY_DLEFT), WAIT(10), KEYS(0), WAIT(20),
+
+    CAP(23, "ACID BASS: SQUELCH, MONO + GLIDE"),
+    TAP(TILEX(T_SQUELCH), TILEY(T_SQUELCH)),
+    TAP(EDITX, EDITY),
+    TAP(ETABX(EDP_VOICE), ETABY),
+    TAP(ECHIPX, EROWY(0)),  // MONO
+    DRAG(ESLX(0.0f), EROWY(0), ESLX(0.45f), EROWY(0), 25),  // GLIDE
+    PRESS(KEY_DLEFT, 14), PRESS(KEY_X, 14), PRESS(KEY_DLEFT, 14), PRESS(KEY_Y, 14),
+    TAP(EDITX, EDITY),
+    CAP(24, "PIANO ROLL: NOTES OF ANY LENGTH"),
+    TAP(TABX(PAGE_SEQ), TABY),
+    TAP(ROLLX, SLY),
+    CALL(tour_bass_rows),
+    ROLL(0, 45, 2), ROLL(2, 57, 1), ROLL(3, 45, 1), ROLL(4, 48, 2), ROLL(6, 50, 1), ROLL(7, 52, 1),
+    ROLL(8, 45, 2), ROLL(10, 55, 2), ROLL(12, 43, 2), ROLL(14, 45, 2),
+    WAIT(60),
+    CAP(25, "HOLD R + TAP A NOTE: IT SLIDES"),
+    KEYS(KEY_R),
+    ROLLTAP(3, 45), ROLLTAP(6, 50), ROLLTAP(10, 55),
+    KEYS(0),
+    WAITSEC(4),
+    CAP(26, "PART 2: CHORDS ON THE ROLL"),
+    TAP(PICKX(1), PICKY),
+    CALL(tour_chord_rows),
+    ROLL(0, 57, 8), ROLL(0, 60, 8), ROLL(0, 64, 8),
+    ROLL(8, 55, 8), ROLL(8, 59, 8), ROLL(8, 62, 8),
+    WAITSEC(3),
+
+    CAP(27, "MIC SAMPLER: START, END, CHOP"),
+    TAP(PICKX(2), PICKY),
+    TAP(TABX(PAGE_SYNTH), TABY),
+    TAP(TILEX(T_MIC), TILEY(T_MIC)),
+    PRESS(KEY_DLEFT, 20), PRESS(KEY_DUP, 20),
+    DRAG(GRIPX(0.0f), GRIPY, GRIPX(0.15f), GRIPY, 20),
+    TAP(CHOPX, CHOPY),
+    PRESS(KEY_DLEFT, 10), PRESS(KEY_DDOWN, 10), PRESS(KEY_DRIGHT, 10), PRESS(KEY_DUP, 10),
+
+    CAP(28, "FX: CRUSH"),
+    TAP(TABX(PAGE_FX), TABY),
+    TAP(FXSX, FXSY(FX_CRUSH)),
+    DRAG(FXPX(0.2f), FXPY(0.2f), FXPX(0.9f), FXPY(0.8f), 60),
+    CAP(29, "FX: SWEEP"),
+    TAP(FXSX, FXSY(FX_SWEEP)),
+    DRAG(FXPX(0.1f), FXPY(0.6f), FXPX(0.9f), FXPY(0.6f), 70),
+    CAP(30, "FX: STUTTER"),
+    TAP(FXSX, FXSY(FX_STUTTER)),
+    DRAG(FXPX(0.3f), FXPY(0.3f), FXPX(0.7f), FXPY(0.7f), 60),
+    CAP(31, "FX: TAPE STOP"),
+    TAP(FXSX, FXSY(FX_TAPE)),
+    HOLD(FXPX(0.5f), FXPY(0.5f), 60),
+    WAIT(30),
+
+    CAP(32, "MIX: DRIVE, CRUSH, TONE, PAN, MUTE, SOLO"),
+    TAP(TABX(PAGE_MIX), TABY),
+    DRAG(KNOBX(0, MIX_DRIVE), KNOBY(MIX_DRIVE), KNOBX(0, MIX_DRIVE), KNOBY(MIX_DRIVE) - 40, 30),
+    DRAG(KNOBX(MIX_DRUMS, MIX_CRUSH), KNOBY(MIX_CRUSH), KNOBX(MIX_DRUMS, MIX_CRUSH), KNOBY(MIX_CRUSH) - 25, 30),
+    DRAG(KNOBX(1, MIX_PAN), KNOBY(MIX_PAN), KNOBX(1, MIX_PAN), KNOBY(MIX_PAN) + 16, 25),
+    DRAG(FADERX(2), CAPY(0.75f), FADERX(2), CAPY(0.55f), 25),
+    CAP(33, "ECHO AND VERB SENDS ON EVERY PART"),
+    DRAG(KNOBX(MIX_DRUMS, MIX_ECHO), KNOBY(MIX_ECHO), KNOBX(MIX_DRUMS, MIX_ECHO), KNOBY(MIX_ECHO) + 40, 30),
+    DRAG(KNOBX(MIX_DRUMS, MIX_VERB), KNOBY(MIX_VERB), KNOBX(MIX_DRUMS, MIX_VERB), KNOBY(MIX_VERB) + 40, 30),
+    WAIT(60),
+
+    CAP(34, "TAPE: RECORD THE JAM, THEN SCRATCH IT"),
+    TAP(TABX(PAGE_TAPE), TABY),
+    TAP(TAPE_REC_X + TAPE_BTN_W / 2, TBTNY),
+    TAP(TAPE_PLAY_X + TAPE_BTN_W / 2, TBTNY),
+    WAITSEC(5),
+    TAP(TAPE_PLAY_X + TAPE_BTN_W / 2, TBTNY),
+    TAP(TAPE_REC_X + TAPE_BTN_W / 2, TBTNY),
+    TAP(TAPE_REW_X + TAPE_BTN_W / 2, TBTNY),
+    TAP(TAPE_PLAY_X + TAPE_BTN_W / 2, TBTNY),
+    WAITSEC(2),
+    DRAG(TAPE_WIN_X + 160, TWINY, TAPE_WIN_X + 60, TWINY, 20),
+    DRAG(TAPE_WIN_X + 60, TWINY, TAPE_WIN_X + 150, TWINY, 20),
+    DRAG(TAPE_WIN_X + 150, TWINY, TAPE_WIN_X + 70, TWINY, 20),
+    WAITSEC(2),
+    TAP(TAPE_PLAY_X + TAPE_BTN_W / 2, TBTNY),
+
+    CAP(35, "HOLD SONG: ARRANGE THE PATTERNS"),
+    TAP(TABX(PAGE_SEQ), TABY),
+    TAP(ROLLX, SLY),
+    HOLD(SONGX, SLY, 40),
+    TAP(CELLX(0), CELLY(0)), TAP(SLX(0), SLY), TAP(CELLX(0), CELLY(0)), TAP(CHIPX(0), CHIPY), TAP(CHIPX(1), CHIPY),
+    TAP(CELLX(1), CELLY(1)), TAP(SLX(0), SLY), TAP(CELLX(1), CELLY(1)), TAP(CELLX(1), CELLY(1)),
+    WAIT(120),
+
+    CAP(36, "SAVE IT, THEN MIX IT DOWN TO A WAV"),
+    TAP(TABX(PAGE_SOUND), TABY),
+    TAP(SONGS_BTN_X + SONGS_BTN_W / 2, SONGS_BTN_Y + SONGS_BTN_H / 2),
+    TAP(SONGBTNX, SONGBTNY(0)),
+    WAIT(150),
+    TAP(TABX(PAGE_MIX), TABY),
+    TAP(MIXDOWN_X + MIXDOWN_W / 2, TABY),
+    WAITSEC(4),
+    TAP(TABX(PAGE_SEQ), TABY),
+    WAITSEC(10),
+
+    CAP(0, "THAT'S VIBE MACHINE. HAVE FUN!"),
+    WAIT(200),
+    CALL(rec_stop),
+    WAIT(100000),
+};
+#else
 static const StoryEv kStory[] = {
     CAP(0, "VIBE MACHINE: FROM NOTHING TO A FINISHED SONG"),
     CALL(story_blank),
@@ -2444,6 +3146,7 @@ static const StoryEv kStory[] = {
     CALL(rec_stop),
     WAIT(100000),
 };
+#endif
 
 #define STORY_MOVE 14  // frames the stylus takes to get somewhere
 #define STORY_GAP 10   // frames between gestures
@@ -2503,6 +3206,23 @@ static void story_touch(u32 *down, u32 *held, u32 *up, touchPosition *tp) {
         if (e->k == S_DRAG) {
             x2 = e->c;
             y2 = e->d;
+        } else if (e->k == S_DRAGH) {  // from wherever that handle is now
+            static int hx0, hy0;
+            if (s_story_t == 0) {
+                float hx[3], hy[3];
+                ui_env_handles(part_edit()->cur.p, hx, hy);
+                hx0 = (int)hx[e->a];
+                hy0 = (int)hy[e->a];
+            }
+            x = hx0;
+            y = hy0;
+            x2 = e->c;
+            y2 = e->d;
+        } else if (e->k == S_ROLL && e->c == 0) {  // just a tap on the note there
+            const int row = music_roll_row(e->b, s_app.roll_chromatic) - s_app.roll_scroll;
+            x = x2 = ROLL_X0 + e->a * ROLL_CELL_W + ROLL_CELL_W / 2;
+            y = y2 = ROLL_Y0 + (ROLL_ROWS - 1 - row) * ROLL_ROW_H + ROLL_ROW_H / 2;
+            press = 5;
         } else if (e->k == S_ROLL) {  // a note on the piano roll, stretched to its length
             const int row = music_roll_row(e->b, s_app.roll_chromatic) - s_app.roll_scroll;
             x = ROLL_X0 + e->a * ROLL_CELL_W + ROLL_CELL_W / 2;

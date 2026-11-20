@@ -2,8 +2,11 @@
 
 **A loud, 90s-Memphis pocket synth and groovebox for the Nintendo 3DS** (homebrew).
 
-Three instrument parts plus drums, eight original synth engines plus the
-Juno-6 and DX7 banks, a sampler (microphone, tape or WAV; trim it, chop it
+Three instrument parts plus drums, nine original synth engines (one of them
+a wave you draw with the stylus) plus the Juno-6 and DX7 banks, an EDIT
+layer that reaches inside any of them (a drawable envelope, filter, LFO,
+mono and glide, unison, DX7 brightness, A/B morphing, mutation) with
+presets to keep what you make, a sampler (microphone, tape or WAV; trim it, chop it
 into slices across the keys), a 16-step sequencer and piano
 roll with 8 pattern slots and song mode, a mixer with drive, crush, tone, pan and
 echo / reverb sends on every part, four performance effects you play with the stylus,
@@ -23,6 +26,10 @@ taps and drags through the real touchscreen code, and ends with the song
 mixed down to a WAV. The ten steps are written out in the
 [tutorial](docs/TUTORIAL.md#from-nothing-to-a-finished-song).
 
+**[▶ The feature tour](docs/media/feature-tour.mp4)**: every feature, one
+at a time, from the keys to the mixdown (also the app playing itself, with
+`make STORY=1 TOUR=1`).
+
 > **New here? Read the [tutorial](docs/TUTORIAL.md).** It walks through
 > every screen and has recipes for your first beat, your first tape track
 > and sampling your own voice.
@@ -33,7 +40,9 @@ mixed down to a WAV. The ten steps are written out in the
 |---|---|
 | ![SOUND page](docs/images/sound.png) | **SOUND**: tone, echo, reverb and volume; the song's **key** (any root, major, minor, modes, pentatonics, blues); the **arpeggiator** (up, down, up-down, random; 1/8 to 1/32; 1–2 octaves; records into patterns); nine colour themes, and the SONGS browser. |
 | ![SEQ page](docs/images/seq.png) | **SEQ**: a 16-step sequencer with a synth row, accents and eight drum lanes, plus a **piano roll** for melodies, chords and long notes. Eight pattern slots (A–H) of 1, 2 or 4 bars each, arranged into a song. Swing, live recording, and a dice that rolls new grooves. |
-| ![SYNTH creature pad](docs/images/synth-creature.png) | **SYNTH**: ten sounds, each with a googly-eyed mascot. Drag the mascot around the pad to play its two macros. |
+| ![SYNTH creature pad](docs/images/synth-creature.png) | **SYNTH**: eleven sounds, each with a googly-eyed mascot. Drag the mascot around the pad to play its two macros. **DRAW** lets you draw the wave itself. **EDIT** opens any sound up: draw its envelope, play its filter and LFO on XY pads, make it MONO with GLIDE, stack unison, brighten a DX7, MUTATE it, store A and B and MORPH between them. **PRESET** saves and loads your sounds. |
+| ![SYNTH EDIT, drawing the envelope](docs/images/synth-edit.png) | **EDIT**: drag the envelope's handles; FILT and LFO are XY pads (here the LFO's speed and depth, wobbling the filter); VOICE has MONO, GLIDE, UNISON, BRIGHT, MUTATE and A/B MORPH. |
+| ![SYNTH DRAW](docs/images/synth-draw.png) | **DRAW**: draw one cycle of a wave with the stylus and play it on the keys. It changes while the note sounds. |
 | ![SYNTH patch dots](docs/images/synth-bank.png) | The **Juno-6** and **DX7** banks: 128 patches each, as dots to tap or slide across. |
 | ![SONG sheet](docs/images/song-sheet.png) | **SONG sheet**: arrange patterns into a song: rows of slots, repeated ×1–8, with parts dropped out for intros and breakdowns, and an ending. |
 | ![MIX page](docs/images/mix.png) | **MIX**: a channel strip for each part and the drums: fader, LED meter, DRIVE, CRUSH, ECHO and VERB sends, TONE and PAN knobs, MUTE and SOLO. **MIXDOWN** records the finished song to a stereo WAV. |
@@ -64,7 +73,8 @@ mixed down to a WAV. The ten steps are written out in the
 | hold **L** / hold **R** | Chords / drums on those keys |
 | Circle pad ↑ ↓ | Octave (−3 to +3) |
 | Circle pad ← → | Next / previous patch in a bank, or sound |
-| **SELECT** | Next sound |
+| **SELECT** | Next sound. **Hold SELECT + circle pad ← →**: pitch bend |
+| hold **R** + tap a roll note | Slide into the next note (with MONO + GLIDE) |
 | **START** | Play / stop the sequencer. **Hold** to quit |
 | Touchscreen | Everything else: six tabs (sliders, steps, wave, faders, bolt, cassette) and the keys along the bottom |
 | 3D slider | The top-screen scene in real stereoscopic depth |
@@ -82,6 +92,8 @@ The [tutorial](docs/TUTORIAL.md) explains every page in detail.
   the whole song, stereo, at the 3DS's own 32.7 kHz, as you heard it.
 - **Samples** live in `sdmc:/3ds/vibe-machine/samples/`; copy your own WAVs
   in there too.
+- **Sounds** you save from SYNTH → PRESET go in
+  `sdmc:/3ds/vibe-machine/presets/` as small `.vmp` files.
 - The WAVs are ordinary files: copy them off the SD card into any audio
   editor.
 
@@ -97,26 +109,28 @@ cd vibe-machine
 make            # -> vibe-machine.3dsx
 make DEMO=1     # a silent attract mode that tours every page (for screenshots)
 make STORY=1    # plays the zero-to-song story by itself (an end-to-end UI test)
+make STORY=1 TOUR=1  # the feature tour instead
 ```
 
 The demo video is the story recording itself: `make STORY=1 RECORD=1`, run
 it in Azahar until `sdmc:/3ds/vibe-machine-story/record/done` appears, then
-`sh tools/make-video.sh <that folder> docs/media`. `tests/build/inspect_song`
+`sh tools/make-video.sh <that folder> docs/media` (the tour:
+`sh tools/make-video.sh <that folder> docs/media feature-tour`). `tests/build/inspect_song`
 prints what a saved song holds (`make -C tests build/inspect_song`).
 
 ### Tests
 
 The audio can't be listened to in CI, so it's measured instead.
 `make -C tests` builds the synth engine (AMY) natively on your computer and
-runs seven probes:
+runs eight probes:
 
 | Probe | Checks |
 |---|---|
-| sound | Every sound makes a note, at a matched level, and both of its macros audibly change it; chopped samples play the right slice on each key |
+| sound | Every sound makes a note, at a matched level, and both of its macros audibly change it; chopped samples play the right slice on each key; EDIT: an untouched edit changes nothing, CUTOFF darkens, a slow ATTACK swells, the LFO wobbles, MONO plays one note, UNISON still sounds on fewer voices, GLIDE slides, DRAW plays in tune and bends two semitones; every sound survives a full edit |
 | fx | Bypass is bit-exact; sweep darkens and brightens; crush quantises; stutter repeats at exactly the tempo-synced length; tape stops and recovers |
 | seq | 16ths land on time, to the sample; swing gaps are right; accents hit harder; a queued pattern switches on the bar line; song mode chains the right slots; piano-roll notes hold for their length (over the bar line too), chords sound together, live notes keep the length you held; muted parts and drums stay silent |
 | tape | Playback at pitch, an octave up at 2×, reverse, mute, wipe; a track set to one strip records just that strip |
-| logic | Save files, WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling |
+| logic | Save files, WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling, EDIT morph and mutate, drawn waves, presets |
 | songs | Song names, listing (sorted, hundreds of songs), save, load, overwrite, delete; the sample library's listing |
 | dual | AMY's oscillators split between two threads at a voice boundary render exactly (bit for bit) what one thread does |
 | mix | Each part reaches only its own strip; level, mute and pan are exact; DRIVE squares the wave off and CRUSH steps it while the level stays within a few dB; another strip's effects leave a part bit-for-bit alone; the master echo still reaches every part |
@@ -132,7 +146,8 @@ probe on each push ([workflow](.github/workflows/build.yml)). Pushing a
 | `source/main.c` | Frame loop; buttons and touch → notes, sequencer, tape, songs |
 | `source/engine.c` | Thread-safe wrapper around AMY; renders each block on both CPU cores (`amy_split.c`) |
 | `source/audio_out.c` | Audio thread: sequencer clock → AMY (parts → mixer → master) → FX → tape → DSP |
-| `source/sounds.c` | The synth engines: AMY patch strings + two macros each |
+| `source/sounds.c` | The synth engines: AMY patch strings + two macros each, and how EDIT reaches into each one |
+| `source/synthedit.c`, `drawwave.c`, `presets.c` | The EDIT layer (values, morph, mutate), DRAW waves, saved sounds |
 | `source/seq.c` | Sequencer: slots, song, swing, accents; clock runs on the audio thread |
 | `source/mixer.c` | MIX strips: one AMY bus per part, DRIVE / CRUSH / level / pan in AMY's bus hook, summed into a master bus |
 | `source/fx.c`, `tape.c` | Performance FX and the 4-track tape |

@@ -24,6 +24,10 @@ static SaveState make(int bpm, int filled, const char *name) {
     strcpy(st.name, name);
     sampler_edit_default(&st.sample_edit);
     st.arp = (SeqArp){false, ARP_UP, ARP_16TH, 1};
+    for (int k = 0; k < PARTS; k++) {  // as the app keeps them: a valid EDIT layer
+        st.parts[k].pe.cur.unison = st.parts[k].pe.snap[0].unison = st.parts[k].pe.snap[1].unison = 1;
+    }
+    st.has_edit = true;
     return st;
 }
 
