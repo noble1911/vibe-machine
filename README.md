@@ -9,7 +9,7 @@ animated graphics, built to fit the original 3DS.
 > the buttons and touchscreen, with chords, drums, four effect sliders, a
 > live waveform and a DSP load meter, a 16-step sequencer with live
 > recording, eight original synth engines (one plays your microphone) with an XY "creature pad", and
-> four performance FX. No tape recorder yet.
+> four performance FX, and a 4-track tape recorder.
 
 **The look:** loud 90s Memphis. Nine themes (Prism, Graph Paper,
 Midnight, Teal Pop, Lime Rave, Grape Soda, Leopard, Sunshine and Vapor
@@ -47,6 +47,11 @@ synthesis library (MIT) that also runs on the ESP32 and RP2040.
 | SEQ page: dice | Roll a fresh groove (weighted: kick on the one, snares on 2 and 4, synth in key) |
 | SYNTH page: dice | Roll the creature's macros, or a random patch in a bank |
 | SYNTH page, MIC sound: hold REC | Record up to 3 s from the 3DS microphone; then play it across the keys (C = original pitch). X picks the start point in the take, Y the tone |
+| TAPE page: tap a track / M / hold a track | Arm it for recording / mute it / wipe it |
+| TAPE page: ⏮ ▶ ● | Rewind, play, arm recording (records what you play, FX included, onto the armed track) |
+| TAPE page: drag the tape window | Scratch the tape like a record |
+| TAPE page: speed strip | −2× (reverse) to +2×, with detents at reverse, stop and normal |
+| TAPE page: SEQ LINK | Tape play/rewind also start the sequencer, so takes land on the beat |
 
 ## Running it
 
@@ -103,6 +108,7 @@ release.
 | `source/seq.c` | 16-step sequencer; its clock runs on the audio thread |
 | `source/sounds.c` | The synth engines: AMY patch strings + two macros each |
 | `source/fx.c` | Performance FX on the master output (audio thread) |
+| `source/tape.c` | 4-track tape (60 s, 22.05 kHz mono per track), varispeed / reverse / scrub |
 | `tests/` | Host probes: build AMY natively, check every sound and FX (`make -C tests`) |
 | `source/ui*.c` | Both screens (`ui_top.c`, `ui_bottom.c`), touch layout, text |
 | `source/shapes.c`, `motif.c`, `theme.c` | Memphis drawing primitives, motifs and the theme table |

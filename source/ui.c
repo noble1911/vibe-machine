@@ -3,6 +3,7 @@
 #include "ui.h"
 
 #include <stdarg.h>
+#include <math.h>
 #include <stdio.h>
 
 #include "sounds.h"
@@ -184,6 +185,30 @@ int ui_hit_fx_sticker(int x, int y) {
         if (in_box(x, y, FX_STICK_X - 2, FX_STICK_Y0 + i * FX_STICK_PITCH - 1, FX_STICK_W + 4, FX_STICK_H + 2)) return i;
     if (in_box(x, y, FX_STICK_X - 2, FX_HOLD_Y - 1, FX_STICK_W + 4, FX_HOLD_H + 4)) return FX_HIT_HOLD;
     return -1;
+}
+
+int ui_hit_tape(int x, int y) {
+    for (int t = 0; t < TAPE_TRACKS; t++) {
+        int ty = TAPE_TRK_Y0 + t * TAPE_TRK_PITCH;
+        if (in_box(x, y, TAPE_TRK_X + TAPE_TRK_W - TAPE_MUTE_W, ty - 1, TAPE_MUTE_W + 3, TAPE_TRK_H + 2))
+            return TAPE_HIT_MUTE + t;
+        if (in_box(x, y, TAPE_TRK_X - 2, ty - 1, TAPE_TRK_W - TAPE_MUTE_W + 2, TAPE_TRK_H + 2)) return TAPE_HIT_TRACK + t;
+    }
+    if (in_box(x, y, TAPE_TRK_X - 2, TAPE_LINK_Y - 1, TAPE_TRK_W + 4, TAPE_LINK_H + 4)) return TAPE_HIT_LINK;
+    if (in_box(x, y, TAPE_WIN_X, TAPE_WIN_Y, TAPE_WIN_W, TAPE_WIN_H)) return TAPE_HIT_WINDOW;
+    if (in_box(x, y, TAPE_REW_X - 2, TAPE_BTN_Y - 2, TAPE_BTN_W + 3, TAPE_BTN_H + 3)) return TAPE_HIT_REW;
+    if (in_box(x, y, TAPE_PLAY_X - 1, TAPE_BTN_Y - 2, TAPE_BTN_W + 2, TAPE_BTN_H + 3)) return TAPE_HIT_PLAY;
+    if (in_box(x, y, TAPE_REC_X - 1, TAPE_BTN_Y - 2, TAPE_BTN_W + 2, TAPE_BTN_H + 3)) return TAPE_HIT_REC;
+    if (in_box(x, y, TAPE_WIN_X, TAPE_SPEED_Y - 2, TAPE_WIN_W, TAPE_SPEED_H + 6)) return TAPE_HIT_SPEED;
+    return TAPE_HIT_NONE;
+}
+
+float ui_tape_speed_at(int x) {
+    float t = (float)(x - TAPE_WIN_X - 6) / (TAPE_WIN_W - 12);
+    float s = (t < 0 ? 0 : t > 1 ? 1 : t) * 4.0f - 2.0f;
+    for (int snap = -1; snap <= 1; snap++)  // detents at reverse, stop and normal
+        if (fabsf(s - snap) < 0.12f) s = (float)snap;
+    return s;
 }
 
 bool ui_in_fx_pad(int x, int y) { return in_box(x, y, FX_PAD_X, FX_PAD_Y, FX_PAD_W, FX_PAD_H); }

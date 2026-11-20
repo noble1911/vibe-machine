@@ -9,8 +9,9 @@
 #include "music.h"
 #include "seq.h"
 #include "sounds.h"
+#include "tape.h"
 
-typedef enum { PAGE_SOUND, PAGE_SEQ, PAGE_SYNTH, PAGE_FX, PAGE_COUNT } Page;
+typedef enum { PAGE_SOUND, PAGE_SEQ, PAGE_SYNTH, PAGE_FX, PAGE_TAPE, PAGE_COUNT } Page;
 
 typedef struct {
     int sound;                  // index into sounds.c
@@ -39,6 +40,12 @@ typedef struct {
     float mic_level;            // live input level, 0..1
     float mic_secs;             // length of the take so far / of the loaded take
     float take_overview[SAMPLER_OVERVIEW];  // waveform of the loaded take
+
+    // TAPE page
+    TapeStatus tape;            // read back from the tape each frame
+    bool tape_link;             // tape PLAY / REWIND also drive the sequencer
+    int tape_hold_track;        // track sticker being held (to clear), or -1
+    float tape_hold;            // 0..1 progress of that hold
 
     bool pad_touch;             // stylus is on the SYNTH or FX pad
     float pad_x, pad_y;         // where (0..1, y up)

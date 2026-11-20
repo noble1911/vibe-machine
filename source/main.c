@@ -20,6 +20,7 @@
 #include "sampler.h"
 #include "seq.h"
 #include "storage.h"
+#include "tape.h"
 #include "ui.h"
 
 #define QUIT_HOLD_FRAMES 60   // hold START this long to quit
@@ -59,7 +60,12 @@ typedef enum {
     TOUCH_BANK,
     TOUCH_FX_PAD,
     TOUCH_REC,
+    TOUCH_TAPE_SCRUB,
+    TOUCH_TAPE_SPEED,
+    TOUCH_TAPE_TRACK,
 } TouchMode;
+
+#define TAPE_WIPE_FRAMES 45  // hold a track sticker this long to wipe it
 
 static Held s_held[NUM_SOURCES];
 static AppState s_app;
@@ -153,6 +159,45 @@ static void change_patch(int patch) {
     s_app.patch = patch;
     engine_load_sound(s_app.sound, patch);
     reapply_params();
+}
+
+// --------------------------------------------------------------- TAPE ----
+
+static bool s_tape_armed;
+static float s_tape_speed = 1.0f;
+static int s_scrub_last_x;
+static float s_scrub_v;
+static unsigned s_tape_hold_frames;
+
+static void restart_sequencer(void) {
+    if (s_app.seq.playing) seq_toggle_play();
+    seq_toggle_play();  // starts again from step 1
+}
+
+static void tape_button(int hit) {
+    switch (hit) {
+        case TAPE_HIT_REW:
+            tape_rewind();
+            if (s_app.tape_link && s_app.seq.playing) restart_sequencer();
+            break;
+        case TAPE_HIT_PLAY: {
+            bool play = !s_app.tape.playing;
+            tape_play(play);
+            // Linked, the tape and the sequencer start together on the same
+            // audio block, so recordings land on the beat.
+            if (s_app.tape_link) {
+                if (play) restart_sequencer();
+                else if (s_app.seq.playing) seq_toggle_play();
+            }
+            break;
+        }
+        case TAPE_HIT_REC:
+            s_tape_armed = !s_tape_armed;
+            tape_record(s_tape_armed);
+            break;
+        case TAPE_HIT_LINK: s_app.tape_link = !s_app.tape_link; break;
+        default: break;
+    }
 }
 
 // ---------------------------------------------------------------- MIC ----
@@ -351,6 +396,28 @@ static void touch_begin(int x, int y) {
         s_touch = TOUCH_KEYS;
         return;
     }
+    if (s_app.page == PAGE_TAPE) {
+        int hit = ui_hit_tape(x, y);
+        s_touch = TOUCH_IGNORE;
+        if (hit >= TAPE_HIT_MUTE) {
+            int k = hit - TAPE_HIT_MUTE;
+            tape_mute(k, !s_app.tape.muted[k]);
+        } else if (hit >= TAPE_HIT_TRACK) {
+            s_app.tape_hold_track = hit - TAPE_HIT_TRACK;
+            s_tape_hold_frames = 0;
+            s_touch = TOUCH_TAPE_TRACK;
+        } else if (hit == TAPE_HIT_WINDOW) {
+            s_scrub_last_x = x;
+            s_scrub_v = 0.0f;
+            tape_scrub(true, 0.0f);  // the tape stops under your finger
+            s_touch = TOUCH_TAPE_SCRUB;
+        } else if (hit == TAPE_HIT_SPEED) {
+            s_touch = TOUCH_TAPE_SPEED;
+        } else if (hit != TAPE_HIT_NONE) {
+            tape_button(hit);
+        }
+        return;
+    }
     if (s_app.page == PAGE_SYNTH && s_app.sound == sound_mic_index() && ui_hit_synth_rec(x, y)) {
         if (s_app.mic_ok) {
             release_all();
@@ -427,6 +494,10 @@ static void handle_touch(u32 down, u32 held, u32 up) {
     if (up & KEY_TOUCH) {
         if (s_touch == TOUCH_FX_PAD) fx_pad_release();
         if (s_touch == TOUCH_REC && s_app.mic_rec) finish_recording();
+        if (s_touch == TOUCH_TAPE_SCRUB) tape_scrub(false, 0.0f);
+        if (s_touch == TOUCH_TAPE_TRACK && s_tape_hold_frames < TAPE_WIPE_FRAMES) tape_select(s_app.tape_hold_track);
+        s_app.tape_hold_track = -1;
+        s_app.tape_hold = 0.0f;
         s_app.pad_touch = false;
         source_release(SOURCE_TOUCH);
         s_app.active_slider = -1;
@@ -488,6 +559,26 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             fx_pad_move(nx, ny);
             break;
         }
+        case TOUCH_TAPE_SCRUB: {
+            // Drag the tape like a record: 1 px of finger = 1 px of tape.
+            const float secs_per_px = TAPE_WIN_SECONDS / TAPE_WIN_W;
+            float v = -(tp.px - s_scrub_last_x) * secs_per_px * 60.0f;
+            s_scrub_v = s_scrub_v * 0.5f + v * 0.5f;
+            tape_scrub(true, s_scrub_v);
+            s_scrub_last_x = tp.px;
+            break;
+        }
+        case TOUCH_TAPE_SPEED:
+            s_tape_speed = ui_tape_speed_at(tp.px);
+            tape_set_speed(s_tape_speed);
+            break;
+        case TOUCH_TAPE_TRACK:
+            if (s_tape_hold_frames < TAPE_WIPE_FRAMES && ++s_tape_hold_frames == TAPE_WIPE_FRAMES) {
+                tape_clear(s_app.tape_hold_track);
+                ui_key_struck(s_app.tape_hold_track * 2, PLAY_DRUM);  // poof
+            }
+            s_app.tape_hold = (float)s_tape_hold_frames / TAPE_WIPE_FRAMES;
+            break;
         case TOUCH_BUTTON:
             s_button_frames++;
             if ((s_button == SEQ_BTN_BPM_DOWN || s_button == SEQ_BTN_BPM_UP) && s_button_frames > REPEAT_DELAY &&
@@ -564,6 +655,9 @@ int main(void) {
         capture(&s_saved);  // what is on disk now
         s_seen = s_saved;
     }
+    s_app.tape_link = true;
+    s_app.tape_hold_track = -1;
+    tape_init();  // before the audio thread starts using it
     s_app.audio_ok = audio_out_init();
     s_app.mic_ok = mic_init();
     {   // the MIC sound starts with the placeholder engine_init loaded
@@ -585,14 +679,19 @@ int main(void) {
         seq_snapshot(&s_app.pattern);
         fx_set_tempo((float)s_app.seq.bpm);
         s_app.fx = fx_state();
+        s_app.tape = tape_status();
+        ui_tape_ui_state(s_tape_armed, s_tape_speed);
 
 #ifdef VM_DEMO
         // Debug attract mode (make DEMO=1): silent, starts the sequencer and
         // rotates themes, flipping to the SEQ page half the time.
         if (s_app.frame == 1) {
-            seq_toggle_play();
             select_sound(sound_mic_index() - 1);  // the first SYNTH visit lands on MIC
+            s_tape_armed = true;                    // and the tape records the demo
+            tape_record(true);
+            tape_button(TAPE_HIT_PLAY);
         }
+        if (s_app.frame % 300 == 299) tape_select((int)((s_app.frame / 300) % TAPE_TRACKS));
         if (s_app.frame % 480 == 479) ui_set_theme(next_theme());
         s_app.page = (Page)((s_app.frame / 120) % PAGE_COUNT);
         if (s_app.page == PAGE_SYNTH && s_app.frame % 120 == 0) select_sound(s_app.sound + 1);
@@ -662,6 +761,7 @@ int main(void) {
     release_all();
     mic_exit();
     audio_out_exit();
+    tape_exit();
     engine_exit();
     ui_exit();
     C2D_Fini();

@@ -13,6 +13,7 @@
 #include "engine.h"
 #include "fx.h"
 #include "seq.h"
+#include "tape.h"
 
 #define CHANNEL 0
 #define NUM_WAVEBUFS 4
@@ -81,7 +82,8 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
         const int16_t *block = engine_render_block();
         uint64_t t1 = svcGetSystemTick();
         memcpy(dst, block, (size_t)frames * 2 * sizeof(int16_t));
-        fx_process(dst, frames);  // performance FX on the master
+        fx_process(dst, frames);                         // performance FX on the live sound
+        tape_process(dst, frames, engine_sample_rate());  // record it / add the tape
         record_block(dst, frames, t1 - t0);
 #ifdef VM_DEMO
         memset(dst, 0, (size_t)frames * 2 * sizeof(int16_t));  // attract mode: scope moves, speakers stay quiet

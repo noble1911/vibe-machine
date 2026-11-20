@@ -342,7 +342,17 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     const float wx = 8, wy = 186, ww = TOP_W - 16, wh = 48;
     sh_card(wx, wy, ww, wh, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 3);
     sh_rect(wx + 2, wy + 2, ww - 4, 13, rgba(t->pal[0], 0xFF));
-    sh_zigzag(wx + ww - 40, wy + 8.5f, 60, 2.5f, 0, 1.6f, 10, rgba(ink_on(t, t->pal[0]), 0x90));
+    const TapeStatus *tp = &app->tape;
+    if (tp->playing || tp->used[0] || tp->used[1] || tp->used[2] || tp->used[3]) {
+        // Tape counter in the title bar, with a blinking dot while recording.
+        int whole = (int)tp->seconds;
+        ui_text(wx + ww - 8, wy + 1, 0.4f, rgba(ink_on(t, t->pal[0]), 0xFF), C2D_AlignRight, "TAPE %d  %02d:%02d.%d %s",
+                tp->track + 1, whole / 60, whole % 60, (int)((tp->seconds - whole) * 10),
+                tp->recording ? "REC" : tp->playing ? (tp->speed < 0 ? "REV" : "PLAY") : "");
+        if (tp->recording && ((s_frame / 12) & 1)) sh_circle(wx + ww - 150, wy + 8.5f, 3.5f, rgba(t->ink, 0xFF));
+    } else {
+        sh_zigzag(wx + ww - 40, wy + 8.5f, 60, 2.5f, 0, 1.6f, 10, rgba(ink_on(t, t->pal[0]), 0x90));
+    }
     const Sound *snd = sound_get(app->sound);
     const uint32_t bar = ink_on(t, t->pal[0]), text = ink_on(t, t->card);
     if (snd->kind == SOUND_BANK) {

@@ -21,8 +21,8 @@
 #define TAB_Y 2
 #define TAB_H 18
 #define TAB_X0 2
-#define TAB_W 28
-#define TAB_PITCH 30
+#define TAB_W 24
+#define TAB_PITCH 26
 // ...and the eight-key strip at the bottom.
 #define KEYS_Y0 166
 #define KEYS_H 66
@@ -42,18 +42,18 @@
 
 // SEQ page: transport stickers in the tab row, then the step grid
 // (one synth row above eight drum lanes).
-#define SEQ_PLAY_X 126
-#define SEQ_REC_X 160
-#define SEQ_BTN_W 30
-#define SEQ_BPM_DOWN_X 194
-#define SEQ_BPM_VALUE_X 212
-#define SEQ_BPM_VALUE_W 34
-#define SEQ_BPM_UP_X 248
-#define SEQ_BPM_BTN_W 16
-#define SEQ_CLEAR_X 270
-#define SEQ_CLEAR_W 22
-#define SEQ_DICE_X 294
-#define SEQ_DICE_W 22
+#define SEQ_PLAY_X 134
+#define SEQ_REC_X 162
+#define SEQ_BTN_W 26
+#define SEQ_BPM_DOWN_X 190
+#define SEQ_BPM_VALUE_X 206
+#define SEQ_BPM_VALUE_W 30
+#define SEQ_BPM_UP_X 238
+#define SEQ_BPM_BTN_W 14
+#define SEQ_CLEAR_X 256
+#define SEQ_CLEAR_W 28
+#define SEQ_DICE_X 288
+#define SEQ_DICE_W 28
 #define SEQ_GRID_X 22
 #define SEQ_CELL_W 18
 #define SEQ_SYNTH_Y 27
@@ -101,6 +101,45 @@
 #define FX_PAD_H 132
 #define FX_HIT_HOLD FX_COUNT  // ui_hit_fx_sticker() result for HOLD
 
+// TAPE page: track stickers (tap: arm, M: mute, hold: wipe) and SEQ LINK on
+// the left; the scrolling 4-lane tape window (drag to scratch), transport
+// and the speed strip on the right.
+#define TAPE_TRK_X 4
+#define TAPE_TRK_W 74
+#define TAPE_TRK_Y0 26
+#define TAPE_TRK_H 24
+#define TAPE_TRK_PITCH 27
+#define TAPE_MUTE_W 20
+#define TAPE_LINK_Y 136
+#define TAPE_LINK_H 22
+#define TAPE_WIN_X 82
+#define TAPE_WIN_Y 26
+#define TAPE_WIN_W 234
+#define TAPE_WIN_H 80
+#define TAPE_WIN_SECONDS 8.0f  // seconds of tape visible in the window
+#define TAPE_BTN_Y 110
+#define TAPE_BTN_H 22
+#define TAPE_REW_X 82
+#define TAPE_PLAY_X 118
+#define TAPE_REC_X 154
+#define TAPE_BTN_W 32
+#define TAPE_TIME_X 190
+#define TAPE_TIME_W 126
+#define TAPE_SPEED_Y 136
+#define TAPE_SPEED_H 22
+
+typedef enum {
+    TAPE_HIT_NONE = -1,
+    TAPE_HIT_REW,
+    TAPE_HIT_PLAY,
+    TAPE_HIT_REC,
+    TAPE_HIT_LINK,
+    TAPE_HIT_WINDOW,
+    TAPE_HIT_SPEED,
+    TAPE_HIT_TRACK,  // + track index
+    TAPE_HIT_MUTE = TAPE_HIT_TRACK + TAPE_TRACKS,  // + track index
+} TapeHit;
+
 typedef enum {
     SEQ_BTN_NONE = -1,
     SEQ_BTN_PLAY,
@@ -146,6 +185,10 @@ bool ui_hit_synth_rec(int x, int y);  // the MIC sound's REC sticker
 int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
 int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
 bool ui_in_fx_pad(int x, int y);
+int ui_hit_tape(int x, int y);  // a TapeHit (tracks / mutes offset by index)
+float ui_tape_speed_at(int x);  // speed strip position -> -2..2 (snaps to -1, 0, 1)
+// The TAPE page shows REC armed and the speed knob from these.
+void ui_tape_ui_state(bool armed, float speed);
 // Normalised position on a pad (clamped; y is 0 at the bottom, 1 at the top).
 void ui_synth_pad_pos(int x, int y, float *nx, float *ny);
 void ui_fx_pad_pos(int x, int y, float *nx, float *ny);

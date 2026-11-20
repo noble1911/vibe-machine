@@ -10,6 +10,7 @@
 #include <math.h>
 
 #include "motif.h"
+#include "tape.h"
 #include "shapes.h"
 #include "sounds.h"
 #include "ui.h"
@@ -18,6 +19,14 @@
 #define BG_MOTIFS 22
 
 static Motif s_bg[BG_MOTIFS];
+// Mirrors of tape UI settings that TapeStatus doesn't carry.
+static bool s_tape_armed_ui;
+static float s_tape_speed_ui = 1.0f;
+
+void ui_tape_ui_state(bool armed, float speed) {
+    s_tape_armed_ui = armed;
+    s_tape_speed_ui = speed;
+}
 static unsigned s_frame;
 
 static const char *const kButtonHints[MUSIC_KEYS] = {"<", "v", ">", "^", "Y", "B", "A", "X"};
@@ -101,8 +110,13 @@ static void draw_tabs(const AppState *app) {
             case PAGE_SEQ:
                 for (int b = 0; b < 4; b++) sh_rect(cx - 6 + (b & 1) * 7, cy - 6 + (b >> 1) * 7, 5, 5, ink);
                 break;
-            case PAGE_SYNTH: sh_squiggle(cx, cy, 16, 3.5f, 0, 2.0f, s_frame * 0.1f, ink); break;
-            default: sh_bolt(cx, cy, 16, 0.25f, ink); break;
+            case PAGE_SYNTH: sh_squiggle(cx, cy, 14, 3.5f, 0, 2.0f, s_frame * 0.1f, ink); break;
+            case PAGE_FX: sh_bolt(cx, cy, 15, 0.25f, ink); break;
+            default:  // TAPE: a little cassette
+                sh_rect(cx - 8, cy - 5, 16, 10, ink);
+                sh_circle(cx - 3.5f, cy - 0.5f, 2.2f, rgba(face, 0xFF));
+                sh_circle(cx + 3.5f, cy - 0.5f, 2.2f, rgba(face, 0xFF));
+                break;
         }
     }
 }
@@ -495,6 +509,138 @@ static void draw_fx_page(const AppState *app) {
     draw_fx_pad(app);
 }
 
+// -------------------------------------------------------- TAPE page ----
+
+// A tape reel: a ring with three spokes, turning with the tape.
+static void draw_reel(float x, float y, float r, float angle, uint32_t rgb) {
+    const Theme *t = ui_theme();
+    sh_ring(x, y, r, 2.5f, rgba(t->ink, 0xFF));
+    for (int i = 0; i < 3; i++) sh_bar(x, y, r * 1.6f, 2.0f, angle + i * 2.094f, rgba(rgb, 0xFF));
+    sh_circle(x, y, r * 0.3f, rgba(t->ink, 0xFF));
+}
+
+static void draw_tape_tracks(const AppState *app) {
+    const Theme *t = ui_theme();
+    const TapeStatus *tp = &app->tape;
+    for (int k = 0; k < TAPE_TRACKS; k++) {
+        const float y = TAPE_TRK_Y0 + k * TAPE_TRK_PITCH;
+        const bool armed = tp->track == k;
+        const uint32_t face = armed ? t->pal[k % THEME_PALETTE] : t->card;
+        sticker(TAPE_TRK_X, y, TAPE_TRK_W, TAPE_TRK_H, face, false, 0);
+        const uint32_t ink = ink_on(t, face);
+        ui_text(TAPE_TRK_X + 6, y + 3, 0.45f, rgba(ink, 0xFF), 0, "%d", k + 1);
+        // Level meter, and a "recording" dot on the armed track.
+        float lv = tp->level[k] * 30.0f;
+        sh_rect(TAPE_TRK_X + 18, y + 7, 30, 8, rgba(t->ink, 0x20));
+        sh_rect(TAPE_TRK_X + 18, y + 7, lv > 30 ? 30 : lv, 8, rgba(armed ? ink : t->pal[k % THEME_PALETTE], 0xFF));
+        if (armed && tp->recording) sh_circle(TAPE_TRK_X + 12, y + 18, 2.5f, rgba(t->pal[0], 0xFF));
+        if (!tp->used[k]) ui_text(TAPE_TRK_X + 33, y + 5, 0.3f, rgba(ink, 0x90), C2D_AlignCenter, "empty");
+        // Mute stamp.
+        const float mx = TAPE_TRK_X + TAPE_TRK_W - TAPE_MUTE_W;
+        sh_rect(mx, y + 2, 1, TAPE_TRK_H - 4, rgba(t->ink, 0x60));
+        ui_text(mx + TAPE_MUTE_W / 2.0f, y + 3, 0.42f, rgba(tp->muted[k] ? t->pal[0] : ink, tp->muted[k] ? 0xFF : 0x70),
+                C2D_AlignCenter, "M");
+        // Hold-to-wipe progress: a bar that fills across the sticker.
+        if (app->tape_hold_track == k && app->tape_hold > 0.0f)
+            sh_rect(TAPE_TRK_X + 2, y + TAPE_TRK_H - 5, (TAPE_TRK_W - 4) * app->tape_hold, 3, rgba(t->pal[0], 0xFF));
+    }
+    uint32_t lf = app->tape_link ? t->pal[3] : t->card;
+    sticker(TAPE_TRK_X, TAPE_LINK_Y, TAPE_TRK_W, TAPE_LINK_H, lf, false, app->tape_link ? "SEQ LINK" : "NO LINK");
+}
+
+static void draw_tape_window(const AppState *app) {
+    const Theme *t = ui_theme();
+    const TapeStatus *tp = &app->tape;
+    const float x0 = TAPE_WIN_X, y0 = TAPE_WIN_Y, w = TAPE_WIN_W, h = TAPE_WIN_H;
+    sh_card(x0, y0, w, h, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 3);
+    if (!tp->ok) {
+        ui_text(x0 + w / 2, y0 + h / 2 - 8, 0.45f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter, "no memory for tape");
+        return;
+    }
+    const float lane_h = (h - 6) / TAPE_TRACKS, px_per_s = w / TAPE_WIN_SECONDS;
+    for (int k = 0; k < TAPE_TRACKS; k++) {
+        const float mid = y0 + 3 + lane_h * (k + 0.5f);
+        if (tp->track == k) sh_rect(x0 + 2, mid - lane_h / 2, w - 4, lane_h, rgba(t->pal[k % THEME_PALETTE], 0x22));
+        const uint8_t a = tp->muted[k] ? 0x40 : 0xE0;
+        // The lanes scroll past a fixed playhead in the middle.
+        for (float px = 3; px < w - 3; px += 2) {
+            float secs = tp->seconds + (px - w / 2) / px_per_s;
+            int block = (int)floorf(secs * TAPE_RATE / TAPE_PEAK_BLOCK);
+            float pk = tape_peak(k, block) * (lane_h / 2 - 1);
+            if (pk >= 0.5f) sh_rect(x0 + px, mid - pk, 1.5f, pk * 2, rgba(t->pal[k % THEME_PALETTE], a));
+        }
+        sh_rect(x0 + 3, mid, w - 6, 1, rgba(t->ink, 0x18));
+    }
+    // Second ticks and the playhead.
+    for (int sx = -4; sx <= 4; sx++) {
+        float secs = floorf(tp->seconds) + sx;
+        float px = w / 2 + (secs - tp->seconds) * px_per_s;
+        if (px > 2 && px < w - 2) sh_rect(x0 + px, y0 + 2, 1, 4, rgba(t->ink, 0x80));
+    }
+    sh_rect(x0 + w / 2 - 1, y0 + 2, 2, h - 4, rgba(tp->recording ? t->pal[0] : t->ink, 0xFF));
+    sh_tri(x0 + w / 2, y0 + 5, 4, 1.5708f, rgba(tp->recording ? t->pal[0] : t->ink, 0xFF));
+}
+
+static void draw_tape_transport(const AppState *app) {
+    const Theme *t = ui_theme();
+    const TapeStatus *tp = &app->tape;
+    const float cy = TAPE_BTN_Y + TAPE_BTN_H / 2.0f;
+
+    sticker(TAPE_REW_X, TAPE_BTN_Y, TAPE_BTN_W, TAPE_BTN_H, t->card, false, 0);
+    u32 ic = rgba(ink_on(t, t->card), 0xFF);
+    sh_rect(TAPE_REW_X + 7, cy - 5, 2.5f, 10, ic);
+    sh_tri(TAPE_REW_X + 15, cy, 5, 3.14159f, ic);
+    sh_tri(TAPE_REW_X + 23, cy, 5, 3.14159f, ic);
+
+    uint32_t pf = tp->playing ? t->pal[3] : t->card;
+    sticker(TAPE_PLAY_X, TAPE_BTN_Y, TAPE_BTN_W, TAPE_BTN_H, pf, false, 0);
+    ic = rgba(ink_on(t, pf), 0xFF);
+    if (tp->playing)
+        sh_rect(TAPE_PLAY_X + TAPE_BTN_W / 2.0f - 5, cy - 5, 10, 10, ic);
+    else
+        sh_tri(TAPE_PLAY_X + TAPE_BTN_W / 2.0f + 1, cy, 7, 0.0f, ic);
+
+    const bool armed = app->tape.recording || s_tape_armed_ui;
+    uint32_t rf = armed ? (tp->recording && ((s_frame / 12) & 1) ? t->pal[0] : t->card) : t->card;
+    sticker(TAPE_REC_X, TAPE_BTN_Y, TAPE_BTN_W, TAPE_BTN_H, rf, armed, 0);
+    sh_circle(TAPE_REC_X + TAPE_BTN_W / 2.0f + (armed ? 2 : 0), cy + (armed ? 2 : 0), 5.5f,
+              rgba(armed ? t->pal[0] : t->ink, 0xFF));
+
+    // Counter, with two reels that turn at the tape's speed.
+    sh_card(TAPE_TIME_X, TAPE_BTN_Y, TAPE_TIME_W, TAPE_BTN_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
+    int whole = (int)tp->seconds;
+    ui_text(TAPE_TIME_X + 52, TAPE_BTN_Y + 2, 0.5f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter, "%02d:%02d.%d",
+            whole / 60, whole % 60, (int)((tp->seconds - whole) * 10));
+    static float reel;
+    reel += tp->speed * 0.12f;
+    draw_reel(TAPE_TIME_X + TAPE_TIME_W - 30, cy, 8, reel, t->pal[1]);
+    draw_reel(TAPE_TIME_X + TAPE_TIME_W - 11, cy, 8, reel * 0.8f, t->pal[2]);
+
+    // Speed strip: reverse on the left, stop in the middle, normal at 3/4.
+    const float sx = TAPE_WIN_X, sw = TAPE_WIN_W;
+    sh_card(sx, TAPE_SPEED_Y, sw, TAPE_SPEED_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
+    C2D_DrawRectangle(sx + 2, TAPE_SPEED_Y + 2, 0.5f, sw / 2 - 2, TAPE_SPEED_H - 4, rgba(t->pal[0], 0x50),
+                      rgba(t->pal[0], 0x00), rgba(t->pal[0], 0x50), rgba(t->pal[0], 0x00));
+    C2D_DrawRectangle(sx + sw / 2, TAPE_SPEED_Y + 2, 0.5f, sw / 2 - 2, TAPE_SPEED_H - 4, rgba(t->pal[1], 0x00),
+                      rgba(t->pal[1], 0x50), rgba(t->pal[1], 0x00), rgba(t->pal[1], 0x50));
+    static const char *const marks[] = {"REV x2", "REV", "STOP", "x1", "x2"};
+    for (int m = 0; m < 5; m++) {
+        float mx = sx + 6 + (sw - 12) * m / 4.0f;
+        sh_rect(mx - 0.5f, TAPE_SPEED_Y + 2, 1, 4, rgba(t->ink, 0x80));
+        ui_text(mx + (m == 0 ? 14 : m == 4 ? -8 : 0), TAPE_SPEED_Y + 6, 0.3f, rgba(ink_on(t, t->card), 0x90),
+                C2D_AlignCenter, "%s", marks[m]);
+    }
+    float knob = sx + 6 + (sw - 12) * (s_tape_speed_ui + 2.0f) / 4.0f;
+    sh_tri(knob + 1.5f, TAPE_SPEED_Y + 3.5f, 6, 1.5708f, rgba(t->ink, 0xFF));
+    sh_tri(knob, TAPE_SPEED_Y + 2, 6, 1.5708f, rgba(t->pal[2], 0xFF));
+}
+
+static void draw_tape_page(const AppState *app) {
+    draw_tape_tracks(app);
+    draw_tape_window(app);
+    draw_tape_transport(app);
+}
+
 // ------------------------------------------------------------- keys ----
 
 static void draw_key(const AppState *app, int k) {
@@ -536,6 +682,7 @@ void ui_draw_bottom(const AppState *app) {
         case PAGE_SEQ: draw_seq_page(app); break;
         case PAGE_SYNTH: draw_synth_page(app); break;
         case PAGE_FX: draw_fx_page(app); break;
+        case PAGE_TAPE: draw_tape_page(app); break;
         default: draw_sound_page(app); break;
     }
     for (int k = 0; k < MUSIC_KEYS; k++) draw_key(app, k);
