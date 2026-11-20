@@ -1,4 +1,4 @@
-// Clamshell -- a pocket synth / groovebox for the Nintendo 3DS.
+// Vibe Machine -- a pocket synth / groovebox for the Nintendo 3DS.
 //
 // main.c owns the frame loop and turns buttons and touches into engine
 // calls. Sound is rendered on a separate thread (audio_out.c); drawing lives
@@ -37,6 +37,13 @@ typedef struct {
 
 static Held s_held[NUM_SOURCES];
 static AppState s_app;
+static bool s_touch_consumed;
+static int s_theme;
+
+static int ui_theme_index_next(void) {
+    s_theme = (s_theme + 1) % ui_theme_count();
+    return s_theme;
+}
 
 static void source_release(int src) {
     Held *h = &s_held[src];
@@ -87,7 +94,17 @@ static void handle_touch(u32 down, u32 held, u32 up) {
     touchPosition tp;
     hidTouchRead(&tp);
 
-    if (down & KEY_TOUCH) s_app.active_slider = ui_hit_slider(tp.px, tp.py);
+    if (down & KEY_TOUCH) {
+        if (ui_hit_theme(tp.px, tp.py)) {
+            ui_set_theme(ui_theme_index_next());
+            s_app.active_slider = -1;
+            s_touch_consumed = true;
+            return;
+        }
+        s_touch_consumed = false;
+        s_app.active_slider = ui_hit_slider(tp.px, tp.py);
+    }
+    if (s_touch_consumed) return;  // a tap on a button, not the keyboard
 
     if (s_app.active_slider >= 0) {
         // A drag stays on the slider it started on.
@@ -129,7 +146,7 @@ int main(void) {
     gfxInitDefault();
     gfxSet3D(true);  // the top-screen scene has real depth; the slider scales it
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
-    C2D_Init(C2D_DEFAULT_MAX_OBJECTS);
+    C2D_Init(8192);  // the pattern engine draws a lot of small triangles
     C2D_Prepare();
     C3D_RenderTarget *top = C2D_CreateScreenTarget(GFX_TOP, GFX_LEFT);
     C3D_RenderTarget *top_right = C2D_CreateScreenTarget(GFX_TOP, GFX_RIGHT);
@@ -149,7 +166,7 @@ int main(void) {
     s_app.audio_ok = audio_out_init();
 
     hidSetRepeatParameters(18, 5);
-    u32 bg = C2D_Color32(0x12, 0x0A, 0x2A, 0xFF);
+    u32 bg = C2D_Color32(0x00, 0x00, 0x00, 0xFF);
     int16_t scope[SCOPE_POINTS];
 
     while (aptMainLoop()) {
@@ -157,6 +174,13 @@ int main(void) {
         u32 down = hidKeysDown(), held = hidKeysHeld(), up = hidKeysUp(), repeat = hidKeysDownRepeat();
         if (down & KEY_START) break;
 
+#ifdef VM_DEMO
+        // Debug attract mode (make DEMO=1): silent notes, rotating themes.
+        if (s_app.frame == 1) engine_set_param(PARAM_VOLUME, 0.0f);
+        if (s_app.frame % 240 == 239) ui_set_theme(ui_theme_index_next());
+        if (s_app.frame % 12 == 0) source_press(0, (int)((s_app.frame / 12 * 5) % MUSIC_KEYS));
+        if (s_app.frame % 12 == 8) source_release(0);
+#endif
         handle_buttons(down, held, up, repeat);
         handle_touch(down, held, up);
         update_lit_keys();

@@ -67,6 +67,10 @@ CFLAGS	:=	-g -Wall -O2 -mword-relocations \
 			$(ARCH)
 
 CFLAGS	+=	$(INCLUDE) -D__3DS__ $(AMY_DEFINES)
+ifdef DEMO
+# Screenshot/attract build: cycles themes and plays silent notes by itself.
+CFLAGS	+=	-DVM_DEMO
+endif
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
