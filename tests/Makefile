@@ -9,11 +9,12 @@ CFLAGS := -O2 -DAMY_NO_MINIAUDIO -DAMY_WAVETABLE -DBLOCK_SIZE_BITS=7 -I$(AMY) -I
 LIBS := -lm -lpthread
 
 .PHONY: all clean
-all: build/sound_probe build/fx_probe build/logic_probe build/tape_probe
+all: build/sound_probe build/fx_probe build/logic_probe build/tape_probe build/seq_probe
 	./build/sound_probe
 	./build/fx_probe
 	./build/logic_probe
 	./build/tape_probe
+	./build/seq_probe
 
 build/amy/%.o: $(AMY)/%.c
 	@mkdir -p $(dir $@)
@@ -32,6 +33,10 @@ build/logic_probe: logic_probe.c ../source/dice.c ../source/storage.c ../source/
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
 build/tape_probe: tape_probe.c ../source/tape.c
+	@mkdir -p build
+	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
+
+build/seq_probe: seq_probe.c ../source/seq.c ../source/music.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 

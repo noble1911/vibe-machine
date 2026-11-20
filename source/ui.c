@@ -145,9 +145,14 @@ SeqButton ui_hit_seq_button(int x, int y) {
 bool ui_hit_seq_cell(int x, int y, int *step, int *row) {
     if (x < SEQ_GRID_X || x >= SEQ_GRID_X + SEQ_STEPS * SEQ_CELL_W) return false;
     int s = (x - SEQ_GRID_X) / SEQ_CELL_W;
-    if (y >= SEQ_SYNTH_Y - 2 && y < SEQ_SYNTH_Y + SEQ_SYNTH_H + 2) {
+    if (y >= SEQ_SYNTH_Y - 2 && y < SEQ_SYNTH_Y + SEQ_SYNTH_H + 1) {
         *step = s;
         *row = 0;
+        return true;
+    }
+    if (y >= SEQ_SYNTH_Y + SEQ_SYNTH_H + 1 && y < SEQ_DRUM_Y) {
+        *step = s;
+        *row = SEQ_ROW_ACCENT;
         return true;
     }
     if (y >= SEQ_DRUM_Y && y < SEQ_DRUM_Y + SEQ_LANES * SEQ_DRUM_PITCH) {
@@ -225,6 +230,22 @@ void ui_synth_pad_pos(int x, int y, float *nx, float *ny) {
 }
 
 void ui_fx_pad_pos(int x, int y, float *nx, float *ny) { pad_pos(x, y, FX_PAD_X, FX_PAD_Y, FX_PAD_W, FX_PAD_H, nx, ny); }
+
+int ui_hit_seq_slot(int x, int y) {
+    if (y < SEQ_SLOT_Y - 2 || y > SEQ_SLOT_Y + SEQ_SLOT_H + 3) return -1;
+    for (int i = 0; i < SEQ_SLOTS; i++) {
+        int sx = SEQ_SLOT_X0 + i * SEQ_SLOT_PITCH;
+        if (x >= sx - 1 && x < sx + SEQ_SLOT_PITCH - 1) return i;
+    }
+    if (x >= SEQ_SONG_X - 2 && x < SEQ_SONG_X + SEQ_SONG_W + 2) return SEQ_HIT_SONG;
+    if (x >= SEQ_SWING_X - 2 && x < SEQ_SWING_X + SEQ_SWING_W + 4) return SEQ_HIT_SWING;
+    return -1;
+}
+
+float ui_swing_at(int x) {
+    float t = (float)(x - SEQ_SWING_X - 4) / (SEQ_SWING_W - 8);
+    return (t < 0 ? 0 : t > 1 ? 1 : t) * SEQ_SWING_MAX;
+}
 
 float ui_slider_value(int y) {
     float v = 1.0f - (float)(y - SLIDER_Y0) / SLIDER_H;

@@ -227,7 +227,7 @@ static void draw_grid(const AppState *app) {
     const SeqPattern *p = &app->pattern;
     const SeqStatus *st = &app->seq;
     const u32 ink = rgba(t->ink, 0xFF);
-    const float top = SEQ_SYNTH_Y - 3, bottom = SEQ_DRUM_Y + SEQ_LANES * SEQ_DRUM_PITCH + 2;
+    const float top = SEQ_SYNTH_Y - 3, bottom = SEQ_DRUM_Y + SEQ_LANES * SEQ_DRUM_PITCH + 1;
 
     sh_card(2, top, BOTTOM_W - 4, bottom - top, rgba(t->card, 0xFF), ink, 3);
 
@@ -260,6 +260,12 @@ static void draw_grid(const AppState *app) {
         const bool head = st->playing && s == st->step;
         const float pop = head ? -2.0f : 0.0f;  // cells under the playhead lift off
 
+        // Accent row: a small triangle that stands up on accented steps.
+        if ((p->accents >> s) & 1u)
+            sh_tri(x + SEQ_CELL_W / 2.0f, SEQ_ACC_Y + SEQ_ACC_H / 2.0f + 0.5f, 4.5f, -1.5708f, rgba(t->pal[0], 0xFF));
+        else
+            sh_rect(x + SEQ_CELL_W / 2.0f - 3, SEQ_ACC_Y + SEQ_ACC_H / 2.0f, 6, 1, rgba(t->ink, 0x30));
+
         const SeqNote *n = &p->synth[s];
         if (n->count) {
             uint32_t face = colourful(t, 1);
@@ -283,9 +289,35 @@ static void draw_grid(const AppState *app) {
     }
 }
 
+// Slot stickers A..H (filled ones are coloured; the playing one stands up;
+// a queued one blinks), SONG, and the SWING strip.
+static void draw_slots(const AppState *app) {
+    const Theme *t = ui_theme();
+    const SeqStatus *st = &app->seq;
+    for (int i = 0; i < SEQ_SLOTS; i++) {
+        const float x = SEQ_SLOT_X0 + i * SEQ_SLOT_PITCH;
+        const bool cur = st->slot == i, used = (st->used >> i) & 1u;
+        const bool queued = st->queued == i && ((s_frame / 8) & 1);
+        uint32_t face = cur || queued ? t->pal[i % THEME_PALETTE] : used ? rgb_lerp(t->card, t->pal[i % THEME_PALETTE], 0.35f) : t->card;
+        char label[2] = {(char)('A' + i), 0};
+        sticker(x, SEQ_SLOT_Y, SEQ_SLOT_W, SEQ_SLOT_H, face, !cur, label);
+        if (app->slot_hold == i && app->slot_hold_t > 0.0f)  // hold to copy here
+            sh_rect(x + 1, SEQ_SLOT_Y + SEQ_SLOT_H - 3, (SEQ_SLOT_W - 2) * app->slot_hold_t, 3, rgba(t->ink, 0xFF));
+    }
+    sticker(SEQ_SONG_X, SEQ_SLOT_Y, SEQ_SONG_W, SEQ_SLOT_H, st->song ? t->pal[3] : t->card, !st->song, "SONG");
+
+    sh_card(SEQ_SWING_X, SEQ_SLOT_Y, SEQ_SWING_W, SEQ_SLOT_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
+    float fill = (SEQ_SWING_W - 4) * st->swing / SEQ_SWING_MAX;
+    sh_rect_pattern(SEQ_SWING_X + 2, SEQ_SLOT_Y + 2, fill, SEQ_SLOT_H - 4, rgba(t->pal[2], 0xFF), PAT_ZIGZAG,
+                    rgba(t->ink, 0x40));
+    ui_text(SEQ_SWING_X + SEQ_SWING_W / 2.0f, SEQ_SLOT_Y + 1, 0.38f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter,
+            "SWING %d%%", (int)(st->swing / SEQ_SWING_MAX * 100.0f + 0.5f));
+}
+
 static void draw_seq_page(const AppState *app) {
     draw_transport(app);
     draw_grid(app);
+    draw_slots(app);
 }
 
 // ------------------------------------------------------- SYNTH page ----

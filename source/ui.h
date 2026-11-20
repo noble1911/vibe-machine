@@ -57,10 +57,25 @@
 #define SEQ_GRID_X 22
 #define SEQ_CELL_W 18
 #define SEQ_SYNTH_Y 27
-#define SEQ_SYNTH_H 16
-#define SEQ_DRUM_Y 48
-#define SEQ_DRUM_PITCH 13
-#define SEQ_DRUM_H 12
+#define SEQ_SYNTH_H 14
+#define SEQ_ACC_Y 44     // thin accent row between the synth row and the drums
+#define SEQ_ACC_H 7
+#define SEQ_DRUM_Y 53
+#define SEQ_DRUM_PITCH 11
+#define SEQ_DRUM_H 10
+#define SEQ_ROW_ACCENT (1 + SEQ_LANES)  // ui_hit_seq_cell row for the accent row
+// Pattern slots A..H, SONG and SWING along the bottom of the SEQ page.
+#define SEQ_SLOT_Y 145
+#define SEQ_SLOT_H 17
+#define SEQ_SLOT_X0 4
+#define SEQ_SLOT_W 21
+#define SEQ_SLOT_PITCH 23
+#define SEQ_SONG_X 190
+#define SEQ_SONG_W 44
+#define SEQ_SWING_X 238
+#define SEQ_SWING_W 78
+#define SEQ_HIT_SONG SEQ_SLOTS        // ui_hit_seq_slot results beyond 0..7
+#define SEQ_HIT_SWING (SEQ_SLOTS + 1)
 
 // SYNTH page: a 2x5 grid of sound tiles, and the pad (an XY creature pad
 // for CUSTOM sounds, a 16x8 patch-dot grid for BANK sounds).
@@ -176,8 +191,10 @@ int ui_hit_key(int x, int y);
 bool ui_hit_theme(int x, int y);
 int ui_hit_tab(int x, int y);  // a Page, or -1
 SeqButton ui_hit_seq_button(int x, int y);
-// row 0 is the synth row, rows 1..8 are drum lanes 0..7.
+// row 0 is the synth row, rows 1..8 are drum lanes 0..7, SEQ_ROW_ACCENT accents.
 bool ui_hit_seq_cell(int x, int y, int *step, int *row);
+int ui_hit_seq_slot(int x, int y);  // 0..7, SEQ_HIT_SONG, SEQ_HIT_SWING or -1
+float ui_swing_at(int x);           // swing strip position -> 0..SEQ_SWING_MAX
 int ui_hit_sound_tile(int x, int y);
 bool ui_in_synth_pad(int x, int y);
 bool ui_hit_synth_dice(int x, int y);

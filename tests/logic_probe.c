@@ -28,7 +28,10 @@ int main(void) {
     for (int i = 0; i < PARAM_COUNT; i++) a.params[i] = 0.1f * (i + 1);
     a.octave = -2;
     a.bpm = 137;
-    dice_groove(&a.pattern, 12345, 0);
+    for (int i = 0; i < SEQ_SLOTS; i++) dice_groove(&a.slots[i], 12345u + i, 0);
+    a.slot = 5;
+    a.song = true;
+    a.swing = 0.3f;
     for (int k = 0; k < FX_COUNT; k++) a.fx_x[k] = a.fx_y[k] = 0.05f * k;
 
     const char *path = "build/state_test.vms";

@@ -45,6 +45,10 @@ synthesis library (MIT) that also runs on the ESP32 and RP2040.
 | FX page: pick CRUSH / SWEEP / STUTTER / TAPE, touch the pad | Effect on while touching; X and Y shape it |
 | FX page: HOLD | Effects stay on after you lift the stylus (tap an effect again to drop it) |
 | SEQ page: dice | Roll a fresh groove (weighted: kick on the one, snares on 2 and 4, synth in key) |
+| SEQ page: accent row (thin row above the drums) | Accented steps hit harder |
+| SEQ page: A–H | Tap: switch pattern (at the next bar while playing). Hold: copy the current pattern there |
+| SEQ page: SONG | Chain the filled slots in order, bar by bar |
+| SEQ page: SWING strip | 0–50% swing on the 16ths |
 | SYNTH page: dice | Roll the creature's macros, or a random patch in a bank |
 | SYNTH page, MIC sound: hold REC | Record up to 3 s from the 3DS microphone; then play it across the keys (C = original pitch). X picks the start point in the take, Y the tone |
 | TAPE page: tap a track / M / hold a track | Arm it for recording / mute it / wipe it |
@@ -109,7 +113,7 @@ release.
 | `source/engine.c` | Thread-safe wrapper around AMY (the only file that talks to AMY) |
 | `source/audio_out.c` | ndsp streaming on a dedicated audio thread, load and scope stats |
 | `source/music.c` | Scales, chords and the drum map (pure logic) |
-| `source/seq.c` | 16-step sequencer; its clock runs on the audio thread |
+| `source/seq.c` | 16-step sequencer, 8 slots, song, swing, accents; clock on the audio thread (also builds on a PC for `tests/seq_probe`) |
 | `source/sounds.c` | The synth engines: AMY patch strings + two macros each |
 | `source/fx.c` | Performance FX on the master output (audio thread) |
 | `source/tape.c` | 4-track tape (60 s, 22.05 kHz mono per track), varispeed / reverse / scrub |

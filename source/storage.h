@@ -22,7 +22,10 @@ typedef struct {
     float params[PARAM_COUNT];
     int octave;
     int bpm;
-    SeqPattern pattern;
+    SeqPattern slots[SEQ_SLOTS];
+    int slot;     // pattern being played / edited
+    bool song;
+    float swing;
     float fx_x[FX_COUNT], fx_y[FX_COUNT];
 } SaveState;
 

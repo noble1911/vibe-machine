@@ -31,6 +31,9 @@ void dice_groove(SeqPattern *out, uint32_t seed, int octave) {
         for (int lane = 0; lane < SEQ_LANES; lane++)
             if (rng_int(&rng, 100) < kChance[lane][s]) out->drums[s] |= (uint8_t)(1u << lane);
     out->drums[0] |= 1u << KICK;  // always land the one
+    // Accents: the downbeats mostly, plus the odd surprise.
+    for (int s = 0; s < SEQ_STEPS; s++)
+        if (rng_int(&rng, 100) < (s % 4 == 0 ? 60 : 8)) out->accents |= (uint16_t)(1u << s);
 
     // Synth: a short motif of 4 steps, repeated with variations, so it sounds
     // like a phrase rather than noise. Chords now and then.

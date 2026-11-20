@@ -61,6 +61,9 @@ uploads `vibe-machine.3dsx` as an artifact; `v*` tags publish a release.
   `make -C tests`: the probe fails if a sound is silent or a macro has no
   audible effect. AMY evaluates `mod0`/`mod1` once per block, so use
   `ALGO` operators (not mod-source FM) for audio-rate FM.
-- `fx.c` must stay free of 3DS headers so `tests/fx_probe` can run it.
+- `fx.c`, `tape.c`, `dice.c`, `storage.c`, `sampler.c`, `wav.c` and `seq.c`
+  must keep building on a PC (seq.c switches its lock on `__3DS__`):
+  `make -C tests` runs probes for all of them. Timing changes to the
+  sequencer must keep `tests/seq_probe` passing.
 - Original visual design only: no copying another product's graphics,
   characters or names.

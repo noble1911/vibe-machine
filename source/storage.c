@@ -9,8 +9,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 1
-#define MAX_PAYLOAD 1024
+#define VERSION 2  // 2: eight pattern slots, accents, song, swing
+#define MAX_PAYLOAD 2048
 
 typedef struct {
     uint8_t buf[MAX_PAYLOAD];
@@ -49,6 +49,27 @@ static uint32_t checksum(const uint8_t *p, size_t n) {
     return h;
 }
 
+static void put_pattern(Writer *w, const SeqPattern *p) {
+    put(w, p->drums, sizeof(p->drums));
+    for (int s = 0; s < SEQ_STEPS; s++) {
+        put(w, &p->synth[s].key, 1);
+        put(w, &p->synth[s].count, 1);
+        put(w, p->synth[s].notes, MUSIC_MAX_NOTES);
+    }
+    put(w, &p->accents, sizeof(p->accents));
+}
+
+static void get_pattern(Reader *r, SeqPattern *p, bool accents) {
+    get(r, p->drums, sizeof(p->drums));
+    for (int s = 0; s < SEQ_STEPS; s++) {
+        get(r, &p->synth[s].key, 1);
+        get(r, &p->synth[s].count, 1);
+        get(r, p->synth[s].notes, MUSIC_MAX_NOTES);
+        if (p->synth[s].count > MUSIC_MAX_NOTES) r->ok = false;
+    }
+    if (accents) get(r, &p->accents, sizeof(p->accents));
+}
+
 static void encode(Writer *w, const SaveState *st) {
     int32_t ints[] = {st->theme, st->sound, st->patch, st->octave, st->bpm};
     put(w, ints, sizeof(ints));
@@ -56,16 +77,16 @@ static void encode(Writer *w, const SaveState *st) {
     put(w, st->params, sizeof(st->params));
     put(w, st->fx_x, sizeof(st->fx_x));
     put(w, st->fx_y, sizeof(st->fx_y));
-    put(w, st->pattern.drums, sizeof(st->pattern.drums));
-    for (int s = 0; s < SEQ_STEPS; s++) {
-        const SeqNote *n = &st->pattern.synth[s];
-        put(w, &n->key, 1);
-        put(w, &n->count, 1);
-        put(w, n->notes, MUSIC_MAX_NOTES);
-    }
+    int32_t slot = st->slot;
+    uint8_t song = st->song;
+    put(w, &slot, sizeof(slot));
+    put(w, &song, 1);
+    put(w, &st->swing, sizeof(st->swing));
+    for (int i = 0; i < SEQ_SLOTS; i++) put_pattern(w, &st->slots[i]);
 }
 
-static void decode(Reader *r, SaveState *st) {
+// version 1 files hold one pattern (no accents); it becomes slot A.
+static void decode(Reader *r, SaveState *st, int version) {
     int32_t ints[5];
     get(r, ints, sizeof(ints));
     st->theme = ints[0];
@@ -77,14 +98,22 @@ static void decode(Reader *r, SaveState *st) {
     get(r, st->params, sizeof(st->params));
     get(r, st->fx_x, sizeof(st->fx_x));
     get(r, st->fx_y, sizeof(st->fx_y));
-    get(r, st->pattern.drums, sizeof(st->pattern.drums));
-    for (int s = 0; s < SEQ_STEPS; s++) {
-        SeqNote *n = &st->pattern.synth[s];
-        get(r, &n->key, 1);
-        get(r, &n->count, 1);
-        get(r, n->notes, MUSIC_MAX_NOTES);
-        if (n->count > MUSIC_MAX_NOTES) r->ok = false;
+    memset(st->slots, 0, sizeof(st->slots));
+    st->slot = 0;
+    st->song = false;
+    st->swing = 0.0f;
+    if (version == 1) {
+        get_pattern(r, &st->slots[0], false);
+        return;
     }
+    int32_t slot;
+    uint8_t song;
+    get(r, &slot, sizeof(slot));
+    get(r, &song, 1);
+    get(r, &st->swing, sizeof(st->swing));
+    st->slot = slot >= 0 && slot < SEQ_SLOTS ? slot : 0;
+    st->song = song != 0;
+    for (int i = 0; i < SEQ_SLOTS; i++) get_pattern(r, &st->slots[i], true);
 }
 
 bool storage_save(const char *path, const SaveState *st) {
@@ -108,13 +137,14 @@ bool storage_load(const char *path, SaveState *st) {
     uint8_t buf[MAX_PAYLOAD];
     uint32_t sum = 0;
     bool ok = fread(magic, 1, 4, f) == 4 && memcmp(magic, "VIBE", 4) == 0 && fread(head, sizeof(head), 1, f) == 1 &&
-              head[0] == VERSION && head[1] <= MAX_PAYLOAD && fread(buf, 1, head[1], f) == head[1] &&
+              (head[0] == 1 || head[0] == VERSION) && head[1] <= MAX_PAYLOAD && fread(buf, 1, head[1], f) == head[1] &&
               fread(&sum, sizeof(sum), 1, f) == 1 && sum == checksum(buf, head[1]);
     fclose(f);
     if (!ok) return false;
     SaveState tmp;
     Reader r = {buf, head[1], 0, true};
-    decode(&r, &tmp);
+    memset(&tmp, 0, sizeof(tmp));
+    decode(&r, &tmp, head[0]);
     if (!r.ok) return false;
     *st = tmp;
     return true;

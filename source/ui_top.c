@@ -323,8 +323,9 @@ static void draw_hud(const AppState *app, const AudioStats *stats) {
     static const char *const mode_names[] = {"NOTE", "CHORD", "DRUMS"};
     uint32_t mode_face = t->pal[app->mode == PLAY_NOTE ? 1 : app->mode == PLAY_CHORD ? 4 : 0];
     sh_card(176, 3, 104, 17, rgba(mode_face, 0xFF), rgba(t->ink, 0xFF), 2);
-    ui_text(228, 3, 0.42f, rgba(ink_on(t, mode_face), 0xFF), C2D_AlignCenter, "%s  OCT%+d",
-            mode_names[app->mode], app->octave);
+    // Mode, octave, and the pattern slot (with an arrow when a song is chaining).
+    ui_text(228, 3, 0.42f, rgba(ink_on(t, mode_face), 0xFF), C2D_AlignCenter, "%s OCT%+d %c%s", mode_names[app->mode],
+            app->octave, 'A' + app->seq.slot, app->seq.song ? ">" : "");
 
     // CPU meter sticker.
     sh_card(288, 3, 106, 17, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);

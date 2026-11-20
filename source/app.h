@@ -27,6 +27,8 @@ typedef struct {
     Page page;                  // bottom-screen page
     SeqPattern pattern;         // snapshot of the sequencer, taken each frame
     SeqStatus seq;
+    int slot_hold;              // slot sticker being held (to copy into), or -1
+    float slot_hold_t;          // 0..1 progress of that hold
 
     // FX page
     FxState fx;                 // what the audio thread is doing (read back each frame)

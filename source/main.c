@@ -66,7 +66,11 @@ typedef enum {
     TOUCH_TAPE_SCRUB,
     TOUCH_TAPE_SPEED,
     TOUCH_TAPE_TRACK,
+    TOUCH_SLOT,
+    TOUCH_SWING,
 } TouchMode;
+
+#define SLOT_COPY_FRAMES 40  // hold a slot sticker this long to copy into it
 
 #define TAPE_WIPE_FRAMES 45  // hold a track sticker this long to wipe it
 
@@ -282,7 +286,10 @@ static void capture(SaveState *st) {
     memcpy(st->params, s_app.params, sizeof(st->params));
     st->octave = s_app.octave;
     st->bpm = s_app.seq.bpm;
-    st->pattern = s_app.pattern;
+    for (int i = 0; i < SEQ_SLOTS; i++) seq_get_slot(i, &st->slots[i]);
+    st->slot = s_app.seq.slot;
+    st->song = s_app.seq.song;
+    st->swing = s_app.seq.swing;
     memcpy(st->fx_x, s_app.fx_x, sizeof(st->fx_x));
     memcpy(st->fx_y, s_app.fx_y, sizeof(st->fx_y));
 }
@@ -301,7 +308,10 @@ static void restore(const SaveState *st) {
     }
     s_app.octave = st->octave < MUSIC_OCTAVE_MIN || st->octave > MUSIC_OCTAVE_MAX ? 0 : st->octave;
     seq_set_bpm(st->bpm);
-    seq_set_pattern(&st->pattern);
+    for (int i = 0; i < SEQ_SLOTS; i++) seq_put_slot(i, &st->slots[i]);
+    seq_select_slot(st->slot);
+    seq_set_song(st->song);
+    seq_set_swing(st->swing);
     memcpy(s_app.fx_x, st->fx_x, sizeof(s_app.fx_x));
     memcpy(s_app.fx_y, st->fx_y, sizeof(s_app.fx_y));
 }
@@ -368,14 +378,27 @@ static void set_param(int i, float v) {
 
 // ---------------------------------------------------------- sequencer ----
 
+// The sequencer plays through the engine.
+static void seq_out(int synth, int note, float velocity) {
+    if (velocity > 0.0f)
+        engine_note_on(synth, note, velocity);
+    else
+        engine_note_off(synth, note);
+}
+
+static unsigned s_slot_frames;
+
 static bool cell_on(int step, int row) {
     if (row == 0) return s_app.pattern.synth[step].count > 0;
+    if (row == SEQ_ROW_ACCENT) return (s_app.pattern.accents >> step) & 1u;
     return (s_app.pattern.drums[step] >> (row - 1)) & 1u;
 }
 
 static void paint_cell(int step, int row) {
     if (row == 0)
         seq_set_synth(step, s_paint_on ? &s_last_note : NULL);
+    else if (row == SEQ_ROW_ACCENT)
+        seq_set_accent(step, s_paint_on);
     else
         seq_set_drum(step, row - 1, s_paint_on);
     s_paint_step = step;
@@ -503,6 +526,21 @@ static void touch_begin(int x, int y) {
         s_touch = s_app.active_slider >= 0 ? TOUCH_SLIDER : TOUCH_IGNORE;
         return;
     }
+    int slot = ui_hit_seq_slot(x, y);
+    if (slot >= 0) {
+        if (slot == SEQ_HIT_SONG) {
+            seq_set_song(!s_app.seq.song);
+            s_touch = TOUCH_IGNORE;
+        } else if (slot == SEQ_HIT_SWING) {
+            seq_set_swing(ui_swing_at(x));
+            s_touch = TOUCH_SWING;
+        } else {
+            s_app.slot_hold = slot;  // tap = switch, hold = copy here
+            s_slot_frames = 0;
+            s_touch = TOUCH_SLOT;
+        }
+        return;
+    }
     SeqButton b = ui_hit_seq_button(x, y);
     if (b != SEQ_BTN_NONE) {
         press_button(b);
@@ -532,6 +570,9 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         if (s_touch == TOUCH_TAPE_TRACK && s_tape_hold_frames < TAPE_WIPE_FRAMES) tape_select(s_app.tape_hold_track);
         s_app.tape_hold_track = -1;
         s_app.tape_hold = 0.0f;
+        if (s_touch == TOUCH_SLOT && s_slot_frames < SLOT_COPY_FRAMES) seq_select_slot(s_app.slot_hold);
+        s_app.slot_hold = -1;
+        s_app.slot_hold_t = 0.0f;
         s_app.pad_touch = false;
         source_release(SOURCE_TOUCH);
         s_app.active_slider = -1;
@@ -602,6 +643,14 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             s_scrub_last_x = tp.px;
             break;
         }
+        case TOUCH_SWING: seq_set_swing(ui_swing_at(tp.px)); break;
+        case TOUCH_SLOT:
+            if (s_slot_frames < SLOT_COPY_FRAMES && ++s_slot_frames == SLOT_COPY_FRAMES) {
+                seq_copy_to_slot(s_app.slot_hold);  // a variation, ready to edit
+                ui_key_struck(s_app.slot_hold, PLAY_CHORD);
+            }
+            s_app.slot_hold_t = (float)s_slot_frames / SLOT_COPY_FRAMES;
+            break;
         case TOUCH_TAPE_SPEED:
             s_tape_speed = ui_tape_speed_at(tp.px);
             tape_set_speed(s_tape_speed);
@@ -675,7 +724,8 @@ int main(void) {
     for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
 
     engine_init();
-    seq_init();
+    seq_init(seq_out);
+    s_app.slot_hold = -1;
     const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
     select_sound(0);
@@ -729,6 +779,13 @@ int main(void) {
         // rotates themes, flipping to the SEQ page half the time.
         if (s_app.frame == 1) {
             select_sound(sound_mic_index() - 1);  // the first SYNTH visit lands on MIC
+            for (int i = 1; i < 4; i++) {  // a little song: A, then three rolled variations
+                SeqPattern pat;
+                dice_groove(&pat, 777u * i, 0);
+                seq_put_slot(i, &pat);
+            }
+            seq_set_song(true);
+            seq_set_swing(0.18f);
             s_tape_armed = true;                    // and the tape records the demo
             tape_record(true);
             tape_button(TAPE_HIT_PLAY);
