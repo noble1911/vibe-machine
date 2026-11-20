@@ -140,6 +140,12 @@ void seq_clear(void) {
     LightLock_Unlock(&s_lock);
 }
 
+void seq_set_pattern(const SeqPattern *p) {
+    LightLock_Lock(&s_lock);
+    s_pat = *p;
+    LightLock_Unlock(&s_lock);
+}
+
 void seq_set_drum(int step, int lane, bool on) {
     if (step < 0 || step >= SEQ_STEPS || lane < 0 || lane >= SEQ_LANES) return;
     LightLock_Lock(&s_lock);

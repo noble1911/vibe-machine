@@ -47,6 +47,7 @@ void seq_toggle_play(void);
 void seq_set_recording(bool on);
 void seq_set_bpm(int bpm);
 void seq_clear(void);
+void seq_set_pattern(const SeqPattern *p);
 
 void seq_set_drum(int step, int lane, bool on);
 void seq_set_synth(int step, const SeqNote *note);  // count 0 clears

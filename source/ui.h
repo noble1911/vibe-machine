@@ -51,7 +51,9 @@
 #define SEQ_BPM_UP_X 248
 #define SEQ_BPM_BTN_W 16
 #define SEQ_CLEAR_X 270
-#define SEQ_CLEAR_W 46
+#define SEQ_CLEAR_W 22
+#define SEQ_DICE_X 294
+#define SEQ_DICE_W 22
 #define SEQ_GRID_X 22
 #define SEQ_CELL_W 18
 #define SEQ_SYNTH_Y 27
@@ -72,6 +74,9 @@
 #define SYN_PAD_Y 26
 #define SYN_PAD_W 206
 #define SYN_PAD_H 132
+#define SYN_DICE_X (SYN_PAD_X + SYN_PAD_W - 22)
+#define SYN_DICE_Y (SYN_PAD_Y + 3)
+#define SYN_DICE_W 18
 #define BANK_COLS 16
 #define BANK_ROWS 8
 #define BANK_X0 (SYN_PAD_X + 6)
@@ -100,6 +105,7 @@ typedef enum {
     SEQ_BTN_BPM_DOWN,
     SEQ_BTN_BPM_UP,
     SEQ_BTN_CLEAR,
+    SEQ_BTN_DICE,
 } SeqButton;
 
 void ui_init(void);
@@ -132,6 +138,7 @@ SeqButton ui_hit_seq_button(int x, int y);
 bool ui_hit_seq_cell(int x, int y, int *step, int *row);
 int ui_hit_sound_tile(int x, int y);
 bool ui_in_synth_pad(int x, int y);
+bool ui_hit_synth_dice(int x, int y);
 int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
 int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
 bool ui_in_fx_pad(int x, int y);

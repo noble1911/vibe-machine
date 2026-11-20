@@ -8,13 +8,16 @@
 #include <citro2d.h>
 #include <math.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "app.h"
 #include "audio_out.h"
 #include "engine.h"
 #include "music.h"
 #include "patch_names.h"
+#include "dice.h"
 #include "seq.h"
+#include "storage.h"
 #include "ui.h"
 
 #define QUIT_HOLD_FRAMES 60   // hold START this long to quit
@@ -149,6 +152,73 @@ static void change_patch(int patch) {
     reapply_params();
 }
 
+// SYNTH dice: random macros for a custom sound, a random patch in a bank.
+static void roll_sound(void) {
+    uint32_t r = (uint32_t)svcGetSystemTick() * 2654435761u + s_app.frame;
+    const Sound *snd = sound_get(s_app.sound);
+    if (snd->kind == SOUND_BANK) {
+        change_patch(snd->bank_first + (int)((r >> 8) % (uint32_t)snd->bank_count));
+    } else {
+        set_macro(0, ((r >> 8) & 0xFF) / 255.0f);
+        set_macro(1, ((r >> 16) & 0xFF) / 255.0f);
+    }
+    ui_key_struck((int)((r >> 4) % MUSIC_KEYS), PLAY_NOTE);
+}
+
+// ------------------------------------------------------------ save file ----
+
+static void capture(SaveState *st) {
+    memset(st, 0, sizeof(*st));  // zero padding too, so states compare with memcmp
+    st->theme = s_theme;
+    st->sound = s_app.sound;
+    st->patch = s_app.patch;
+    memcpy(st->macro, s_app.macro, sizeof(st->macro));
+    memcpy(st->params, s_app.params, sizeof(st->params));
+    st->octave = s_app.octave;
+    st->bpm = s_app.seq.bpm;
+    st->pattern = s_app.pattern;
+    memcpy(st->fx_x, s_app.fx_x, sizeof(st->fx_x));
+    memcpy(st->fx_y, s_app.fx_y, sizeof(st->fx_y));
+}
+
+static void restore(const SaveState *st) {
+    s_theme = ((st->theme % ui_theme_count()) + ui_theme_count()) % ui_theme_count();
+    ui_set_theme(s_theme);
+    for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = st->params[i];
+    select_sound(st->sound);
+    const Sound *snd = sound_get(s_app.sound);
+    if (snd->kind == SOUND_BANK && st->patch >= snd->bank_first && st->patch < snd->bank_first + snd->bank_count)
+        change_patch(st->patch);
+    for (int m = 0; m < SOUND_MACROS; m++) {
+        s_app.macro[m] = st->macro[m];
+        engine_set_macro(s_app.sound, m, st->macro[m]);
+    }
+    s_app.octave = st->octave < MUSIC_OCTAVE_MIN || st->octave > MUSIC_OCTAVE_MAX ? 0 : st->octave;
+    seq_set_bpm(st->bpm);
+    seq_set_pattern(&st->pattern);
+    memcpy(s_app.fx_x, st->fx_x, sizeof(s_app.fx_x));
+    memcpy(s_app.fx_y, st->fx_y, sizeof(s_app.fx_y));
+}
+
+// Save a moment after things stop changing (and again on quit). The file
+// is tiny, so this is cheap even on the 3DS's SD card.
+#define SAVE_SETTLE_FRAMES 90
+static SaveState s_saved, s_seen;
+static unsigned s_changed_at;
+
+static void autosave(bool force) {
+    SaveState now;
+    capture(&now);
+    if (memcmp(&now, &s_seen, sizeof(now)) != 0) {
+        s_seen = now;
+        s_changed_at = s_app.frame;
+    }
+    bool dirty = memcmp(&now, &s_saved, sizeof(now)) != 0;
+    if (dirty && (force || s_app.frame - s_changed_at >= SAVE_SETTLE_FRAMES)) {
+        if (storage_save(STORAGE_PATH, &now)) s_saved = now;
+    }
+}
+
 static void fx_pad_move(float x, float y) {
     int k = s_app.fx_sel;
     s_app.fx_x[k] = x;
@@ -212,6 +282,13 @@ static void press_button(SeqButton b) {
         case SEQ_BTN_BPM_DOWN: seq_set_bpm(s_app.seq.bpm - 1); break;
         case SEQ_BTN_BPM_UP: seq_set_bpm(s_app.seq.bpm + 1); break;
         case SEQ_BTN_CLEAR: seq_clear(); break;
+        case SEQ_BTN_DICE: {
+            SeqPattern p;
+            dice_groove(&p, (uint32_t)svcGetSystemTick() ^ (s_app.frame * 2654435761u), s_app.octave);
+            seq_set_pattern(&p);
+            for (int k = 0; k < MUSIC_KEYS; k += 2) ui_seq_struck(k, k & 2);  // celebrate the roll
+            break;
+        }
         default: break;
     }
 }
@@ -245,6 +322,11 @@ static void touch_begin(int x, int y) {
     }
     if (ui_hit_key(x, y) >= 0) {
         s_touch = TOUCH_KEYS;
+        return;
+    }
+    if (s_app.page == PAGE_SYNTH && ui_hit_synth_dice(x, y)) {
+        roll_sound();
+        s_touch = TOUCH_IGNORE;
         return;
     }
     if (s_app.page == PAGE_SYNTH) {
@@ -435,6 +517,16 @@ int main(void) {
     const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
     select_sound(0);
+    mkdir("sdmc:/3ds", 0777);
+    mkdir(STORAGE_DIR, 0777);
+    {
+        SaveState st;
+        if (storage_load(STORAGE_PATH, &st)) restore(&st);
+        s_app.seq = seq_status();
+        seq_snapshot(&s_app.pattern);
+        capture(&s_saved);  // what is on disk now
+        s_seen = s_saved;
+    }
     s_app.audio_ok = audio_out_init();
 
     hidSetRepeatParameters(18, 5);
@@ -477,6 +569,9 @@ int main(void) {
 #endif
         handle_buttons(down, held, up, repeat);
         handle_touch(down, held, up);
+#ifndef VM_DEMO
+        if (s_app.frame % 30 == 0) autosave(false);
+#endif
         follow_sequencer();
         update_lit_keys();
 
@@ -502,6 +597,9 @@ int main(void) {
         s_app.frame++;
     }
 
+#ifndef VM_DEMO
+    autosave(true);
+#endif
     if (s_app.seq.playing) seq_toggle_play();
     release_all();
     audio_out_exit();

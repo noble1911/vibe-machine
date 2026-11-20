@@ -157,6 +157,17 @@ static void draw_sound_page(const AppState *app) {
 
 // --------------------------------------------------------- SEQ page ----
 
+// A die sticker (five pips) that wobbles now and then to invite a tap.
+static void draw_die(float x, float y, float w, uint32_t face) {
+    const Theme *t = ui_theme();
+    sticker(x, y, w, w > TAB_H ? TAB_H : w, face, false, 0);
+    const float cx = x + w / 2.0f, cy = y + TAB_H / 2.0f, d = 4.0f;
+    const float wob = ((s_frame / 7) % 40 == 0) ? 1.0f : 0.0f;
+    const u32 pip = rgba(ink_on(t, face), 0xFF);
+    const float px[5] = {-d, d, 0, -d, d}, py[5] = {-d, -d, 0, d, d};
+    for (int i = 0; i < 5; i++) sh_circle(cx + px[i] + wob, cy + py[i] - wob, 1.5f, pip);
+}
+
 static void draw_transport(const AppState *app) {
     const Theme *t = ui_theme();
     const SeqStatus *st = &app->seq;
@@ -190,7 +201,11 @@ static void draw_transport(const AppState *app) {
     sh_rect(SEQ_BPM_UP_X + 4, cy - 1.5f, SEQ_BPM_BTN_W - 8, 3, plus);
     sh_rect(SEQ_BPM_UP_X + SEQ_BPM_BTN_W / 2.0f - 1.5f, cy - 4, 3, 8, plus);
 
-    sticker(SEQ_CLEAR_X, TAB_Y, SEQ_CLEAR_W, TAB_H, t->pal[4], false, "CLR");
+    // Clear: a cross. Dice: five pips.
+    sticker(SEQ_CLEAR_X, TAB_Y, SEQ_CLEAR_W, TAB_H, t->card, false, 0);
+    sh_bar(SEQ_CLEAR_X + SEQ_CLEAR_W / 2.0f, cy, 12, 3, 0.785f, rgba(t->pal[0], 0xFF));
+    sh_bar(SEQ_CLEAR_X + SEQ_CLEAR_W / 2.0f, cy, 12, 3, -0.785f, rgba(t->pal[0], 0xFF));
+    draw_die(SEQ_DICE_X, TAB_Y, SEQ_DICE_W, t->pal[3]);
 }
 
 static void draw_grid(const AppState *app) {
@@ -299,8 +314,7 @@ static void draw_bank_grid(const AppState *app, const Sound *s) {
     const Theme *t = ui_theme();
     const int cur = app->patch - s->bank_first;
     ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, "%s  %d PATCHES", s->name, s->bank_count);
-    ui_text(SYN_PAD_X + SYN_PAD_W - 6, SYN_PAD_Y + 2, 0.36f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight,
-            "tap a dot");
+    ui_text(SYN_DICE_X - 4, SYN_PAD_Y + 2, 0.36f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "tap a dot");
     for (int i = 0; i < s->bank_count && i < BANK_COLS * BANK_ROWS; i++) {
         float cx = BANK_X0 + (i % BANK_COLS) * BANK_CELL_W + BANK_CELL_W / 2.0f;
         float cy = BANK_Y0 + (i / BANK_COLS) * BANK_CELL_H + BANK_CELL_H / 2.0f;
@@ -322,8 +336,7 @@ static void draw_creature_pad(const AppState *app, const Sound *s) {
     const float x0 = SYN_PAD_X + 8, y0 = SYN_PAD_Y + 20, w = SYN_PAD_W - 16, h = SYN_PAD_H - 28;
     sh_grid(x0, y0, w, h, 13, rgba(t->ink, 0x16));
     ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, "%s", s->name);
-    ui_text(SYN_PAD_X + SYN_PAD_W - 6, SYN_PAD_Y + 3, 0.32f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "%s",
-            s->blurb);
+    ui_text(SYN_DICE_X - 4, SYN_PAD_Y + 3, 0.32f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "%s", s->blurb);
 
     const float cx = x0 + app->macro[0] * w, cy = y0 + (1.0f - app->macro[1]) * h;
     // Crosshair to the axes, as dashed lines in the axis colours.
@@ -357,6 +370,7 @@ static void draw_synth_page(const AppState *app) {
         draw_bank_grid(app, s);
     else
         draw_creature_pad(app, s);
+    draw_die(SYN_DICE_X, SYN_DICE_Y, SYN_DICE_W, t->pal[3]);
 }
 
 // ---------------------------------------------------------- FX page ----

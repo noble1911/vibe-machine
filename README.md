@@ -44,6 +44,8 @@ synthesis library (MIT) that also runs on the ESP32 and RP2040.
 | SELECT / circle pad ← → | Next sound (inside a bank, the circle pad steps patches) |
 | FX page: pick CRUSH / SWEEP / STUTTER / TAPE, touch the pad | Effect on while touching; X and Y shape it |
 | FX page: HOLD | Effects stay on after you lift the stylus (tap an effect again to drop it) |
+| SEQ page: dice | Roll a fresh groove (weighted: kick on the one, snares on 2 and 4, synth in key) |
+| SYNTH page: dice | Roll the creature's macros, or a random patch in a bank |
 
 ## Running it
 
@@ -68,6 +70,10 @@ Needs custom firmware (Luma3DS) and the Homebrew Launcher. Copy
 `vibe-machine.3dsx` to `sdmc:/3ds/`. Sound needs the console's DSP firmware
 at `sdmc:/3ds/dspfirm.cdc`; run the **DSP1** homebrew once to dump it from
 your own console. Do not use the emulator placeholder on real hardware.
+
+Everything (pattern, sound, macros, sliders, tempo, theme) is saved to
+`sdmc:/3ds/vibe-machine/state.vms` a moment after you change it and again
+when you quit, and restored at launch.
 
 ## Building
 

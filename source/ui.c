@@ -136,7 +136,8 @@ SeqButton ui_hit_seq_button(int x, int y) {
     if (in_box(x, y, SEQ_REC_X - 2, 0, SEQ_BTN_W + 3, 24)) return SEQ_BTN_REC;
     if (in_box(x, y, SEQ_BPM_DOWN_X - 2, 0, SEQ_BPM_BTN_W + 3, 24)) return SEQ_BTN_BPM_DOWN;
     if (in_box(x, y, SEQ_BPM_UP_X - 1, 0, SEQ_BPM_BTN_W + 4, 24)) return SEQ_BTN_BPM_UP;
-    if (in_box(x, y, SEQ_CLEAR_X - 2, 0, SEQ_CLEAR_W + 4, 24)) return SEQ_BTN_CLEAR;
+    if (in_box(x, y, SEQ_CLEAR_X - 1, 0, SEQ_CLEAR_W + 2, 24)) return SEQ_BTN_CLEAR;
+    if (in_box(x, y, SEQ_DICE_X - 1, 0, SEQ_DICE_W + 4, 24)) return SEQ_BTN_DICE;
     return SEQ_BTN_NONE;
 }
 
@@ -162,6 +163,10 @@ int ui_hit_sound_tile(int x, int y) {
         if (in_box(x, y, tx - 1, ty - 1, SYN_TILE_W + 2, SYN_TILE_H + 2)) return i;
     }
     return -1;
+}
+
+bool ui_hit_synth_dice(int x, int y) {
+    return in_box(x, y, SYN_DICE_X - 3, SYN_DICE_Y - 3, SYN_DICE_W + 6, SYN_DICE_W + 4);
 }
 
 bool ui_in_synth_pad(int x, int y) { return in_box(x, y, SYN_PAD_X, SYN_PAD_Y, SYN_PAD_W, SYN_PAD_H); }
