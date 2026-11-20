@@ -71,11 +71,28 @@
 #define SEQ_SLOT_W 21
 #define SEQ_SLOT_PITCH 23
 #define SEQ_SONG_X 190
-#define SEQ_SONG_W 44
-#define SEQ_SWING_X 238
-#define SEQ_SWING_W 78
+#define SEQ_SONG_W 32
+#define SEQ_ROLL_X 226
+#define SEQ_ROLL_W 32
+#define SEQ_SWING_X 262
+#define SEQ_SWING_W 54
 #define SEQ_HIT_SONG SEQ_SLOTS        // ui_hit_seq_slot results beyond 0..7
 #define SEQ_HIT_SWING (SEQ_SLOTS + 1)
+#define SEQ_HIT_ROLL (SEQ_SLOTS + 2)
+
+// SEQ page, ROLL view: a scale/chromatic toggle and a keyboard strip on the
+// left, then 16 step columns by ROLL_ROWS pitch rows.
+#define ROLL_TOGGLE_X 4
+#define ROLL_TOGGLE_Y 26
+#define ROLL_TOGGLE_W 20
+#define ROLL_TOGGLE_H 11
+#define ROLL_KEYS_X 4
+#define ROLL_KEYS_W 20
+#define ROLL_X0 26
+#define ROLL_CELL_W 18
+#define ROLL_Y0 38
+#define ROLL_ROW_H 8
+#define ROLL_ROWS 13
 
 // SYNTH page: a 2x5 grid of sound tiles, and the pad (an XY creature pad
 // for CUSTOM sounds, a 16x8 patch-dot grid for BANK sounds).
@@ -232,6 +249,12 @@ SeqButton ui_hit_seq_button(int x, int y);
 bool ui_hit_seq_cell(int x, int y, int *step, int *row);
 int ui_hit_seq_slot(int x, int y);  // 0..7, SEQ_HIT_SONG, SEQ_HIT_SWING or -1
 float ui_swing_at(int x);           // swing strip position -> 0..SEQ_SWING_MAX
+bool ui_hit_roll_toggle(int x, int y);
+bool ui_hit_roll_keys(int x, int y);
+// Roll cell under (x, y): step 0..15 and row 0..ROLL_ROWS-1 counted up from
+// the bottom. The clamped form always answers (for drags off the edge).
+bool ui_roll_cell(int x, int y, int *step, int *row);
+void ui_roll_cell_clamped(int x, int y, int *step, int *row);
 int ui_hit_sound_tile(int x, int y);
 bool ui_in_synth_pad(int x, int y);
 bool ui_hit_synth_dice(int x, int y);

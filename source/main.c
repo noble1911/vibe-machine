@@ -70,6 +70,8 @@ typedef enum {
     TOUCH_SLOT,
     TOUCH_SWING,
     TOUCH_SONG_HOLD,
+    TOUCH_ROLL_NOTE,
+    TOUCH_ROLL_KEYS,
 } TouchMode;
 
 #define SONG_HOLD_FRAMES 45  // hold DELETE / NEW (and LOAD over unsaved work)
@@ -754,6 +756,125 @@ static void seq_out(int synth, int note, float velocity) {
 
 static unsigned s_slot_frames;
 
+// --------------------------------------------------------------- roll ----
+
+#define AUDITION_FRAMES 14
+static int s_audition_pitch = -1, s_audition_frames;
+
+// Play a pitch briefly so you hear what you're placing.
+static void audition(int pitch) {
+    if (s_audition_pitch >= 0) engine_note_off(SYNTH_LEAD, s_audition_pitch);
+    engine_note_on(SYNTH_LEAD, pitch, 0.7f);
+    s_audition_pitch = pitch;
+    s_audition_frames = AUDITION_FRAMES;
+}
+
+static void audition_tick(void) {
+    if (s_audition_pitch >= 0 && --s_audition_frames <= 0) {
+        engine_note_off(SYNTH_LEAD, s_audition_pitch);
+        s_audition_pitch = -1;
+    }
+}
+
+typedef enum { ROLL_MOVE, ROLL_STRETCH } RollDrag;
+static RollDrag s_roll_mode;
+static SeqRollNote s_roll_orig;  // the note as it was when the drag began
+static int s_roll_anchor_step, s_roll_anchor_row, s_roll_last_step, s_roll_last_row;
+static bool s_roll_moved, s_roll_created;
+static int s_roll_len = 1;       // length new notes get (the last one you set)
+static int s_keys_last_y;
+
+static int roll_pitch(int row) { return music_roll_pitch(s_app.roll_scroll + row, s_app.roll_chromatic); }
+
+static void roll_scroll_by(int rows) {
+    int max = music_roll_rows(s_app.roll_chromatic) - ROLL_ROWS;
+    int v = s_app.roll_scroll + rows;
+    s_app.roll_scroll = v < 0 ? 0 : v > max ? max : v;
+}
+
+static void roll_begin(int x, int y) {
+    if (ui_hit_roll_toggle(x, y)) {
+        // Keep the same pitch at the bottom when switching scale / chromatic.
+        int bottom = roll_pitch(0);
+        s_app.roll_chromatic = !s_app.roll_chromatic;
+        s_app.roll_scroll = music_roll_row(bottom, s_app.roll_chromatic);
+        roll_scroll_by(0);
+        s_touch = TOUCH_IGNORE;
+        return;
+    }
+    if (ui_hit_roll_keys(x, y)) {
+        int step, row;
+        ui_roll_cell_clamped(ROLL_X0, y, &step, &row);
+        audition(roll_pitch(row));
+        s_keys_last_y = y;
+        s_touch = TOUCH_ROLL_KEYS;
+        return;
+    }
+    int step, row;
+    if (!ui_roll_cell(x, y, &step, &row)) {
+        s_touch = TOUCH_IGNORE;
+        return;
+    }
+    const int pitch = roll_pitch(row);
+    int idx = seq_roll_find(step, pitch);
+    s_roll_moved = s_roll_created = false;
+    if (idx < 0) {  // empty: a new note, which a drag to the right stretches
+        idx = seq_roll_add(step, pitch, s_roll_len, (int)(SEQ_VEL_SYNTH * 255));
+        if (idx < 0) {
+            s_touch = TOUCH_IGNORE;  // pattern full
+            return;
+        }
+        s_roll_created = true;
+        s_roll_mode = ROLL_STRETCH;
+        audition(pitch);
+    }
+    SeqPattern pat;
+    seq_snapshot(&pat);
+    s_roll_orig = pat.notes[idx];
+    if (!s_roll_created) {
+        // Grab the last cell of a note to stretch it, anywhere else to move it.
+        int last = s_roll_orig.step + s_roll_orig.len - 1;
+        bool right_half = (x - ROLL_X0) % ROLL_CELL_W >= ROLL_CELL_W / 2;
+        s_roll_mode = (step == last && (s_roll_orig.len > 1 || right_half)) ? ROLL_STRETCH : ROLL_MOVE;
+    }
+    s_app.roll_active = idx;
+    s_roll_anchor_step = s_roll_last_step = step;
+    s_roll_anchor_row = s_roll_last_row = row;
+    s_touch = TOUCH_ROLL_NOTE;
+}
+
+static void roll_drag(int x, int y) {
+    int step, row;
+    ui_roll_cell_clamped(x, y, &step, &row);
+    if (step == s_roll_last_step && row == s_roll_last_row) return;
+    s_roll_last_step = step;
+    s_roll_last_row = row;
+    s_roll_moved = true;
+    const int idx = s_app.roll_active;
+    if (s_roll_mode == ROLL_STRETCH) {
+        int len = step - s_roll_orig.step + 1;
+        seq_roll_set(idx, s_roll_orig.step, s_roll_orig.pitch, len < 1 ? 1 : len);
+        s_roll_len = len < 1 ? 1 : len;
+        return;
+    }
+    int new_step = s_roll_orig.step + (step - s_roll_anchor_step);
+    new_step = new_step < 0 ? 0 : new_step >= SEQ_STEPS ? SEQ_STEPS - 1 : new_step;
+    int rows = music_roll_rows(s_app.roll_chromatic);
+    int abs_row = music_roll_row(s_roll_orig.pitch, s_app.roll_chromatic) + (row - s_roll_anchor_row);
+    abs_row = abs_row < 0 ? 0 : abs_row >= rows ? rows - 1 : abs_row;
+    int pitch = row == s_roll_anchor_row ? s_roll_orig.pitch : music_roll_pitch(abs_row, s_app.roll_chromatic);
+    SeqPattern pat;
+    seq_snapshot(&pat);
+    if (idx >= 0 && idx < pat.count && pat.notes[idx].pitch != pitch) audition(pitch);
+    seq_roll_set(idx, new_step, pitch, s_roll_orig.len);
+}
+
+static void roll_end(void) {
+    // A tap on a note (no drag) removes it.
+    if (!s_roll_moved && !s_roll_created && s_app.roll_active >= 0) seq_roll_remove(s_app.roll_active);
+    s_app.roll_active = -1;
+}
+
 static bool cell_on(int step, int row) {
     int tmp[4];
     if (row == 0) return seq_notes_at(&s_app.pattern, step, tmp, 4) > 0;
@@ -910,7 +1031,10 @@ static void touch_begin(int x, int y) {
     }
     int slot = ui_hit_seq_slot(x, y);
     if (slot >= 0) {
-        if (slot == SEQ_HIT_SONG) {
+        if (slot == SEQ_HIT_ROLL) {
+            s_app.roll_view = !s_app.roll_view;
+            s_touch = TOUCH_IGNORE;
+        } else if (slot == SEQ_HIT_SONG) {
             seq_set_song(!s_app.seq.song);
             s_touch = TOUCH_IGNORE;
         } else if (slot == SEQ_HIT_SWING) {
@@ -931,6 +1055,10 @@ static void touch_begin(int x, int y) {
         s_touch = TOUCH_BUTTON;
         return;
     }
+    if (s_app.roll_view) {
+        roll_begin(x, y);
+        return;
+    }
     int step, row;
     if (ui_hit_seq_cell(x, y, &step, &row)) {
         // The first cell decides: paint "on" over empty cells, "off" over
@@ -947,6 +1075,7 @@ static void touch_begin(int x, int y) {
 static void handle_touch(u32 down, u32 held, u32 up) {
     if (up & KEY_TOUCH) {
         if (s_touch == TOUCH_FX_PAD) fx_pad_release();
+        if (s_touch == TOUCH_ROLL_NOTE) roll_end();
         if (s_touch == TOUCH_REC && s_app.mic_rec) finish_recording();
         if (s_touch == TOUCH_TAPE_SCRUB) tape_scrub(false, 0.0f);
         if (s_touch == TOUCH_TAPE_TRACK && s_tape_hold_frames < TAPE_WIPE_FRAMES) tape_select(s_app.tape_hold_track);
@@ -954,6 +1083,8 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         s_app.tape_hold = 0.0f;
         if (s_touch == TOUCH_SLOT && s_slot_frames < SLOT_COPY_FRAMES) seq_select_slot(s_app.slot_hold);
         s_app.slot_hold = -1;
+    s_app.roll_active = -1;
+    s_app.roll_scroll = music_roll_row(57, false);  // A3 at the bottom: middle C sits low on the roll
         s_app.slot_hold_t = 0.0f;
         s_app.song_hold = -1;
         s_app.song_hold_t = 0.0f;
@@ -1028,6 +1159,16 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             break;
         }
         case TOUCH_SWING: seq_set_swing(ui_swing_at(tp.px)); break;
+        case TOUCH_ROLL_NOTE: roll_drag(tp.px, tp.py); break;
+        case TOUCH_ROLL_KEYS: {
+            // Drag the keyboard: it moves with your finger, a row at a time.
+            int dy = tp.py - s_keys_last_y;
+            if (dy >= ROLL_ROW_H || dy <= -ROLL_ROW_H) {
+                roll_scroll_by(dy / ROLL_ROW_H);
+                s_keys_last_y += (dy / ROLL_ROW_H) * ROLL_ROW_H;
+            }
+            break;
+        }
         case TOUCH_SONG_HOLD:
             if (s_song_hold_frames < SONG_HOLD_FRAMES && ++s_song_hold_frames == SONG_HOLD_FRAMES)
                 song_hold_done(s_app.song_hold);
@@ -1115,6 +1256,8 @@ int main(void) {
     engine_init();
     seq_init(seq_out);
     s_app.slot_hold = -1;
+    s_app.roll_active = -1;
+    s_app.roll_scroll = music_roll_row(57, false);  // A3 at the bottom: middle C sits low on the roll
     const float initial[PARAM_COUNT] = {0.5f, 0.15f, 0.25f, 0.4f};
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = initial[i];
     select_sound(0);
@@ -1201,6 +1344,7 @@ int main(void) {
             save_song(nm);
         }
         if (s_app.page == PAGE_SONGS && s_app.frame % 120 == 0) refresh_songs();
+        s_app.roll_view = (s_app.frame / 720) & 1;  // every other SEQ visit shows the piano roll
         update_song_dirty();
         if (s_app.page == PAGE_SYNTH && s_app.frame % 120 == 0) select_sound(s_app.sound + 1);
         {   // wander a pretend stylus around the pads
@@ -1249,6 +1393,7 @@ int main(void) {
         }
 #endif
         follow_sequencer();
+        audition_tick();
         if (s_app.mic_rec) {
             bool room = mic_poll();
             s_app.mic_level = mic_level();

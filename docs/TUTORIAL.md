@@ -92,8 +92,9 @@ glide from note to note.
 
 The grid is one bar of 16 steps. From the top:
 
-1. **The synth row**: notes or chords, labelled with the note name. A small
-   dot means a chord.
+1. **The synth row**: the melody, labelled with the lowest note on each step.
+   A small dot means a chord, and a bar shows a longer note holding. For
+   full control of melodies, use the **piano roll** (below).
 2. **The accent row**: a thin row of small triangles. Accented steps hit
    harder.
 3. **Eight drum lanes**, in key order: kick, snare, hat, open hat, clap,
@@ -133,8 +134,33 @@ Along the bottom:
   quick way to make a variation.
 - **SONG**: when on, the sequencer plays every filled slot in order (A, B,
   C, …), one bar each, skipping empty ones, and loops.
-- **SWING**: drag from 0% to 50%. It lengthens the on-beat 16ths and shortens
-  the off-beat ones, for a shuffle.
+- **ROLL**: switches the grid to the piano roll (below).
+- **SW**: swing. Drag from 0% to 50%. It lengthens the on-beat 16ths and
+  shortens the off-beat ones, for a shuffle.
+
+### The piano roll
+
+![The piano roll](images/roll.png)
+
+Tap **ROLL** (bottom row) to swap the grid for a **piano roll** of the same
+pattern: pitches up the side, steps across. Drums stay on the grid; this is
+where melodies, chords and long notes live.
+
+- **Tap an empty spot** to add a note. You hear it as it lands. **Keep
+  dragging right** as you place it to make it longer.
+- **Drag a note** to move it in time or pitch.
+- **Drag a note's last cell** to change its length. Notes can run past the
+  end of the bar (a small arrow shows it) and hold over into the next.
+- **Tap a note** (without dragging) to remove it.
+- **Drag the keyboard strip** on the left to scroll up and down. Tap it to
+  hear a pitch.
+- **C / #** (top-left) switches between **C major** rows (every row is in
+  key) and **chromatic** rows (every semitone). Notes outside the scale show
+  a `#` in scale view.
+- New notes take the length of the last note you stretched.
+
+Notes you record live keep the length you held them for, and the grid's
+synth row shows them too (a bar runs through the steps a long note holds).
 
 ### The dice
 

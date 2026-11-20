@@ -254,8 +254,31 @@ int ui_hit_seq_slot(int x, int y) {
         if (x >= sx - 1 && x < sx + SEQ_SLOT_PITCH - 1) return i;
     }
     if (x >= SEQ_SONG_X - 2 && x < SEQ_SONG_X + SEQ_SONG_W + 2) return SEQ_HIT_SONG;
+    if (x >= SEQ_ROLL_X - 2 && x < SEQ_ROLL_X + SEQ_ROLL_W + 2) return SEQ_HIT_ROLL;
     if (x >= SEQ_SWING_X - 2 && x < SEQ_SWING_X + SEQ_SWING_W + 4) return SEQ_HIT_SWING;
     return -1;
+}
+
+bool ui_hit_roll_toggle(int x, int y) {
+    return in_box(x, y, ROLL_TOGGLE_X - 2, ROLL_TOGGLE_Y - 2, ROLL_TOGGLE_W + 3, ROLL_TOGGLE_H + 2);
+}
+
+bool ui_hit_roll_keys(int x, int y) {
+    return in_box(x, y, ROLL_KEYS_X - 3, ROLL_Y0, ROLL_KEYS_W + 4, ROLL_ROWS * ROLL_ROW_H);
+}
+
+bool ui_roll_cell(int x, int y, int *step, int *row) {
+    if (!in_box(x, y, ROLL_X0, ROLL_Y0, SEQ_STEPS * ROLL_CELL_W, ROLL_ROWS * ROLL_ROW_H)) return false;
+    ui_roll_cell_clamped(x, y, step, row);
+    return true;
+}
+
+void ui_roll_cell_clamped(int x, int y, int *step, int *row) {
+    int s = (x - ROLL_X0) / ROLL_CELL_W, r = ROLL_ROWS - 1 - (y - ROLL_Y0) / ROLL_ROW_H;
+    if (x < ROLL_X0) s = 0;
+    if (y < ROLL_Y0) r = ROLL_ROWS - 1;
+    *step = s < 0 ? 0 : s >= SEQ_STEPS ? SEQ_STEPS - 1 : s;
+    *row = r < 0 ? 0 : r >= ROLL_ROWS ? ROLL_ROWS - 1 : r;
 }
 
 float ui_swing_at(int x) {

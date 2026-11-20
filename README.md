@@ -19,7 +19,7 @@ play.
 | | |
 |---|---|
 | ![SOUND page](docs/images/sound.png) | **SOUND**: tone, echo, reverb and volume, nine colour themes, and the SONGS browser. |
-| ![SEQ page](docs/images/seq.png) | **SEQ**: a 16-step sequencer with a synth row, accents and eight drum lanes. Eight pattern slots (A–H) chain into a song. Swing, live recording, and a dice that rolls new grooves. |
+| ![SEQ page](docs/images/seq.png) | **SEQ**: a 16-step sequencer with a synth row, accents and eight drum lanes, plus a **piano roll** for melodies, chords and long notes. Eight pattern slots (A–H) chain into a song. Swing, live recording, and a dice that rolls new grooves. |
 | ![SYNTH creature pad](docs/images/synth-creature.png) | **SYNTH**: ten sounds, each with a googly-eyed mascot. Drag the mascot around the pad to play its two macros. |
 | ![SYNTH patch dots](docs/images/synth-bank.png) | The **Juno-6** and **DX7** banks: 128 patches each, as dots to tap or slide across. |
 | ![FX page, STUTTER](docs/images/fx-stutter.png) | **FX**: CRUSH, SWEEP, STUTTER and TAPE STOP, played on an XY pad. HOLD lets them stack. |
@@ -88,7 +88,7 @@ runs seven probes:
 |---|---|
 | sound | Every sound makes a note, at a matched level, and both of its macros audibly change it |
 | fx | Bypass is bit-exact; sweep darkens and brightens; crush quantises; stutter repeats at exactly the tempo-synced length; tape stops and recovers |
-| seq | 16ths land on time, to the sample; swing gaps are right; accents hit harder; a queued pattern switches on the bar line; song mode chains the right slots |
+| seq | 16ths land on time, to the sample; swing gaps are right; accents hit harder; a queued pattern switches on the bar line; song mode chains the right slots; piano-roll notes hold for their length (over the bar line too), chords sound together, live notes keep the length you held |
 | tape | Playback at pitch, an octave up at 2×, reverse, mute, wipe |
 | logic | Save files, WAV files, dice grooves (always in key), MIC take tidying |
 | songs | Song names, listing (sorted, hundreds of songs), save, load, overwrite, delete |

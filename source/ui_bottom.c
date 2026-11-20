@@ -388,18 +388,87 @@ static void draw_slots(const AppState *app) {
             sh_rect(x + 1, SEQ_SLOT_Y + SEQ_SLOT_H - 3, (SEQ_SLOT_W - 2) * app->slot_hold_t, 3, rgba(ink_on(t, face), 0xFF));
     }
     sticker(SEQ_SONG_X, SEQ_SLOT_Y, SEQ_SONG_W, SEQ_SLOT_H, st->song ? t->pal[3] : t->card, !st->song, "SONG");
+    sticker(SEQ_ROLL_X, SEQ_SLOT_Y, SEQ_ROLL_W, SEQ_SLOT_H, app->roll_view ? t->pal[1] : t->card, !app->roll_view, "ROLL");
 
     sh_card(SEQ_SWING_X, SEQ_SLOT_Y, SEQ_SWING_W, SEQ_SLOT_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 2);
     float fill = (SEQ_SWING_W - 4) * st->swing / SEQ_SWING_MAX;
     sh_rect_pattern(SEQ_SWING_X + 2, SEQ_SLOT_Y + 2, fill, SEQ_SLOT_H - 4, rgba(t->pal[2], 0xFF), PAT_ZIGZAG,
                     rgba(t->ink, 0x40));
     ui_text(SEQ_SWING_X + SEQ_SWING_W / 2.0f, SEQ_SLOT_Y + 1, 0.38f, rgba(ink_on(t, t->card), 0xFF), C2D_AlignCenter,
-            "SWING %d%%", (int)(st->swing / SEQ_SWING_MAX * 100.0f + 0.5f));
+            "SW %d%%", (int)(st->swing / SEQ_SWING_MAX * 100.0f + 0.5f));
+}
+
+// The piano roll: pitches up the side, steps across, notes as sticker bars
+// as long as they sound.
+static void draw_roll(const AppState *app) {
+    const Theme *t = ui_theme();
+    const SeqPattern *p = &app->pattern;
+    const SeqStatus *st = &app->seq;
+    const u32 ink = rgba(t->ink, 0xFF);
+    const bool chrom = app->roll_chromatic;
+    const float gx = ROLL_X0, gy = ROLL_Y0, gw = SEQ_STEPS * ROLL_CELL_W, gh = ROLL_ROWS * ROLL_ROW_H;
+    const int rows = music_roll_rows(chrom);
+
+    sh_card(2, ROLL_TOGGLE_Y - 2, BOTTOM_W - 4, gy + gh + 3 - (ROLL_TOGGLE_Y - 2), rgba(t->card, 0xFF), ink, 3);
+
+    // Scale / chromatic toggle.
+    uint32_t tf = chrom ? t->pal[0] : t->pal[1];
+    sh_card(ROLL_TOGGLE_X, ROLL_TOGGLE_Y, ROLL_TOGGLE_W, ROLL_TOGGLE_H, rgba(tf, 0xFF), ink, 0);
+    ui_text(ROLL_TOGGLE_X + ROLL_TOGGLE_W / 2.0f, ROLL_TOGGLE_Y - 1.5f, 0.34f, rgba(ink_on(t, tf), 0xFF), C2D_AlignCenter,
+            chrom ? "#" : "C");
+    ui_text(gx + 2, ROLL_TOGGLE_Y - 1, 0.32f, rgba(ink_on(t, t->card), 0x90), 0, "%s  |  tap add/remove, drag to move or stretch",
+            chrom ? "CHROMATIC" : "C MAJOR");
+
+    // Rows: shading, and the keyboard strip with C labels.
+    for (int r = 0; r < ROLL_ROWS; r++) {
+        int abs_row = app->roll_scroll + r;
+        if (abs_row >= rows) break;
+        int pitch = music_roll_pitch(abs_row, chrom);
+        float y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
+        bool sharp = !music_in_scale(pitch);
+        if (r & 1) sh_rect(gx, y, gw, ROLL_ROW_H, rgba(t->ink, 0x0C));
+        if (pitch % 12 == 0) sh_rect(gx, y + ROLL_ROW_H - 1, gw, 1, rgba(t->ink, 0x50));
+        sh_rect(ROLL_KEYS_X, y, ROLL_KEYS_W, ROLL_ROW_H - 1, rgba(sharp ? t->ink : 0xFFFFFF, 0xFF));
+        sh_rect(ROLL_KEYS_X, y + ROLL_ROW_H - 1, ROLL_KEYS_W, 1, rgba(t->ink, 0x60));
+        if (pitch % 12 == 0)
+            ui_text(ROLL_KEYS_X + 1, y - 2, 0.28f, rgba(t->ink, 0xFF), 0, "%s", music_note_name(pitch));
+    }
+    // Beat shading and the playhead.
+    for (int s2 = 0; s2 < SEQ_STEPS; s2++) {
+        float x = gx + s2 * ROLL_CELL_W;
+        if ((s2 / 4) & 1) sh_rect(x, gy, ROLL_CELL_W, gh, rgba(t->ink, 0x0E));
+        sh_rect(x, gy, 1, gh, rgba(t->ink, s2 % 4 == 0 ? 0x40 : 0x14));
+        if (st->playing && s2 == st->step) sh_rect(x, gy, ROLL_CELL_W, gh, rgba(t->pal[0], 0x40));
+    }
+    // Notes.
+    for (int i = 0; i < p->count; i++) {
+        const SeqRollNote *n = &p->notes[i];
+        int r = music_roll_row(n->pitch, chrom) - app->roll_scroll;
+        if (r < 0 || r >= ROLL_ROWS) continue;
+        float x = gx + n->step * ROLL_CELL_W + 1, y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
+        float w = n->len * ROLL_CELL_W - 2;
+        bool over = x + w > gx + gw;  // runs past the bar: clip and mark it
+        if (over) w = gx + gw - x;
+        bool sounding = st->playing && st->step >= n->step && st->step < n->step + n->len;
+        bool active = app->roll_active == i;
+        uint32_t face = t->pal[(n->pitch / 12) % THEME_PALETTE];
+        float lift = sounding ? -1.0f : 0.0f;
+        sh_card(x + lift, y + lift, w, ROLL_ROW_H - 1, rgba(face, 0xFF), ink, active ? 2.5f : sounding ? 2.0f : 1.0f);
+        if (over) sh_tri(gx + gw - 3, y + ROLL_ROW_H / 2.0f - 0.5f, 3, 0.0f, rgba(ink_on(t, face), 0xFF));
+        if (!chrom && !music_in_scale(n->pitch))  // shown on the row below its pitch
+            ui_text(x + 2 + lift, y - 2.5f + lift, 0.26f, rgba(ink_on(t, face), 0xFF), 0, "#");
+    }
+    // Scroll hints at the strip's ends.
+    if (app->roll_scroll + ROLL_ROWS < rows) sh_tri(ROLL_KEYS_X + ROLL_KEYS_W / 2.0f, gy - 2, 3, -1.5708f, rgba(t->pal[2], 0xFF));
+    if (app->roll_scroll > 0) sh_tri(ROLL_KEYS_X + ROLL_KEYS_W / 2.0f, gy + gh + 1, 3, 1.5708f, rgba(t->pal[2], 0xFF));
 }
 
 static void draw_seq_page(const AppState *app) {
     draw_transport(app);
-    draw_grid(app);
+    if (app->roll_view)
+        draw_roll(app);
+    else
+        draw_grid(app);
     draw_slots(app);
 }
 
