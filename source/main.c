@@ -4268,7 +4268,6 @@ int main(void) {
             // went, as percentages of real time. For tuning on real hardware.
             static FILE *pf;
             static int lines;
-            static uint32_t late_was;
             if (!pf) {
                 pf = fopen(STORAGE_DIR "/perf.txt", "w");
                 if (pf) setvbuf(pf, NULL, _IOFBF, 256 * 1024);  // big enough that stdio never writes mid-song by itself
@@ -4278,15 +4277,22 @@ int main(void) {
             }
             if (pf && s_app.frame % 120 == 0 && lines < 3000) {
                 const EnginePerf ep = engine_perf();
-                if (s_app.seq.playing || ep.oscs > 0.5f || stats.late != late_was) {
-                    fprintf(pf, "%u %d %.0f | %.0f %.0f %.0f | %.0f | %.0f %.0f | %.0f %.0f %u | %.2f %u %04X | %d\n",
+                {  // (every time: an idle line is evidence too)
+                    const AudioDiag ad = audio_out_diag();
+                    fprintf(pf, "%u %d %.0f | %.0f %.0f %.0f | %.0f | %.0f %.0f | %.0f %.0f %u | %.2f %u %04X | %d"
+                                " | cb %lu gap %lums | wake %lu gap %lums | found empty 0:%lu 1:%lu 2:%lu 3:%lu 4:%lu | fill %lums queue %luus"
+                                " | wait %.0f park %.0f | sounds %d %d %d\n",
                             (unsigned)s_app.frame, (int)s_app.page, (double)ep.oscs, (double)(ep.render0 * 100),
                             (double)(ep.fill * 100), (double)(ep.post * 100), (double)(ep.core1 * 100),
                             (double)(ep.total * 100), (double)(ep.total_max * 100), (double)(stats.load * 100),
                             (double)(stats.load_peak * 100), (unsigned)stats.late, (double)ep.share, (unsigned)ep.stalls,
-                            (unsigned)punch_state().active, engine_core1_limit());
+                            (unsigned)punch_state().active, engine_core1_limit(), (unsigned long)ad.callbacks,
+                            (unsigned long)(ad.callback_gap_us / 1000), (unsigned long)ad.wakes, (unsigned long)(ad.wake_gap_us / 1000),
+                            (unsigned long)ad.filled[0], (unsigned long)ad.filled[1], (unsigned long)ad.filled[2],
+                            (unsigned long)ad.filled[3], (unsigned long)ad.filled[4], (unsigned long)(ad.fill_us / 1000),
+                            (unsigned long)ad.queue_us, (double)(ep.wait_max * 100), (double)(ep.park_max * 100),
+                            s_app.parts[0].sound, s_app.parts[1].sound, s_app.parts[2].sound);
                     lines++;
-                    late_was = stats.late;
                 }
                 if (!s_app.seq.playing && !s_app.tape.playing && s_app.frame % 300 == 0) fflush(pf);  // (the SD card: only when stopped)
             }

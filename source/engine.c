@@ -705,6 +705,7 @@ const int16_t *engine_render_block(void (*safe_point)(void)) {
     vm_amy_pipeline = 1;
 
     // 1. This block's render, finished and merged.
+    const uint64_t t_wait = svcGetSystemTick();
     if (s_in_flight) {
         // Core 1 has had a whole block's time already; a little more, then
         // if it never even started, its share is rendered here (into its
@@ -728,14 +729,23 @@ const int16_t *engine_render_block(void (*safe_point)(void)) {
     } else {
         amy_render(AMY_OSCS, AMY_OSCS, 1);  // core 1 rendered nothing: clear its buffers
     }
+    {
+        const float w = (float)(svcGetSystemTick() - t_wait);
+        if (w > s_perf.wait_max) s_perf.wait_max = w;
+    }
     vm_amy_merge_cores();
     if (s_rendered) vm_amy_advance_time();
+    const uint64_t t_park = svcGetSystemTick();
 
     // 2. The safe point.
     while (__atomic_load_n(&s_want, __ATOMIC_ACQUIRE) > 0) {  // UI calls waiting: let them in
         LightLock_Unlock(&s_lock);
         svcSleepThread(50000);
         LightLock_Lock(&s_lock);
+    }
+    {
+        const float w = (float)(svcGetSystemTick() - t_park);
+        if (w > s_perf.park_max) s_perf.park_max = w;
     }
     s_audio_inside = true;
     if (safe_point) safe_point();
@@ -806,9 +816,10 @@ EnginePerf engine_perf(void) {
     EnginePerf p = s_perf;
     const float block = (float)AMY_BLOCK_SIZE / AMY_SAMPLE_RATE * SYSCLOCK_ARM11;  // ticks in a block's time
     p.render0 /= block, p.core1 /= block, p.fill /= block, p.post /= block, p.total /= block, p.total_max /= block;
+    p.wait_max /= block, p.park_max /= block;
     p.share = s_perf.share_used;  // (what core 1 was actually given: the balanced share, capped by its budget)
     p.stalls = s_worker_stalls;
-    s_perf.total_max = 0.0f;
+    s_perf.total_max = s_perf.wait_max = s_perf.park_max = 0.0f;
     return p;
 }
 

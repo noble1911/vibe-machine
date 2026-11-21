@@ -106,6 +106,8 @@ typedef struct {
     float oscs;     // oscillators sounding
     float share;    // core 1's share of them
     float share_used;  // (internal: the smoothed share)
+    float wait_max;    // the longest wait for core 1 to finish its share (blocks)
+    float park_max;    // the longest the audio thread stood aside for UI calls (blocks)
     uint32_t stalls;
 } EnginePerf;
 EnginePerf engine_perf(void);

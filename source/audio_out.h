@@ -20,6 +20,19 @@ bool audio_out_init(void);
 void audio_out_exit(void);
 
 AudioStats audio_out_stats(void);
+
+// The audio thread's schedule since the last call (for the perf log):
+// how often the DSP's frame callback came and the longest wait between
+// two; how often the thread woke and the longest wait; how many buffers it
+// found empty each time (filled[4]: all of them, a gap); the longest it
+// spent refilling, and handing a buffer to the DSP.
+typedef struct {
+    uint32_t callbacks, callback_gap_us;
+    uint32_t wakes, wake_gap_us;
+    uint32_t filled[5];
+    uint32_t fill_us, queue_us;
+} AudioDiag;
+AudioDiag audio_out_diag(void);
 // Copies the most recent output (mono, SCOPE_POINTS samples) for drawing.
 void audio_out_scope(int16_t out[SCOPE_POINTS]);
 

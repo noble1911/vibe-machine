@@ -89,7 +89,27 @@ int audio_out_capture_read(int16_t *out, int max_frames) {
 
 uint32_t audio_out_capture_dropped(void) { return s_cap_dropped; }
 
+// Diagnostics (for the perf log): the audio thread's own schedule.
+static AudioDiag s_diag;
+static uint64_t s_last_cb, s_last_wake;
+static uint32_t us_since(uint64_t *last) {
+    const uint64_t now = svcGetSystemTick();
+    const uint32_t us = *last ? (uint32_t)((now - *last) * 1000000ULL / SYSCLOCK_ARM11) : 0;
+    *last = now;
+    return us;
+}
+AudioDiag audio_out_diag(void) {
+    AudioDiag d = s_diag;  // (unlocked: counters for a log, a torn read doesn't matter)
+    memset(&s_diag, 0, sizeof(s_diag));
+    return d;
+}
+
 static void ndsp_callback(void *arg) {
+    {
+        const uint32_t us = us_since(&s_last_cb);
+        s_diag.callbacks++;
+        if (us > s_diag.callback_gap_us) s_diag.callback_gap_us = us;
+    }
     (void)arg;
     LightEvent_Signal(&s_event);
 }
@@ -168,21 +188,38 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
 #endif
         dst += frames * 2;
     }
+    const uint64_t tq = svcGetSystemTick();
     DSP_FlushDataCache(wb->data_pcm16, (u32)s_frames_per_wavebuf * 2 * sizeof(int16_t));
     ndspChnWaveBufAdd(CHANNEL, wb);
+    {
+        const uint32_t us = (uint32_t)((svcGetSystemTick() - tq) * 1000000ULL / SYSCLOCK_ARM11);
+        if (us > s_diag.queue_us) s_diag.queue_us = us;
+    }
 }
 
 static void audio_thread(void *arg) {
     (void)arg;
     while (!s_quit) {
-        int queued = 0;
+        {
+            const uint32_t us = us_since(&s_last_wake);
+            s_diag.wakes++;
+            if (us > s_diag.wake_gap_us) s_diag.wake_gap_us = us;
+        }
+        int queued = 0, filled = 0;
+        const uint64_t tfill = svcGetSystemTick();
         for (int i = 0; i < NUM_WAVEBUFS; i++) {
             u8 st = s_wavebufs[i].status;
             if (st == NDSP_WBUF_FREE || st == NDSP_WBUF_DONE) {
                 fill_wavebuf(&s_wavebufs[i]);
+                filled++;
             } else {
                 queued++;
             }
+        }
+        s_diag.filled[filled]++;
+        {
+            const uint32_t us = (uint32_t)((svcGetSystemTick() - tfill) * 1000000ULL / SYSCLOCK_ARM11);
+            if (us > s_diag.fill_us) s_diag.fill_us = us;
         }
         // What's queued is how far the speaker is behind the sequencer's
         // clock: live recording takes it off (seq.c). (Read every DSP frame,
