@@ -77,6 +77,10 @@ const char *engine_param_name(EngineParam param);
 // in the NEXT block handed back: the engine runs one block ahead).
 const int16_t *engine_render_block(void (*safe_point)(void));
 const char *engine_core_report(void);  // what the system said about a thread on core 1 (for the perf log)
+// How much of core 1 the app asks for (percent; 0 = render on core 0 only).
+// A tuning control: L + R + SELECT steps through a few values.
+void engine_set_core1_limit(int percent);
+int engine_core1_limit(void);
 bool engine_two_cores(void);  // the second core is helping render
 uint32_t engine_core1_stalls(void);  // times core 1 didn't start its share in time (core 0 did it)
 float engine_core1_share(void);      // the share of the oscillators core 1 is given now

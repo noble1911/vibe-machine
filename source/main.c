@@ -3166,6 +3166,20 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
     // SELECT held: the circle pad bends the pitch (springs back when you
     // let go). SELECT tapped -- quickly, without bending -- next sound.
     static bool s_bent;
+    // L + R + SELECT: step the share of core 1 the synth asks for (tuning,
+    // for now: the best value is being found on real hardware).
+    if ((held & (KEY_L | KEY_R)) == (KEY_L | KEY_R) && (down & KEY_SELECT)) {
+        static const int steps[] = {30, 50, 65, 80, 0, 15};
+        int i = 0;
+        while (i < 6 && steps[i] != engine_core1_limit()) i++;
+        const int pct = steps[(i + 1) % 6];
+        engine_set_core1_limit(pct);
+        char msg[sizeof(s_app.notice)];
+        if (pct) snprintf(msg, sizeof(msg), "CORE 1: %d%% FOR THE SYNTH", pct);
+        else snprintf(msg, sizeof(msg), "CORE 1: OFF (ONE CORE)");
+        notice(msg);
+        s_bent = true;  // (this SELECT isn't "next sound")
+    }
     static unsigned s_select_down;
     if (down & KEY_SELECT) s_select_down = s_app.frame;
     if (held & KEY_SELECT) {
@@ -4259,18 +4273,18 @@ int main(void) {
                 pf = fopen(STORAGE_DIR "/perf.txt", "w");
                 if (pf) setvbuf(pf, NULL, _IOFBF, 256 * 1024);  // big enough that stdio never writes mid-song by itself
                 if (pf) fprintf(pf, "%s\n", engine_core_report());
-                if (pf) fprintf(pf, "second core: %s\nframe page oscs | core0: render mix post | core1 | total worst | cpu peak gaps | share stalls punch\n",
+                if (pf) fprintf(pf, "second core: %s\nframe page oscs | core0: render mix post | core1 | total worst | cpu peak gaps | share stalls punch | core1 limit %%\n",
                                 engine_two_cores() ? "running" : "NOT AVAILABLE (everything on core 0)");
             }
             if (pf && s_app.frame % 120 == 0 && lines < 3000) {
                 const EnginePerf ep = engine_perf();
                 if (s_app.seq.playing || ep.oscs > 0.5f || stats.late != late_was) {
-                    fprintf(pf, "%u %d %.0f | %.0f %.0f %.0f | %.0f | %.0f %.0f | %.0f %.0f %u | %.2f %u %04X\n",
+                    fprintf(pf, "%u %d %.0f | %.0f %.0f %.0f | %.0f | %.0f %.0f | %.0f %.0f %u | %.2f %u %04X | %d\n",
                             (unsigned)s_app.frame, (int)s_app.page, (double)ep.oscs, (double)(ep.render0 * 100),
                             (double)(ep.fill * 100), (double)(ep.post * 100), (double)(ep.core1 * 100),
                             (double)(ep.total * 100), (double)(ep.total_max * 100), (double)(stats.load * 100),
                             (double)(stats.load_peak * 100), (unsigned)stats.late, (double)ep.share, (unsigned)ep.stalls,
-                            (unsigned)punch_state().active);
+                            (unsigned)punch_state().active, engine_core1_limit());
                     lines++;
                     late_was = stats.late;
                 }

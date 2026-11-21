@@ -51,7 +51,7 @@ static uint32_t s_worker_stalls;
 // (Smoothed over ~1 s and moved in steps, so it doesn't wander block to
 // block. Any split renders the same sound, bit for bit: tests/dual_probe.)
 #define CORE1_SHARE 0.8f
-#define CORE1_SHARE_MIN 0.4f
+#define CORE1_SHARE_MIN 0.1f  // (with a small core-1 allowance it can only take a little)
 #define CORE1_SHARE_MAX 1.0f
 static float s_core1_share = CORE1_SHARE;
 static float s_cost0, s_cost1;  // smoothed ticks per sounding oscillator on each core (0: not yet known)
@@ -172,6 +172,11 @@ static void send_locked(amy_event *e) {
 // A thread that does nothing, to ask the kernel whether one is allowed at
 // this priority on this core (libctru's threadCreate doesn't say why not).
 static char s_core_report[400];
+// The share of core 1 the app asks the system for. Core 1 is also where an
+// original 3DS runs its own services (the one that carries sound to the DSP
+// among them): ask for too much and THEY starve, which is heard as gaps
+// even with nothing playing. 0: don't use core 1 at all.
+static volatile int s_core1_limit = 30;
 static bool s_worker_core1;
 static u8 s_probe_stack[4096] __attribute__((aligned(8)));
 static void probe_entry(void *arg) {
@@ -214,7 +219,7 @@ void engine_init(void) {
     // renders on this core, as before).
     LightEvent_Init(&s_go, RESET_ONESHOT);
     LightEvent_Init(&s_done, RESET_ONESHOT);
-    const Result apt_rc = APT_SetAppCpuTimeLimit(80);
+    const Result apt_rc = APT_SetAppCpuTimeLimit((u32)s_core1_limit);
     u32 apt_pct = 0;
     const Result apt_get = APT_GetAppCpuTimeLimit(&apt_pct);
     s32 prio = 0x30;
@@ -739,7 +744,7 @@ const int16_t *engine_render_block(void (*safe_point)(void)) {
 
     // 3. Core 1's share of the next block.
     int oscs0 = 0, oscs1 = 0;
-    const bool worker = s_worker && (s_worker_rest == 0 || --s_worker_rest == 0);
+    const bool worker = s_worker && s_core1_limit > 0 && (s_worker_rest == 0 || --s_worker_rest == 0);
     const uint16_t split = worker ? amy_split_point_n(s_core1_share, &oscs0, &oscs1) : AMY_OSCS;
     if (!worker) amy_split_point_n(0.0f, &oscs0, &oscs1);  // (just the count)
     s_in_flight = split < AMY_OSCS;
@@ -795,7 +800,14 @@ EnginePerf engine_perf(void) {
     return p;
 }
 
-bool engine_two_cores(void) { return s_worker_core1; }  // (a worker that had to settle for core 0 doesn't count)
+void engine_set_core1_limit(int percent) {
+    percent = percent < 0 ? 0 : percent > 89 ? 89 : percent;
+    APT_SetAppCpuTimeLimit((u32)(percent < 5 ? 5 : percent));
+    s_core1_limit = percent;
+}
+int engine_core1_limit(void) { return s_core1_limit; }
+
+bool engine_two_cores(void) { return s_worker_core1 && s_core1_limit > 0; }  // (a worker that had to settle for core 0 doesn't count)
 
 uint32_t engine_core1_stalls(void) { return s_worker_stalls; }
 
