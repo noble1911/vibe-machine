@@ -8,6 +8,7 @@
 #include "synthedit.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 
 #include "engine.h"
@@ -65,3 +66,14 @@ bool storage_save(const char *path, const SaveState *st);
 // Returns false (and leaves *st untouched) if the file is missing, from a
 // different version, or damaged.
 bool storage_load(const char *path, SaveState *st);
+
+// Small files written so that losing power never loses them: the new
+// contents go to <path>.new, the old file becomes <path>.bak, and the new
+// one takes its place (the SD card's rename won't replace a file). Some
+// complete copy is always on the card; storage_read_newest() loads the
+// first of path, .new, .bak that `load` accepts (checksummed formats only).
+#define STORAGE_PATH_MAX 192
+bool storage_write_file(const char *path, const void *data, size_t n);
+bool storage_read_newest(const char *path, bool (*load)(const char *path, void *out), void *out);
+bool storage_exists(const char *path);  // any of the three
+void storage_remove(const char *path);  // all three

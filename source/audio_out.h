@@ -7,7 +7,7 @@
 #define SCOPE_POINTS 256
 
 typedef struct {
-    float load;       // smoothed render time / real time (0..1+)
+    float load;       // smoothed time a block takes (sequencer, synth, tape, FX, capture) / real time (0..1+)
     float load_peak;  // worst block in the last second
     float level;      // smoothed output peak (0..1)
     uint32_t blocks;  // blocks rendered since start

@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "storage.h"  // storage_write_file: a preset is never half-written
+
 #define VERSION 1
 
 static uint32_t fnv(const uint8_t *b, size_t n) {
@@ -57,13 +59,11 @@ bool preset_save(const char *path, const Preset *p) {
     const uint32_t sum = fnv(b.buf, b.n);
     put(&b, &sum, 4);
     if (!b.ok) return false;
-    FILE *f = fopen(path, "wb");
-    if (!f) return false;
-    const bool ok = fwrite(b.buf, 1, b.n, f) == b.n;
-    return fclose(f) == 0 && ok;
+    return storage_write_file(path, b.buf, b.n);
 }
 
-bool preset_load(const char *path, Preset *out) {
+static bool load_one(const char *path, void *out_) {
+    Preset *out = out_;
     FILE *f = fopen(path, "rb");
     if (!f) return false;
     Buf b = {.ok = true};
@@ -94,3 +94,5 @@ bool preset_load(const char *path, Preset *out) {
     *out = p;
     return true;
 }
+
+bool preset_load(const char *path, Preset *out) { return storage_read_newest(path, load_one, out); }

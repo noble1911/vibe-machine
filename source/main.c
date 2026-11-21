@@ -38,6 +38,7 @@ u32 __stacksize__ = 256 * 1024;
 #define REPEAT_DELAY 24       // BPM buttons auto-repeat after this...
 #define REPEAT_EVERY 3        // ...every this many frames
 #define FLASH_FRAMES 6        // keys light up when the sequencer hits them
+#define SELECT_TAP_FRAMES 20  // SELECT let go sooner than this is a tap (next sound); longer never changes it
 
 // Physical buttons for keys 0..7. Each cluster is read left, down, right,
 // up, so the D-pad and the face buttons share one shape.
@@ -247,13 +248,33 @@ static void set_arp(const SeqArp *a) {
     seq_set_arp(&s_app.arp);
 }
 
+static int move_slice_note(int pitch, void *from) {
+    return sampler_slice_note_moved(pitch, ((const int *)from)[0], ((const int *)from)[1]);
+}
+
+// The KEY stickers. Notes already written stay where they are -- except a
+// chopped MIC part's: those name slices (by scale degree), so they move to
+// the same degrees in the new key and a programmed break keeps playing the
+// same slices (while the keys still walk through them in any key).
+static void sync_part_out(void);
+static void change_key(int root, int scale) {
+    int from[2] = {s_app.key_root, s_app.key_scale};
+    set_key(root, scale);
+    if (!s_app.sample_edit.slices) return;
+    sync_part_out();
+    uint8_t parts = 0;
+    for (int k = 0; k < PARTS; k++)
+        if (s_app.parts[k].sound == sound_mic_index()) parts |= (uint8_t)(1u << k);
+    if (parts) seq_map_pitches(parts, move_slice_note, from);
+}
+
 static void sound_row(int hit) {
     SeqArp a = s_app.arp;
     switch (hit) {
-        case SND_HIT_ROOT_DOWN: set_key(s_app.key_root + 11, s_app.key_scale); break;
-        case SND_HIT_ROOT_UP: set_key(s_app.key_root + 1, s_app.key_scale); break;
-        case SND_HIT_SCALE_PREV: set_key(s_app.key_root, (s_app.key_scale + MUSIC_SCALES - 1) % MUSIC_SCALES); break;
-        case SND_HIT_SCALE_NEXT: set_key(s_app.key_root, (s_app.key_scale + 1) % MUSIC_SCALES); break;
+        case SND_HIT_ROOT_DOWN: change_key(s_app.key_root + 11, s_app.key_scale); break;
+        case SND_HIT_ROOT_UP: change_key(s_app.key_root + 1, s_app.key_scale); break;
+        case SND_HIT_SCALE_PREV: change_key(s_app.key_root, (s_app.key_scale + MUSIC_SCALES - 1) % MUSIC_SCALES); break;
+        case SND_HIT_SCALE_NEXT: change_key(s_app.key_root, (s_app.key_scale + 1) % MUSIC_SCALES); break;
         case SND_HIT_ARP_ON: a.on = !a.on; set_arp(&a); break;
         case SND_HIT_ARP_MODE: a.mode = (uint8_t)((a.mode + 1) % ARP_MODES); set_arp(&a); break;
         case SND_HIT_ARP_RATE: a.rate = (uint8_t)((a.rate + 1) % ARP_RATES); set_arp(&a); break;
@@ -311,16 +332,45 @@ static void edit_reset_sound(void) {
     pe->morph = 0.0f;
 }
 
+// What each part last had on each sound (patch, macros, EDIT), so stepping
+// to another sound -- a stray SELECT, the circle pad -- and back finds it
+// as you left it. For this session only: a song keeps each part's current
+// sound, as before; loading one (or a new song) starts this afresh.
+#define SOUND_MEMORY 24  // at least sound_count()
+typedef struct {
+    bool kept;
+    int patch;
+    float macro[SOUND_MACROS];
+    PartEdit pe;
+} SoundMemory;
+static SoundMemory s_sound_mem[PARTS][SOUND_MEMORY];
+
+static void forget_sounds(void) { memset(s_sound_mem, 0, sizeof(s_sound_mem)); }
+
 static void select_sound(int index) {
     int n = sound_count();
     index = ((index % n) + n) % n;
     const Sound *snd = sound_get(index);
     release_all();
+    if (s_app.sound >= 0 && s_app.sound < SOUND_MEMORY) {  // the one it's leaving, as it is
+        SoundMemory *m = &s_sound_mem[s_app.part][s_app.sound];
+        m->kept = true;
+        m->patch = s_app.patch;
+        memcpy(m->macro, s_app.macro, sizeof(m->macro));
+        m->pe = *part_edit();
+    }
     s_app.sound = index;
     s_app.syn_page = index / SOUNDS_PER_PAGE;  // the tiles show the page it's on
-    if (snd->kind == SOUND_BANK) s_app.patch = snd->bank_first;
-    for (int m = 0; m < SOUND_MACROS; m++) s_app.macro[m] = snd->macro_default[m];
-    edit_reset_sound();  // a new sound starts as designed
+    const SoundMemory *m = index < SOUND_MEMORY ? &s_sound_mem[s_app.part][index] : NULL;
+    if (m && m->kept) {  // back to a sound this part has had: as it was left
+        s_app.patch = m->patch;
+        memcpy(s_app.macro, m->macro, sizeof(s_app.macro));
+        *part_edit() = m->pe;
+    } else {  // a sound it hasn't had starts as designed
+        if (snd->kind == SOUND_BANK) s_app.patch = snd->bank_first;
+        for (int k = 0; k < SOUND_MACROS; k++) s_app.macro[k] = snd->macro_default[k];
+        edit_reset_sound();
+    }
     reload_sound();
 }
 
@@ -396,6 +446,7 @@ static void default_parts(void) {
         upload_wave(k);
         seq_set_part_mute(k, false);
     }
+    forget_sounds();  // a new song: nothing from the last one comes back
 }
 
 // ---------------------------------------------------------------- MIX ----
@@ -579,15 +630,66 @@ static void tape_button(int hit) {
 // the tape stops (and on quit), never mid-performance.
 static void tape_path(char *out, size_t len, int track) { snprintf(out, len, STORAGE_DIR "/tape%d.wav", track + 1); }
 
-static void save_tape(void) {
+// Every changed track to its file (on any thread). Each is marked saved at
+// the version read, so one recorded on meanwhile stays changed.
+static void write_tape(void) {
     for (int t = 0; t < TAPE_TRACKS; t++) {
         if (!tape_dirty(t)) continue;
+        const uint32_t gen = tape_track_generation(t);
         char path[64];
         tape_path(path, sizeof(path), t);
         int frames = 0;
         const int16_t *data = tape_track_data(t, &frames);
         bool ok = frames > 0 ? wav_write(path, data, frames, TAPE_RATE) : (remove(path), true);
-        if (ok) tape_mark_saved(t);
+        if (ok) tape_mark_saved_at(t, gen);
+    }
+}
+
+// When the tape stops, its tracks (up to 2.6 MB each: a second or more of
+// SD card) are written by a thread of their own, below the UI's priority,
+// so the screen and the keys carry on meanwhile. Everything else that
+// writes or replaces the tracks waits for it first.
+static Thread s_tape_writer;
+static volatile bool s_tape_writing;
+static bool s_tape_pending;
+
+static void tape_writer(void *arg) {
+    (void)arg;
+    write_tape();
+    s_tape_writing = false;
+}
+
+static void save_tape_wait(void) {
+    if (!s_tape_writer) return;
+    threadJoin(s_tape_writer, U64_MAX);
+    threadFree(s_tape_writer);
+    s_tape_writer = NULL;
+}
+
+// Right now, on this thread (songs, quitting).
+static void save_tape(void) {
+    save_tape_wait();
+    write_tape();
+}
+
+// Soon, in the background (once a frame: starts a writer when one is asked
+// for and the last has finished; what it misses stays changed, for the next).
+static void save_tape_soon(void) { s_tape_pending = true; }
+
+static void tape_writer_tick(void) {
+    if (!s_tape_pending || s_tape_writing) return;
+    s_tape_pending = false;
+    save_tape_wait();
+    bool any = false;
+    for (int t = 0; t < TAPE_TRACKS; t++) any |= tape_dirty(t);
+    if (!any) return;
+    s32 prio = 0x30;
+    svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+    s_tape_writing = true;
+    s_tape_writer = threadCreate(tape_writer, NULL, 32 * 1024, prio < 0x3F ? prio + 1 : 0x3F, -2, false);
+    if (!s_tape_writer) {  // no thread to be had: here, then
+        s_tape_writing = false;
+        write_tape();
     }
 }
 
@@ -682,7 +784,7 @@ static void apply_kit(void) {
     engine_set_kit(&s_app.kit);
 }
 
-static bool save_lanes(const char *dir);
+static bool save_lane(const char *dir, int lane);
 
 // Put `frames` of sample on `lane` as its own sound (trimmed to 2 s).
 static bool lane_take(int lane, const int16_t *data, int frames) {
@@ -695,26 +797,28 @@ static bool lane_take(int lane, const int16_t *data, int frames) {
     apply_kit();
     s_kit_gen++;
 #ifndef VM_DEMO
-    save_lanes(STORAGE_DIR);  // the autosave keeps it too
+    save_lane(STORAGE_DIR, lane);  // the autosave keeps it too (just this lane: the others haven't changed)
 #endif
     return true;
 }
 
-static void lane_wav_path(char *out, size_t len, const char *dir, int lane) {
-    snprintf(out, len, "%.140s/drum%d.wav", dir, lane + 1);
+static bool lane_wav_path(char *out, size_t len, const char *dir, int lane) {
+    return snprintf(out, len, "%.140s/drum%d.wav", dir, lane + 1) < (int)len;
 }
 
-// Each lane's own sample to / from a folder (the song's, or the autosave's).
+// A lane's own sample to a folder (the song's, or the autosave's), or its
+// file gone if it hasn't one.
+static bool save_lane(const char *dir, int l) {
+    char path[160];
+    if (!lane_wav_path(path, sizeof(path), dir, l)) return false;
+    if (lane_own(l) && s_lane_frames[l] > 0) return wav_write(path, s_lane_buf[l], s_lane_frames[l], SAMPLER_RATE);
+    remove(path);
+    return true;
+}
+
 static bool save_lanes(const char *dir) {
     bool ok = true;
-    for (int l = 0; l < DRUM_LANES; l++) {
-        char path[160];
-        lane_wav_path(path, sizeof(path), dir, l);
-        if (lane_own(l) && s_lane_frames[l] > 0)
-            ok &= wav_write(path, s_lane_buf[l], s_lane_frames[l], SAMPLER_RATE);
-        else
-            remove(path);
-    }
+    for (int l = 0; l < DRUM_LANES; l++) ok &= save_lane(dir, l);
     return ok;
 }
 
@@ -723,8 +827,7 @@ static void load_lanes(const char *dir) {
         s_lane_frames[l] = 0;
         if (!lane_own(l)) continue;
         char path[160];
-        lane_wav_path(path, sizeof(path), dir, l);
-        int rate = 0, n = wav_read(path, s_lane_buf[l], DRUM_OWN_MAX, &rate);
+        int rate = 0, n = lane_wav_path(path, sizeof(path), dir, l) ? wav_read(path, s_lane_buf[l], DRUM_OWN_MAX, &rate) : 0;
         if (n > 0 && rate == SAMPLER_RATE && engine_load_drum_sample(l, s_lane_buf[l], n, SAMPLER_RATE))
             s_lane_frames[l] = n;
         else  // gone: back to the stock kit's sample
@@ -852,7 +955,9 @@ static void capture(SaveState *st) {
     st->mic_changed = s_mic_gen != s_song_mic_gen;
 }
 
+static void undo_forget(void);
 static void restore(const SaveState *st) {
+    undo_forget();  // another song's patterns
     s_app.kit = st->kit;
     apply_kit();
     s_theme = ((st->theme % ui_theme_count()) + ui_theme_count()) % ui_theme_count();
@@ -874,6 +979,7 @@ static void restore(const SaveState *st) {
         seq_set_part_mute(k, (st->muted >> k) & 1u);
     }
     switch_part(st->part);
+    forget_sounds();  // another song: nothing from the last one comes back
     seq_set_part_mute(MIX_DRUMS, (st->muted >> MIX_DRUMS) & 1u);
     memcpy(s_app.mix, st->mix, sizeof(s_app.mix));
     s_app.mix_solo = st->solo;
@@ -1299,6 +1405,7 @@ static bool load_song(const char *name) {
 
 static void new_song(void) {
     stop_transports();
+    undo_forget();
     seq_reset();
     seq_set_bpm(112);
     for (int t = 0; t < TAPE_TRACKS; t++) tape_clear(t);
@@ -1379,6 +1486,7 @@ static void start_job(Job job, const char *name, const char *msg) {
 
 static void run_job(void) {
     if (s_job == JOB_NONE || --s_job_wait > 0) return;
+    save_tape_wait();  // a tape still being written finishes first
     switch (s_job) {
         case JOB_SAVE: save_song(s_job_name); break;
         case JOB_LOAD: load_song(s_job_name); break;
@@ -1564,7 +1672,10 @@ static void song_hold_done(int button) {
         if (button == SONG_HIT_DELETE && s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count) {
             char path[160];
             sample_path(lib_root(), s_sample_files[s_app.song_sel].file, path, sizeof(path));
-            remove(path);
+            if (s_app.lib_presets)
+                storage_remove(path);  // and the copies a safe save keeps
+            else
+                remove(path);
             refresh_songs();
         }
         if (button == SONG_HIT_CONFIRM) {
@@ -1878,6 +1989,112 @@ static void audition_tick(void) {
     }
 }
 
+// ----------------------------------------------------------------- undo ----
+// The last UNDO_LEVELS edits to the patterns, each kept as the slot it
+// changed, as it was before. Every edit saves a level first: a stroke
+// painted on the grid, a note added / moved / stretched / removed / made
+// louder or a slide on the roll, a live take (a level per slot it records
+// into), BAR, ✕, the dice, copying into a slot. A stroke or take that
+// changed nothing gives its level back. Hold ✕ to undo, again and again;
+// hold L too to redo.
+#define UNDO_LEVELS 8
+typedef struct {
+    int slot;
+    SeqPattern p;
+} UndoLevel;
+static UndoLevel s_undo[UNDO_LEVELS], s_redo[UNDO_LEVELS];  // [n - 1] is the newest
+static int s_undo_n, s_redo_n;
+static int s_touch_level = -1;  // the level the touch in progress saved, or -1
+
+static bool same_pattern(const SeqPattern *a, const SeqPattern *b) {
+    if (seq_len(a) != seq_len(b) || a->count != b->count || a->accents != b->accents) return false;
+    if (memcmp(a->drums, b->drums, sizeof(a->drums)) || memcmp(a->fx, b->fx, sizeof(a->fx)) ||
+        memcmp(a->fx_x, b->fx_x, sizeof(a->fx_x)) || memcmp(a->fx_y, b->fx_y, sizeof(a->fx_y)))
+        return false;
+    for (int i = 0; i < a->count; i++) {
+        const SeqRollNote *x = &a->notes[i], *y = &b->notes[i];
+        if (x->step != y->step || x->pitch != y->pitch || x->len != y->len || x->vel != y->vel || x->part != y->part ||
+            x->flags != y->flags)
+            return false;
+    }
+    return true;
+}
+
+static void push_level(UndoLevel *stack, int *n, int slot) {
+    if (*n == UNDO_LEVELS) {  // full: the oldest goes
+        memmove(&stack[0], &stack[1], sizeof(UndoLevel) * (UNDO_LEVELS - 1));
+        (*n)--;
+    }
+    stack[*n].slot = slot;
+    seq_get_slot(slot, &stack[*n].p);
+    (*n)++;
+}
+
+// Before an edit to `slot`: returns the level saved (for undo_settle).
+static int undo_save(int slot) {
+    push_level(s_undo, &s_undo_n, slot);
+    return s_undo_n - 1;
+}
+
+static void undo_forget(void) {
+    s_undo_n = s_redo_n = 0;
+    s_touch_level = -1;
+}
+
+// An edit made (rather than undone): what was undone can't be redone now.
+static void undo_commit(void) { s_redo_n = 0; }
+
+// Once a stroke or take is over: if it changed nothing, its level goes.
+static void undo_settle(int level) {
+    if (level < 0 || level != s_undo_n - 1) return;  // (gone, or not the newest any more)
+    SeqPattern now;
+    seq_get_slot(s_undo[level].slot, &now);
+    if (same_pattern(&now, &s_undo[level].p))
+        s_undo_n--;
+    else
+        undo_commit();
+}
+
+// A touch that's about to edit the current slot.
+static void undo_touch(void) {
+    if (s_touch_level < 0) s_touch_level = undo_save(seq_status().slot);
+}
+
+static void undo_step(bool redo) {
+    UndoLevel *from = redo ? s_redo : s_undo, *to = redo ? s_undo : s_redo;
+    int *nf = redo ? &s_redo_n : &s_undo_n, *nt = redo ? &s_undo_n : &s_redo_n;
+    if (*nf == 0) {
+        notice(redo ? "NOTHING TO REDO" : "NOTHING TO UNDO");
+        return;
+    }
+    const UndoLevel *u = &from[--*nf];
+    push_level(to, nt, u->slot);  // as it is now, to go back to
+    seq_put_slot(u->slot, &u->p);
+    char msg[sizeof(s_app.notice)];
+    if (redo)
+        snprintf(msg, sizeof(msg), "REDONE: PATTERN %c", 'A' + u->slot);
+    else
+        snprintf(msg, sizeof(msg), "UNDONE: PATTERN %c (L+HOLD: REDO)", 'A' + u->slot);
+    notice(msg);
+}
+
+// Live takes: from when the sequencer is playing with ● on to when it
+// stops, a level for each slot recorded into. (Once a frame, before input.)
+static void undo_watch_take(void) {
+    static bool was;
+    static int slot = -1, level = -1;
+    const bool rec = s_app.seq.playing && s_app.seq.recording;
+    if (rec && (!was || s_app.seq.slot != slot)) {
+        if (was) undo_settle(level);
+        slot = s_app.seq.slot;
+        level = undo_save(slot);
+    } else if (!rec && was) {
+        undo_settle(level);
+        level = -1;
+    }
+    was = rec;
+}
+
 typedef enum { ROLL_MOVE, ROLL_STRETCH } RollDrag;
 static RollDrag s_roll_mode;
 static SeqRollNote s_roll_orig;  // the note as it was when the drag began
@@ -1925,6 +2142,7 @@ static void roll_begin(int x, int y) {
     }
     step = page_step(step);
     const int pitch = roll_pitch(row);
+    undo_touch();  // whatever this touch does to the note, it can be undone
     int idx = seq_roll_find(s_app.part, step, pitch);
     if (idx >= 0 && s_app.mode == PLAY_DRUM) {  // R + tap a note: SLIDE on / off
         SeqPattern pat;
@@ -2022,32 +2240,11 @@ static void paint_cell(int column, int row) {
     s_paint_step = column;
 }
 
-// One level of undo for the big edits (✕, the dice, copying into a slot):
-// the slot as it was before.
-static SeqPattern s_undo;
-static int s_undo_slot = -1;
-
-static void undo_save(int slot) {
-    seq_get_slot(slot, &s_undo);
-    s_undo_slot = slot;
-}
-
-static void undo(void) {
-    if (s_undo_slot < 0) {
-        notice("NOTHING TO UNDO");
-        return;
-    }
-    SeqPattern now;
-    seq_get_slot(s_undo_slot, &now);
-    seq_put_slot(s_undo_slot, &s_undo);
-    s_undo = now;  // hold again to redo
-    notice("UNDONE (HOLD X AGAIN TO REDO)");
-}
-
 // ✕: in the piano roll, only the current part's notes; on the grid, the
 // whole pattern.
 static void clear_pattern(void) {
-    undo_save(s_app.seq.slot);
+    undo_save(seq_status().slot);
+    undo_commit();
     if (s_app.roll_view) {
         SeqPattern p = s_app.pattern;
         p.count = 0;
@@ -2080,7 +2277,8 @@ static void press_button(SeqButton b) {
         case SEQ_BTN_BPM_UP: seq_set_bpm(s_app.seq.bpm + 1); break;
         case SEQ_BTN_CLEAR: break;  // on release (a hold is undo)
         case SEQ_BTN_DICE: {
-            undo_save(s_app.seq.slot);
+            undo_save(seq_status().slot);
+            undo_commit();
             SeqPattern p;
             dice_groove(&p, (uint32_t)svcGetSystemTick() ^ (s_app.frame * 2654435761u), s_app.octave);
             repeat_bar(&p, seq_len(&s_app.pattern));  // a longer pattern gets it in every bar
@@ -2635,6 +2833,7 @@ static void touch_begin(int x, int y) {
         // full ones, for the rest of the drag along this row.
         s_paint_row = row;
         s_paint_on = !cell_on(step, row);
+        undo_touch();  // the whole stroke is one undo
         paint_cell(step, row);
         s_touch = TOUCH_CELLS;
         return;
@@ -2695,6 +2894,8 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         source_release(SOURCE_TOUCH);
         s_app.active_slider = -1;
         s_touch = TOUCH_NONE;
+        undo_settle(s_touch_level);  // a stroke that changed nothing isn't an undo level
+        s_touch_level = -1;
         return;
     }
     if (!(held & KEY_TOUCH)) return;
@@ -2778,6 +2979,8 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         case TOUCH_BAR_BTN:
             if (s_app.bar_hold >= 0 && ++s_app.bar_hold >= BAR_LEN_FRAMES) {
                 const int bars = seq_bars(&s_app.pattern), next = bars == 1 ? 2 : bars == 2 ? 4 : 1;
+                undo_save(seq_status().slot);
+                undo_commit();
                 seq_set_bars(next);
                 char msg[sizeof(s_app.notice)];
                 snprintf(msg, sizeof(msg), "PATTERN %c: %d BAR%s", 'A' + s_app.seq.slot, next, next > 1 ? "S" : "");
@@ -2816,6 +3019,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         case TOUCH_SLOT:
             if (s_slot_frames < SLOT_COPY_FRAMES && ++s_slot_frames == SLOT_COPY_FRAMES) {
                 undo_save(s_app.slot_hold);
+                undo_commit();
                 seq_copy_to_slot(s_app.slot_hold);  // a variation, ready to edit
                 ui_key_struck(s_app.slot_hold, PLAY_CHORD);
             }
@@ -2836,7 +3040,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             s_button_frames++;
             if (s_button == SEQ_BTN_CLEAR) {  // hold ✕: undo
                 s_app.clear_hold_t = s_button_frames / (float)UNDO_HOLD_FRAMES;
-                if (s_button_frames == UNDO_HOLD_FRAMES) undo();
+                if (s_button_frames == UNDO_HOLD_FRAMES) undo_step((s_keys_held & KEY_L) != 0);
             }
             if ((s_button == SEQ_BTN_BPM_DOWN || s_button == SEQ_BTN_BPM_UP) && s_button_frames > REPEAT_DELAY &&
                 s_button_frames % REPEAT_EVERY == 0)
@@ -2858,8 +3062,10 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
     }
 
     // SELECT held: the circle pad bends the pitch (springs back when you
-    // let go). SELECT tapped without bending: next sound.
+    // let go). SELECT tapped -- quickly, without bending -- next sound.
     static bool s_bent;
+    static unsigned s_select_down;
+    if (down & KEY_SELECT) s_select_down = s_app.frame;
     if (held & KEY_SELECT) {
         circlePosition c;
         hidCircleRead(&c);
@@ -2879,7 +3085,7 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
         engine_pitch_bend(0.0f);
     }
     if (up & KEY_SELECT) {
-        if (!s_bent) select_sound(s_app.sound + 1);
+        if (!s_bent && s_app.frame - s_select_down < SELECT_TAP_FRAMES) select_sound(s_app.sound + 1);
         s_bent = false;
     }
     // Circle pad left/right: next patch inside a bank, otherwise next sound;
@@ -3672,6 +3878,9 @@ int main(void) {
     drum_kit_stock(&s_app.kit, 0);
     s_app.kit_lane = 0;
     seq_init(seq_out);
+    // Buttons and the touchscreen are read once a frame: on average a press
+    // happened half a frame before we see it. Live recording allows for it.
+    seq_set_input_delay(engine_sample_rate() / 120);
     s_app.slot_hold = -1;
     s_app.part_hold = -1;
     s_app.roll_active = -1;
@@ -3749,6 +3958,7 @@ int main(void) {
         if ((held & KEY_START) && !(down & KEY_START) && s_app.frame - s_start_down >= QUIT_HOLD_FRAMES) break;
 
         s_app.seq = seq_status();
+        undo_watch_take();  // (before this frame's playing can record anything)
         seq_snapshot(&s_app.pattern);
         seq_get_arrangement(&s_app.arr);
         {   // the bar on screen: within the pattern; following the playhead while recording live
@@ -3875,8 +4085,9 @@ int main(void) {
         }
         {   // the tape just stopped: a good moment to write its tracks
             static bool was_playing;
-            if (was_playing && !s_app.tape.playing) save_tape();
+            if (was_playing && !s_app.tape.playing) save_tape_soon();
             was_playing = s_app.tape.playing;
+            tape_writer_tick();
         }
 #endif
         follow_sequencer();
@@ -3899,8 +4110,9 @@ int main(void) {
             static FILE *pf;
             if (!pf) pf = fopen(STORAGE_DIR "/perf.txt", "w");
             if (pf && s_app.frame % 60 == 0) {
-                fprintf(pf, "%u page %d load %.3f peak %.3f late %u\n", (unsigned)s_app.frame, (int)s_app.page,
-                        (double)stats.load, (double)stats.load_peak, (unsigned)stats.late);
+                fprintf(pf, "%u page %d load %.3f peak %.3f late %u core1 %.2f stalls %u\n", (unsigned)s_app.frame,
+                        (int)s_app.page, (double)stats.load, (double)stats.load_peak, (unsigned)stats.late,
+                        (double)engine_core1_share(), (unsigned)engine_core1_stalls());
                 fflush(pf);
             }
         }
@@ -3938,6 +4150,8 @@ int main(void) {
     save_tape();
 #else
     (void)save_tape;
+    (void)save_tape_soon;
+    (void)tape_writer_tick;
     (void)load_tape;
     (void)autosave;  // the attract build never touches the SD card
 #endif

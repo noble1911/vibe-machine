@@ -13,3 +13,6 @@
 // split..AMY_OSCS-1). `core1_share` is the fraction of the sounding
 // oscillators to give core 1.
 uint16_t amy_split_point(float core1_share);
+// The same, also counting the sounding oscillators each core gets (for
+// balancing the share by how long each core takes).
+uint16_t amy_split_point_n(float core1_share, int *core0_oscs, int *core1_oscs);

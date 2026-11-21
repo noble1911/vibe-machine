@@ -688,6 +688,7 @@ static void draw_roll(const AppState *app) {
         if (n->step + n->len <= off || n->step >= off + SEQ_STEPS) continue;  // not in this bar
         float x = gx + (n->step - off) * ROLL_CELL_W + 1, y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
         float w = n->len * ROLL_CELL_W - 2;
+        if (n->flags & SEQ_NOTE_HALF) x += ROLL_CELL_W / 2.0f, w -= ROLL_CELL_W / 2.0f;  // an off-beat 1/32
         if (x < gx) {
             w -= gx - x;
             x = gx;
@@ -704,6 +705,7 @@ static void draw_roll(const AppState *app) {
         if (n->step + n->len <= off || n->step >= off + SEQ_STEPS) continue;  // not in this bar
         float x = gx + (n->step - off) * ROLL_CELL_W + 1, y = gy + (ROLL_ROWS - 1 - r) * ROLL_ROW_H;
         float w = n->len * ROLL_CELL_W - 2;
+        if (n->flags & SEQ_NOTE_HALF) x += ROLL_CELL_W / 2.0f, w -= ROLL_CELL_W / 2.0f;  // an off-beat 1/32
         if (x < gx) {  // started in an earlier bar
             w -= gx - x;
             x = gx;

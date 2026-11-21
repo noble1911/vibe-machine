@@ -9,7 +9,12 @@
 static int16_t *s_track[TAPE_TRACKS];
 static uint8_t s_peaks[TAPE_TRACKS][TAPE_PEAKS];  // 0..255 per overview block
 static volatile bool s_used[TAPE_TRACKS];
-static volatile bool s_dirty[TAPE_TRACKS];
+// Dirty = changed since it was last saved or loaded: its generation has
+// moved on from the one saved (or a save was asked for). Generations, not a
+// flag, so a save on another thread can say which version it wrote without
+// racing the audio thread recording a newer one.
+static volatile uint32_t s_saved_gen[TAPE_TRACKS];
+static volatile bool s_force_dirty[TAPE_TRACKS];
 static volatile int32_t s_len[TAPE_TRACKS];  // furthest frame written + 1
 static volatile uint32_t s_gen;
 static volatile uint32_t s_track_gen[TAPE_TRACKS];
@@ -81,12 +86,13 @@ void tape_clear(int track) {
     memset(s_peaks[track], 0, TAPE_PEAKS);
     s_used[track] = false;
     s_len[track] = 0;
-    s_dirty[track] = true;
     s_gen++;
     s_track_gen[track]++;
 }
 
-bool tape_dirty(int track) { return track >= 0 && track < TAPE_TRACKS && s_dirty[track]; }
+bool tape_dirty(int track) {
+    return track >= 0 && track < TAPE_TRACKS && (s_force_dirty[track] || s_track_gen[track] != s_saved_gen[track]);
+}
 
 const int16_t *tape_track_data(int track, int *frames) {
     if (!s_ok || track < 0 || track >= TAPE_TRACKS) return NULL;
@@ -95,11 +101,15 @@ const int16_t *tape_track_data(int track, int *frames) {
 }
 
 void tape_set_dirty(int track) {
-    if (track >= 0 && track < TAPE_TRACKS) s_dirty[track] = true;
+    if (track >= 0 && track < TAPE_TRACKS) s_force_dirty[track] = true;
 }
 
-void tape_mark_saved(int track) {
-    if (track >= 0 && track < TAPE_TRACKS) s_dirty[track] = false;
+void tape_mark_saved(int track) { tape_mark_saved_at(track, tape_track_generation(track)); }
+
+void tape_mark_saved_at(int track, uint32_t generation) {
+    if (track < 0 || track >= TAPE_TRACKS) return;
+    s_force_dirty[track] = false;
+    s_saved_gen[track] = generation;
 }
 
 void tape_load_track(int track, const int16_t *data, int frames) {
@@ -116,9 +126,9 @@ void tape_load_track(int track, const int16_t *data, int frames) {
     }
     s_len[track] = frames;
     s_used[track] = frames > 0;
-    s_dirty[track] = false;
     s_gen++;
     s_track_gen[track]++;
+    tape_mark_saved(track);  // what's on the card
 }
 
 TapeStatus tape_status(void) {
@@ -148,13 +158,16 @@ float tape_peak(int track, int block) {
     return s_peaks[track][block] / 255.0f;
 }
 
+// Per sample, per track: no floor() and no modulo (the ARM11 has no divide
+// instruction). The head is kept within the tape, so one compare wraps it.
 static float read_track(int t, double pos) {
-    int32_t i0 = (int32_t)floor(pos);
-    float frac = (float)(pos - i0);
-    i0 %= TAPE_FRAMES;
-    if (i0 < 0) i0 += TAPE_FRAMES;
-    int32_t i1 = (i0 + 1) % TAPE_FRAMES;
-    return (s_track[t][i0] * (1.0f - frac) + s_track[t][i1] * frac) / 32768.0f;
+    int32_t i0 = (int32_t)pos;
+    if (pos < i0) i0--;  // (int) truncates towards zero: floor for negatives
+    const float frac = (float)(pos - i0);
+    if (i0 >= TAPE_FRAMES) i0 -= TAPE_FRAMES;
+    else if (i0 < 0) i0 += TAPE_FRAMES;
+    const int32_t i1 = i0 + 1 < TAPE_FRAMES ? i0 + 1 : 0;
+    return (s_track[t][i0] * (1.0f - frac) + s_track[t][i1] * frac) * (1.0f / 32768.0f);
 }
 
 // Linear up to 0.8, then a smooth knee into 1.0, so four full tracks plus
@@ -250,18 +263,17 @@ void tape_record_block(const int16_t *io, const float *const *strips, int frames
         // Every output frame that lands on the same tape frame is averaged
         // into it (whatever the output rate: 44.1 kHz is 2 a frame, 32.7 kHz
         // 1 or 2), and written once the head moves on.
-        const int32_t w0 = s_wpos[n] % TAPE_FRAMES;
+        const int32_t w0 = s_wpos[n] < TAPE_FRAMES ? s_wpos[n] : s_wpos[n] - TAPE_FRAMES;  // (the head stays on the tape)
         if (s_rec_n > 0 && w0 != s_rec_w) {
             int32_t w = s_rec_w;
             float v = s_rec_acc / s_rec_n;
             s_track[rt][w] = (int16_t)(soft(v) * 32767.0f);
-            int b = w / TAPE_PEAK_BLOCK;
+            const uint32_t uw = (uint32_t)w, b = uw / TAPE_PEAK_BLOCK;  // (a power of two: a shift)
             // Square-root scale, so quiet takes still read on screen.
             uint8_t pk = (uint8_t)fminf(255.0f, sqrtf(fabsf(v)) * 255.0f);
-            if (w % TAPE_PEAK_BLOCK == 0) s_peaks[rt][b] = pk;  // first write of a block resets it
+            if (uw % TAPE_PEAK_BLOCK == 0) s_peaks[rt][b] = pk;  // first write of a block resets it
             else if (pk > s_peaks[rt][b]) s_peaks[rt][b] = pk;
             s_used[rt] = true;
-            s_dirty[rt] = true;
             if (w + 1 > s_len[rt]) s_len[rt] = w + 1;
             s_rec_acc = 0.0f;
             s_rec_n = 0;

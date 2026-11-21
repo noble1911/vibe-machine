@@ -63,6 +63,11 @@ int sampler_region(const SampleEdit *e, int frames, int slice, int *first);
 // then up the song's scale (the keys), wrapping round; notes outside the
 // scale play the slice below.
 int sampler_slice_of_pitch(int pitch, int slices);
+// A note that plays a slice in another key (from_root, from_scale) moved to
+// the note that plays the same slice in the song's key now: the same scale
+// degree. (When the key changes, a chopped part's notes are moved like this,
+// so a programmed break never rearranges.)
+int sampler_slice_note_moved(int pitch, int from_root, int from_scale);
 
 // Linear-interpolating resample of `n` frames at in_rate to out_rate.
 // Returns frames written (at most max_out).

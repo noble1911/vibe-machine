@@ -40,6 +40,11 @@ static void check(int ok, const char *what) {
     fails += !ok;
 }
 
+static int to_c(int pitch, void *ctx) {  // (for seq_map_pitches)
+    (void)ctx;
+    return pitch - pitch % 12;
+}
+
 static SeqPattern only_lane(int lane) {  // one drum lane on every step
     SeqPattern p;
     memset(&p, 0, sizeof(p));
@@ -365,6 +370,24 @@ int main(void) {
         seq_get_slot(1, &got);
         check(seq_len(&got) == 16 && got.drums[4] == (1u << 2), "shrinking keeps the first bar");
 
+        // A sliding note stays a slide when the pattern grows, and when a
+        // part's notes are replaced (the dice, clearing in the roll).
+        one.notes[0].flags = SEQ_NOTE_SLIDE;
+        seq_put_slot(1, &one);
+        seq_set_bars(2);
+        seq_get_slot(1, &got);
+        int slides = 0;
+        for (int i = 0; i < got.count; i++) slides += (got.notes[i].flags & SEQ_NOTE_SLIDE) != 0;
+        SeqPattern part2;
+        memset(&part2, 0, sizeof(part2));
+        part2.notes[part2.count++] = (SeqRollNote){3, 62, 1, 200, 0, SEQ_NOTE_SLIDE};
+        seq_set_part_pattern(1, &part2);
+        seq_get_slot(1, &got);
+        int kept = 0;
+        for (int i = 0; i < got.count; i++) kept += (got.notes[i].flags & SEQ_NOTE_SLIDE) != 0;
+        check(slides == 2 && kept == 3, "slides survive growing a pattern and replacing a part's notes");
+        seq_set_bars(1);
+
         // An arrangement row of a 2-bar pattern x2 is 4 bars long.
         SeqArrangement arr;
         memset(&arr, 0, sizeof(arr));
@@ -451,8 +474,135 @@ int main(void) {
             }
         printf("  recorded %d arp notes\n", on_part3);
         check(on_part3 >= 6 && steps_ok, "recording, the arpeggio goes into the pattern, a step per note");
+
+        // 1/32: every note it plays is recorded -- the ones between the steps
+        // as off-beat notes (SEQ_NOTE_HALF) -- and plays back at the same times.
+        seq_put_slot(0, &empty);
+        arp = (SeqArp){true, ARP_UP, ARP_32ND, 1};
+        seq_set_arp(&arp);
+        seq_set_recording(true);
+        s_nhits = 0;
+        s_clock = 0;
+        seq_toggle_play();
+        run(0.01);
+        seq_arp_hold(2, chord, 3);
+        run(0.97);  // 8 steps: 16 notes
+        seq_arp_hold(2, NULL, 0);
+        seq_set_recording(false);
+        seq_toggle_play();
+        run(0.1);
+        long live[64];
+        int nlive = 0;
+        for (int i = 0; i < s_nhits && nlive < 64; i++)
+            if (s_hits[i].synth == part_synth(2)) live[nlive++] = s_hits[i].t;
+        seq_get_slot(0, &rec);
+        int on_grid = 0, halves = 0;
+        for (int i = 0; i < rec.count; i++)
+            if (rec.notes[i].part == 2) (rec.notes[i].flags & SEQ_NOTE_HALF) ? halves++ : on_grid++;
+        // Play it back (arp off): the same notes at the same times.
         arp.on = false;
         seq_set_arp(&arp);
+        s_nhits = 0;
+        s_clock = 0;
+        seq_toggle_play();
+        run(0.98);
+        seq_toggle_play();
+        run(0.1);
+        int nback = 0, same = 0;
+        for (int i = 0; i < s_nhits; i++)
+            if (s_hits[i].synth == part_synth(2)) {
+                if (nback < nlive && labs(s_hits[i].t - live[nback]) <= BLOCK) same++;
+                nback++;
+            }
+        printf("  1/32: played %d, recorded %d on the steps + %d between, played back %d (%d on time)\n", nlive, on_grid,
+               halves, nback, same);
+        check(nlive >= 15 && on_grid + halves == nlive && halves >= on_grid - 1 && same == nlive,
+              "a 1/32 arpeggio records every note, and plays back the same");
+    }
+
+    // --- a crowded step ------------------------------------------------------
+    {   // 60 notes on one step (more than the 32 it holds at once): every note
+        // that starts also stops; no note-off is ever dropped.
+        SeqPattern busy;
+        memset(&busy, 0, sizeof(busy));
+        busy.len = SEQ_STEPS;
+        for (int i = 0; i < 60; i++) busy.notes[busy.count++] = (SeqRollNote){0, (uint8_t)(30 + i), 1, 200, 0, 0};
+        for (int s = 0; s < SEQ_STEPS; s++) busy.drums[s] = 0xFF;
+        seq_put_slot(0, &busy);
+        seq_select_slot(0);
+        seq_set_bpm(120);
+        s_nhits = s_noffs = 0;
+        seq_toggle_play();
+        run(0.3);
+        seq_toggle_play();
+        run(0.1);
+        int on[128] = {0}, ons = 0, unmatched = 0;
+        for (int i = 0; i < s_nhits; i++)
+            if (s_hits[i].synth == part_synth(0)) on[s_hits[i].note]++, ons++;
+        for (int i = 0; i < s_noffs; i++)
+            if (s_offs[i].synth == part_synth(0)) on[s_offs[i].note]--;
+        for (int p = 0; p < 128; p++) unmatched += on[p] > 0;
+        printf("  crowded step: %d note-ons, %d left without an off\n", ons, unmatched);
+        check(ons == 60 && unmatched == 0, "a step of 60 notes plays them all, and stops them all");
+    }
+
+    // --- moving one part's pitches (a chopped part when the key changes) ----
+    {
+        SeqPattern two;
+        memset(&two, 0, sizeof(two));
+        two.notes[two.count++] = (SeqRollNote){0, 60, 1, 200, 1, 0};
+        two.notes[two.count++] = (SeqRollNote){0, 62, 1, 200, 1, 0};  // lands on 60 too: one note
+        two.notes[two.count++] = (SeqRollNote){4, 62, 1, 200, 0, 0};  // another part: stays
+        seq_put_slot(3, &two);
+        seq_put_slot(7, &two);
+        seq_map_pitches(1u << 1, to_c, NULL);
+        SeqPattern a, b;
+        seq_get_slot(3, &a);
+        seq_get_slot(7, &b);
+        int other = 0, ok = a.count == 2 && b.count == 2;
+        for (int i = 0; i < a.count; i++) {
+            if (a.notes[i].part == 1) ok &= a.notes[i].pitch == 60;
+            if (a.notes[i].part == 0) other += a.notes[i].pitch == 62;
+        }
+        check(ok && other == 1, "one part's notes move in every slot, the others stay");
+    }
+
+    // --- live recording, allowing for the audio still queued ----------------
+    {   // The clock runs 3/4 of a step ahead of the speaker: a hit played on
+        // step 2 as heard arrives when the clock is past step 3, and still
+        // lands on step 2; a held note keeps its start and length as heard.
+        const double step = 5512.5;
+        SeqPattern empty;
+        memset(&empty, 0, sizeof(empty));
+        seq_put_slot(6, &empty);
+        seq_select_slot(6);
+        seq_set_song(false);
+        seq_set_swing(0.0f);
+        seq_set_bpm(120);
+        seq_set_recording(true);
+        seq_toggle_play();
+        run(step * 3.1 / RATE);
+        seq_set_latency((int)(0.75 * step));
+        seq_record_drum(0);
+        run(step * 3.0 / RATE);  // clock at 6.1, heard 5.35
+        seq_set_latency((int)(0.75 * step));
+        SeqNote held = {2, 1, {64}};
+        seq_record_synth(0, &held);
+        run(step * 3.0 / RATE);  // clock at 9.1, heard 8.35
+        seq_set_latency((int)(0.75 * step));
+        seq_record_release(0, &held);
+        seq_toggle_play();
+        seq_set_recording(false);
+        SeqPattern got;
+        seq_get_slot(6, &got);
+        int kick = -1;
+        for (int st = 0; st < SEQ_STEPS; st++)
+            if (got.drums[st] & 1u) kick = st;
+        printf("  queued audio 3/4 step: kick on step %d; note on step %d, %d long\n", kick,
+               got.count ? got.notes[0].step : -1, got.count ? got.notes[0].len : -1);
+        check(kick == 2, "a hit lands on the step that was heard, not the clock's");
+        check(got.count == 1 && got.notes[0].step == 5 && got.notes[0].len == 3,
+              "a held note starts and ends where it was heard");
     }
 
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);

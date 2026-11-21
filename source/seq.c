@@ -20,7 +20,7 @@ typedef pthread_mutex_t SeqLock;
 #define UNLOCK(l) pthread_mutex_unlock(l)
 #endif
 
-#define MAX_EVENTS 64
+#define MAX_EVENTS 256  // events one seq_advance() can send (a step full of notes fits)
 #define MAX_ACTIVE 32  // synth notes the sequencer is holding at once
 #define MAX_SKIPS 16
 #define MAX_REC_HELD 12
@@ -74,6 +74,11 @@ static int s_step;
 static double s_pos;     // samples since the current step fired
 static uint32_t s_ticks;  // steps fired since play started (the current step's number)
 static int s_rate = 44100;
+// Frames the speaker is behind this clock: what the audio thread last
+// measured (seq_set_latency), plus what the clock has run on since.
+static int s_out_latency, s_since_latency;
+static bool s_latency_known;
+static int s_in_delay;              // frames: how late a press reaches us (seq_set_input_delay)
 static uint32_t s_fired;
 static Active s_active[MAX_ACTIVE];
 static int s_nactive;
@@ -89,6 +94,15 @@ static double s_arp_clock;  // samples to the next free-running tick
 static double s_arp_off;    // samples until the sounding note stops
 static uint32_t s_arp_rng = 0x9E3779B9u;
 static bool s_arp_mid_done;  // 1/32 while playing: the mid-step tick has fired
+
+// The current step's SEQ_NOTE_HALF notes, waiting for the middle of the step.
+#define MAX_HALF 16
+typedef struct {
+    uint8_t pitch, part, len;
+    float vel;
+} Half;
+static Half s_half[MAX_HALF];
+static int s_nhalf;
 
 static bool slot_used(int slot) {
     const SeqPattern *p = &s_pats[slot];
@@ -113,6 +127,15 @@ static int drum_note(int lane) {
     music_key_notes(lane, PLAY_DRUM, 0, notes);
     return notes[0];
 }
+
+// Note-offs are never dropped (a dropped one is a stuck note): note-ons only
+// go out while there is still room for the off of every note sounding, so
+//   n + s_nactive + (an arp note sounding) <= MAX_EVENTS
+// always holds. An off moves one from the right to the left; an on that
+// will need an off costs two. If a block really is that crowded, the extra
+// note-ons are what's dropped.
+static int owed_offs(void) { return s_nactive + (s_arp_cur >= 0); }
+static bool room_for_on(int n, int cost) { return n + owed_offs() + cost <= MAX_EVENTS; }
 
 static int release_active(int i, Event *ev, int n) {
     if (n < MAX_EVENTS) ev[n++] = (Event){part_synth(s_active[i].part), s_active[i].pitch, 0.0f};
@@ -151,7 +174,7 @@ static void arr_enter(int row) {
 
 // --- arpeggiator -----------------------------------------------------------
 
-static int add_locked(SeqPattern *p, int part, int step, int pitch, int len, int vel);
+static int add_locked(SeqPattern *p, int part, int step, int pitch, int len, int vel, int flags);
 
 static double arp_interval(void) {  // samples between ticks
     const double step = s_rate * 60.0 / s_bpm / 4.0;
@@ -195,20 +218,21 @@ static int arp_next(void) {
 }
 
 // One arpeggiator step. `step` is the pattern step it lands on (recorded
-// there while recording), or -1 off the grid (free-running, or a 1/32 in
-// between).
-static int arp_tick(int step, Event *ev, int n) {
+// there while recording), or -1 off the grid (free-running). `half`: a 1/32
+// in the middle of that step, recorded as a SEQ_NOTE_HALF note.
+static int arp_tick(int step, bool half, Event *ev, int n) {
     n = arp_off_event(ev, n);
     const int pitch = arp_next();
     if (pitch < 0 || pitch > 127) return n;
     const float vel = 0.75f;
-    if (n < MAX_EVENTS) ev[n++] = (Event){part_synth(s_arp_part), pitch, vel};
+    if (!room_for_on(n, 2)) return n;
+    ev[n++] = (Event){part_synth(s_arp_part), pitch, vel};
     s_arp_cur = pitch;
     s_arp_cur_part = s_arp_part;
     s_arp_off = arp_interval() * 0.6;  // a little gap between notes
     if (step >= 0 && s_playing && s_recording && !((s_muted >> s_arp_part) & 1u)) {
         SeqPattern *p = &s_pats[s_cur];
-        add_locked(p, s_arp_part, step, pitch, s_arp.rate == ARP_8TH ? 2 : 1, (int)(vel * 255));
+        add_locked(p, s_arp_part, step, pitch, s_arp.rate == ARP_8TH ? 2 : 1, (int)(vel * 255), half ? SEQ_NOTE_HALF : 0);
     }
     return n;
 }
@@ -254,8 +278,9 @@ static int start_note(int part, int pitch, float vel, double off, Event *ev, int
             break;
         }
     if (s_nactive == MAX_ACTIVE) n = release_active(0, ev, n);  // full: drop the oldest
+    if (!room_for_on(n, 2)) return n;  // (its off is owed from now on)
     s_active[s_nactive++] = (Active){(uint8_t)pitch, (uint8_t)part, off};
-    if (n < MAX_EVENTS) ev[n++] = (Event){part_synth(part), pitch, vel};
+    ev[n++] = (Event){part_synth(part), pitch, vel};
     return n;
 }
 
@@ -268,15 +293,20 @@ static int fire_step(int step, Event *ev, int n) {
     const uint8_t muted = s_muted | (arranging() && s_arr_row >= 0 ? s_arr.rows[s_arr_row].mutes : 0);
     if ((muted >> PARTS) & 1u) hits = 0;
     for (int lane = 0; lane < SEQ_LANES; lane++)
-        if ((hits & (1u << lane)) && n < MAX_EVENTS)
+        if ((hits & (1u << lane)) && room_for_on(n, 1))  // (drums are one-shots: no off)
             ev[n++] = (Event){SYNTH_DRUMS, drum_note(lane), accent ? SEQ_VEL_DRUM_ACCENT : SEQ_VEL_DRUM};
 
+    s_nhalf = 0;
     for (int i = 0; i < p->count; i++) {
         const SeqRollNote *rn = &p->notes[i];
         if (rn->step != step || take_skip(step, rn->pitch, rn->part)) continue;
         if ((muted >> rn->part) & 1u) continue;
         float vel = rn->vel / 255.0f;
         if (accent && vel < SEQ_VEL_SYNTH_ACCENT) vel = SEQ_VEL_SYNTH_ACCENT;
+        if (rn->flags & SEQ_NOTE_HALF) {  // not yet: in the middle of the step
+            if (s_nhalf < MAX_HALF) s_half[s_nhalf++] = (Half){rn->pitch, rn->part, rn->len, vel};
+            continue;
+        }
         // A slide holds on past the start of the next step, so the next note
         // arrives while this one still sounds (legato).
         const double gate = (rn->flags & SEQ_NOTE_SLIDE) ? 1.15 : SEQ_GATE;
@@ -284,6 +314,21 @@ static int fire_step(int step, Event *ev, int n) {
     }
     s_step = step;
     s_fired++;
+    return n;
+}
+
+// The middle of the step: its off-beat 1/32s (SEQ_NOTE_HALF) start, each
+// cutting its part's notes that were due to end within this step.
+static int fire_halves(Event *ev, int n) {
+    for (int h = 0; h < s_nhalf; h++) {
+        const Half *hn = &s_half[h];
+        for (int i = 0; i < s_nactive;)
+            if (s_active[i].part == hn->part && s_active[i].off <= s_ticks + 1.0) n = release_active(i, ev, n);
+            else i++;
+        const double gate = hn->len <= 1 ? 0.3 : SEQ_GATE;  // a 32nd, as the arpeggiator plays it
+        n = start_note(hn->part, hn->pitch, hn->vel, s_ticks + 0.5 + (hn->len - 1) + gate, ev, n);
+    }
+    s_nhalf = 0;
     return n;
 }
 
@@ -325,6 +370,7 @@ void seq_advance(int frames, int rate) {
 
     LOCK(&s_lock);
     s_rate = rate;
+    if (s_latency_known) s_since_latency += frames;  // rendering ahead of the last measurement
     if (s_playing) {
         if (s_start_pending) {
             s_start_pending = false;
@@ -333,13 +379,14 @@ void seq_advance(int frames, int rate) {
             if (arranging()) arr_enter(0);  // a song plays from its first row
             n = fire_step(0, ev, n);
             s_arp_mid_done = false;
-            if (arp_active()) n = arp_tick(0, ev, n);
+            if (arp_active()) n = arp_tick(0, false, ev, n);
         } else {
             s_pos += frames;
             double len;
             while (s_pos >= (len = step_len_after(s_step))) {
                 s_pos -= len;
                 s_ticks++;
+                if (s_nhalf) n = fire_halves(ev, n);  // (a block longer than half a step: late, not lost)
                 n = release_due(s_ticks, ev, n);  // notes ending on this boundary go first
                 int next = (s_step + 1) % seq_len(&s_pats[s_cur]);
                 if (next == 0) bar_end();
@@ -347,26 +394,30 @@ void seq_advance(int frames, int rate) {
                     s_end_pending = false;
                     s_playing = false;
                     s_ends++;
+                    s_nhalf = 0;
                     n = release_all(ev, n);
                     break;
                 }
                 n = fire_step(next, ev, n);
                 s_arp_mid_done = false;
                 // The arpeggiator, locked to the steps: every 2nd for 1/8.
-                if (arp_active() && (s_arp.rate != ARP_8TH || (s_ticks & 1) == 0)) n = arp_tick(next, ev, n);
+                if (arp_active() && (s_arp.rate != ARP_8TH || (s_ticks & 1) == 0)) n = arp_tick(next, false, ev, n);
             }
-            if (arp_active() && s_arp.rate == ARP_32ND && !s_arp_mid_done && s_pos >= step_len_after(s_step) / 2.0) {
-                s_arp_mid_done = true;  // 1/32: one more between the steps
-                n = arp_tick(-1, ev, n);
+            const bool mid = s_playing && s_pos >= step_len_after(s_step) / 2.0;
+            if (mid && s_nhalf) n = fire_halves(ev, n);
+            if (mid && arp_active() && s_arp.rate == ARP_32ND && !s_arp_mid_done) {
+                s_arp_mid_done = true;  // 1/32: one more between the steps (recorded half a step late)
+                n = arp_tick(s_step, true, ev, n);
             }
             n = release_due(now_steps(), ev, n);
         }
     } else {
+        s_nhalf = 0;
         n = release_all(ev, n);  // stopped: let go of anything still held
         if (arp_active()) {  // free-running at the tempo
             s_arp_clock -= frames;
             if (s_arp_clock <= 0) {
-                n = arp_tick(-1, ev, n);
+                n = arp_tick(-1, false, ev, n);
                 s_arp_clock += arp_interval();
                 if (s_arp_clock < 0) s_arp_clock = arp_interval();
             }
@@ -564,20 +615,25 @@ static void remove_locked(SeqPattern *p, int index) {
     s_nrec = 0;  // indices moved: stop tracking held recordings
 }
 
-static int add_locked(SeqPattern *p, int part, int step, int pitch, int len, int vel) {
+// Every copy of a note goes through here with its flags (SLIDE...), so
+// growing a pattern or replacing a part's notes keeps them.
+static int add_locked(SeqPattern *p, int part, int step, int pitch, int len, int vel, int flags) {
     if (p->count >= SEQ_NOTES || step < 0 || step >= SEQ_STEPS_MAX || part < 0 || part >= PARTS) return -1;
     if (pitch < 0) pitch = 0;
     if (pitch > 127) pitch = 127;
     len = len < 1 ? 1 : len > SEQ_STEPS_MAX ? SEQ_STEPS_MAX : len;
     vel = vel < 1 ? 1 : vel > 255 ? 255 : vel;
-    // One note per (part, step, pitch): adding again replaces it.
+    // One note per (part, step, pitch) -- and on- or off-beat (SEQ_NOTE_HALF):
+    // adding again replaces it.
     for (int i = 0; i < p->count; i++)
-        if (p->notes[i].step == step && p->notes[i].pitch == pitch && p->notes[i].part == part) {
+        if (p->notes[i].step == step && p->notes[i].pitch == pitch && p->notes[i].part == part &&
+            ((p->notes[i].flags ^ flags) & SEQ_NOTE_HALF) == 0) {
             p->notes[i].len = (uint8_t)len;
             p->notes[i].vel = (uint8_t)vel;
+            p->notes[i].flags = (uint8_t)flags;
             return i;
         }
-    p->notes[p->count] = (SeqRollNote){(uint8_t)step, (uint8_t)pitch, (uint8_t)len, (uint8_t)vel, (uint8_t)part, 0};
+    p->notes[p->count] = (SeqRollNote){(uint8_t)step, (uint8_t)pitch, (uint8_t)len, (uint8_t)vel, (uint8_t)part, (uint8_t)flags};
     return p->count++;
 }
 
@@ -604,7 +660,7 @@ void seq_set_bars(int bars) {
         for (int start = old; start < len; start += old)
             for (int i = 0; i < n; i++) {
                 const SeqRollNote *rn = &p->notes[i];
-                add_locked(p, rn->part, rn->step + start, rn->pitch, rn->len, rn->vel);
+                add_locked(p, rn->part, rn->step + start, rn->pitch, rn->len, rn->vel, rn->flags);
             }
     }
     p->len = (uint8_t)len;
@@ -624,13 +680,13 @@ void seq_set_synth(int part, int step, const SeqNote *note) {
     SeqPattern *p = &s_pats[s_cur];
     clear_step_locked(p, part, step);
     if (note)
-        for (int i = 0; i < note->count; i++) add_locked(p, part, step, note->notes[i], 1, (int)(SEQ_VEL_SYNTH * 255));
+        for (int i = 0; i < note->count; i++) add_locked(p, part, step, note->notes[i], 1, (int)(SEQ_VEL_SYNTH * 255), 0);
     UNLOCK(&s_lock);
 }
 
 int seq_roll_add(int part, int step, int pitch, int len, int vel) {
     LOCK(&s_lock);
-    int i = add_locked(&s_pats[s_cur], part, step, pitch, len, vel);
+    int i = add_locked(&s_pats[s_cur], part, step, pitch, len, vel, 0);
     UNLOCK(&s_lock);
     return i;
 }
@@ -643,10 +699,34 @@ void seq_set_part_pattern(int part, const SeqPattern *src) {
         else i++;
     for (int i = 0; i < src->count; i++) {
         const SeqRollNote *n = &src->notes[i];
-        add_locked(p, part, n->step, n->pitch, n->len, n->vel);
+        add_locked(p, part, n->step, n->pitch, n->len, n->vel, n->flags);
     }
     memcpy(p->drums, src->drums, sizeof(p->drums));
     p->accents = src->accents;
+    UNLOCK(&s_lock);
+}
+
+void seq_map_pitches(uint8_t parts, int (*map)(int pitch, void *ctx), void *ctx) {
+    LOCK(&s_lock);
+    for (int k = 0; k < SEQ_SLOTS; k++) {
+        SeqPattern *p = &s_pats[k];
+        for (int i = 0; i < p->count; i++)
+            if ((parts >> p->notes[i].part) & 1u) {
+                const int to = map(p->notes[i].pitch, ctx);
+                p->notes[i].pitch = (uint8_t)(to < 0 ? 0 : to > 127 ? 127 : to);
+            }
+        // Two notes that landed on the same spot are one.
+        for (int i = 0; i < p->count; i++)
+            for (int j = i + 1; j < p->count;) {
+                const SeqRollNote *a = &p->notes[i], *b = &p->notes[j];
+                if (a->part == b->part && a->step == b->step && a->pitch == b->pitch &&
+                    ((a->flags ^ b->flags) & SEQ_NOTE_HALF) == 0)
+                    remove_locked(p, j);
+                else
+                    j++;
+            }
+    }
+    s_nrec = 0;
     UNLOCK(&s_lock);
 }
 
@@ -717,10 +797,55 @@ int seq_notes_at(const SeqPattern *p, int part, int step, int *pitches, int max)
 
 // --- live recording --------------------------------------------------------
 
-// Nearest step to "now"; *ahead is set when that is the coming step.
-static int nearest_step(bool *ahead) {
-    *ahead = s_pos >= step_len_after(s_step) / 2.0;
-    return *ahead ? (s_step + 1) % seq_len(&s_pats[s_cur]) : s_step;
+// Where the player is in the music, in steps since play started: the clock
+// here runs ahead of the speaker by the output queue, and a press reaches
+// us a little late, so step back by both (across steps of different
+// lengths, for swing). Before the first step: negative.
+static double heard_steps(void) {
+    double lat = (double)s_out_latency + s_since_latency + s_in_delay, pos = s_pos, t = s_ticks;
+    if (lat <= pos) return t + (pos - lat) / step_len_after(s_step);
+    lat -= pos;
+    const int len = seq_len(&s_pats[s_cur]);
+    int step = s_step;
+    for (int i = 0; i < SEQ_STEPS_MAX; i++) {
+        step = step > 0 ? step - 1 : len - 1;
+        t -= 1.0;
+        const double sl = step_len_after(step);
+        if (lat <= sl) return t + (sl - lat) / sl;
+        lat -= sl;
+    }
+    return t;
+}
+
+// The step nearest to what the player hears: *tick is its number (steps
+// since play started) and *ahead is set when the clock hasn't fired it yet
+// (it will, so the hit just played must be skipped once). Returns its index
+// in the pattern.
+static int nearest_step(bool *ahead, uint32_t *tick) {
+    const double h = heard_steps();
+    long k = (long)h;
+    if (h < k) k--;  // floor
+    long t = h - k >= 0.5 ? k + 1 : k;
+    if (t < 0) t = 0;  // before the first step: it's the first step
+    if (t > (long)s_ticks + 1) t = (long)s_ticks + 1;
+    *tick = (uint32_t)t;
+    *ahead = t == (long)s_ticks + 1;
+    const int len = seq_len(&s_pats[s_cur]), d = (int)(t - (long)s_ticks);
+    return ((s_step + d) % len + len) % len;
+}
+
+void seq_set_latency(int frames) {
+    LOCK(&s_lock);
+    s_out_latency = frames > 0 ? frames : 0;
+    s_since_latency = 0;
+    s_latency_known = true;
+    UNLOCK(&s_lock);
+}
+
+void seq_set_input_delay(int frames) {
+    LOCK(&s_lock);
+    s_in_delay = frames > 0 ? frames : 0;
+    UNLOCK(&s_lock);
 }
 
 void seq_record_drum(int lane) {
@@ -728,7 +853,8 @@ void seq_record_drum(int lane) {
     LOCK(&s_lock);
     if (s_playing && s_recording && !s_start_pending) {
         bool ahead;
-        int step = nearest_step(&ahead);
+        uint32_t tick;
+        int step = nearest_step(&ahead, &tick);
         s_pats[s_cur].drums[step] |= (uint8_t)(1u << lane);
         if (ahead) s_skip_drums[step] |= (uint8_t)(1u << lane);
     }
@@ -740,14 +866,15 @@ void seq_record_synth(int part, const SeqNote *note) {
     LOCK(&s_lock);
     if (s_playing && s_recording && !s_start_pending) {
         bool ahead;
-        int step = nearest_step(&ahead);
+        uint32_t tick;
+        int step = nearest_step(&ahead, &tick);
         SeqPattern *p = &s_pats[s_cur];
         for (int i = 0; i < note->count; i++) {
-            int idx = add_locked(p, part, step, note->notes[i], 1, (int)(SEQ_VEL_SYNTH * 255));
+            int idx = add_locked(p, part, step, note->notes[i], 1, (int)(SEQ_VEL_SYNTH * 255), 0);
             if (idx < 0) continue;
             if (ahead && s_nskip < MAX_SKIPS) s_skip_notes[s_nskip++] = (Skip){(uint8_t)step, note->notes[i], (uint8_t)part};
             if (s_nrec < MAX_REC_HELD)  // remember when it started, to set its length on release
-                s_rec_held[s_nrec++] = (RecHeld){idx, note->notes[i], (uint8_t)part, s_ticks + (ahead ? 1.0 : 0.0), (uint8_t)s_cur};
+                s_rec_held[s_nrec++] = (RecHeld){idx, note->notes[i], (uint8_t)part, (double)tick, (uint8_t)s_cur};
         }
     }
     UNLOCK(&s_lock);
@@ -756,7 +883,7 @@ void seq_record_synth(int part, const SeqNote *note) {
 void seq_record_release(int part, const SeqNote *note) {
     if (!note || !note->count) return;
     LOCK(&s_lock);
-    const double now = now_steps();
+    const double now = heard_steps();  // (as the press was: what was heard)
     for (int k = 0; k < note->count; k++)
         for (int i = 0; i < s_nrec; i++) {
             if (s_rec_held[i].pitch != note->notes[k] || s_rec_held[i].part != part) continue;

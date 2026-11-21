@@ -22,6 +22,10 @@ const char *music_root_name(int root);    // "C#"...
 // Scale degree of a pitch, counting from the root above middle C (0) up and
 // down through the octaves; notes outside the scale take the degree below.
 int music_degree(int pitch);
+// The same in another key (root 0..11, scale 0..MUSIC_SCALES-1).
+int music_degree_in(int pitch, int root, int scale);
+// The other way: the pitch of a scale degree in the song's key.
+int music_degree_note(int degree);
 
 typedef enum { PLAY_NOTE, PLAY_CHORD, PLAY_DRUM } PlayMode;
 

@@ -94,6 +94,7 @@ int main(void) {
     for (int k = 0; k < FX_COUNT; k++) a.fx_x[k] = a.fx_y[k] = 0.05f * k;
 
     const char *path = "build/state_test.vms";
+    storage_remove(path);  // (and the copies an earlier run left)
     check(storage_save(path, &a), "save writes a file");
     SaveState b;
     memset(&b, 0, sizeof(b));
@@ -106,6 +107,36 @@ int main(void) {
     SaveState c = b;
     check(!storage_load(path, &c) && memcmp(&c, &b, sizeof(b)) == 0, "a damaged file is rejected and changes nothing");
     check(!storage_load("build/does_not_exist.vms", &c), "a missing file is reported");
+
+    {   // Saves are never half-written: the old file waits as .bak until the
+        // new one is complete, and loading falls back to whatever is whole.
+        const char *sp = "build/safe_test.vms";
+        storage_remove(sp);
+        SaveState one = a, two = a, got;
+        one.bpm = 101;
+        two.bpm = 202;
+        bool ok = storage_save(sp, &one) && storage_save(sp, &two) && storage_load(sp, &got) && got.bpm == 202;
+        check(ok && storage_load("build/safe_test.vms.bak", &got) && got.bpm == 101, "a save keeps the one before as .bak");
+        // Power lost while the new file was being written: the old one loads.
+        FILE *nf = fopen("build/safe_test.vms.new", "wb");
+        fwrite("VIBE\x11\x00", 1, 6, nf);
+        fclose(nf);
+        check(storage_load(sp, &got) && got.bpm == 202, "a cut-off save leaves the last good one loading");
+        // ...or just before it took the old one's place: the new one loads.
+        storage_save(sp, &two);
+        rename(sp, "build/safe_test.vms.new");
+        check(storage_load(sp, &got) && got.bpm == 202 && storage_exists(sp), "a save cut off mid-swap still loads, newest first");
+        // The file itself damaged: the one before it loads.
+        storage_save(sp, &one);
+        storage_save(sp, &two);
+        FILE *df = fopen(sp, "r+b");
+        fseek(df, 30, SEEK_SET);
+        fputc(0xA5, df);
+        fclose(df);
+        check(storage_load(sp, &got) && got.bpm == 101, "a damaged save falls back to the one before");
+        storage_remove(sp);
+        check(!storage_exists(sp), "removing a save removes its copies too");
+    }
 
     {   // The biggest song there can be still fits the file.
         SaveState big = a;
@@ -263,6 +294,7 @@ int main(void) {
         }
         check(labs(sum) / DRAW_CYCLE < 300 && peak > 29000 && peak < 30000, "a drawn wave plays centred, at a steady level");
         Preset pr = {4, 0, {0.3f, 0.6f}, b, w}, back;
+        storage_remove("build/test.vmp");
         check(preset_save("build/test.vmp", &pr) && preset_load("build/test.vmp", &back) && back.sound == 4 &&
                   memcmp(&back.edit.p, &pr.edit.p, sizeof(pr.edit.p)) == 0 && back.edit.set == pr.edit.set &&
                   memcmp(back.wave.pt, w.pt, DRAW_POINTS) == 0,
@@ -302,6 +334,26 @@ int main(void) {
         check(n[0] == 52 && music_degree(52) == -5 && music_degree(63) == -1, "octaves down count degrees down");
         check(sampler_slice_of_pitch(64, 4) == 0 && sampler_slice_of_pitch(67, 4) == 1 && sampler_slice_of_pitch(76, 4) == 1,
               "CHOP slices follow the scale's keys");
+        // A chopped part's notes, moved when the key changes, play the same
+        // slices in every key and scale -- and the keys still walk them.
+        int kept = 0, tried = 0, walks = 1;
+        for (int from = 0; from < 12 * MUSIC_SCALES; from++)
+            for (int to = 0; to < 12 * MUSIC_SCALES; to += 5)
+                for (int pitch = 40; pitch < 90; pitch++) {
+                    music_set_key(from % 12, from / 12);
+                    const int before = sampler_slice_of_pitch(pitch, 8);
+                    music_set_key(to % 12, to / 12);
+                    kept += sampler_slice_of_pitch(sampler_slice_note_moved(pitch, from % 12, from / 12), 8) == before;
+                    tried++;
+                }
+        for (int k = 0; k < 12 * MUSIC_SCALES; k++) {
+            music_set_key(k % 12, k / 12);
+            for (int key = 0; key < MUSIC_KEYS; key++) {
+                music_key_notes(key, PLAY_NOTE, 0, n);
+                walks &= sampler_slice_of_pitch(n[0], 8) == key;
+            }
+        }
+        check(kept == tried && walks, "moved with a key change, a chopped note keeps its slice, in any key");
         music_set_key(0, 0);
     }
 

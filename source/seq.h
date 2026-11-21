@@ -51,6 +51,10 @@ typedef struct {
 // A sliding note holds on into the next one (legato): on a MONO sound with
 // GLIDE the pitch slides across instead of the note restriking (acid).
 #define SEQ_NOTE_SLIDE 1
+// An off-beat 1/32: the note starts half a step late (the arpeggiator at
+// 1/32 records the notes between the steps like this). A one-step one
+// sounds for a 32nd, and cuts the part's own short notes from that step.
+#define SEQ_NOTE_HALF 2
 
 typedef struct {
     uint8_t len;                   // steps: 16, 32 or 64 (0 counts as 16)
@@ -169,13 +173,23 @@ void seq_set_fx(int step, int kind1, float x, float y);
 // The part's note covering (step, pitch), i.e. starting at or before step
 // and still sounding there; -1 if none.
 int seq_roll_find(int part, int step, int pitch);
+// Every note of the parts in `parts` (bit n = part n), in every slot, moves
+// to the pitch `map` gives it (notes that land on the same spot become one).
+void seq_map_pitches(uint8_t parts, int (*map)(int pitch, void *ctx), void *ctx);
 // Replace one part's notes in the current slot with those in `p` (whose
 // notes are taken as that part's); drums and accents come from `p` too.
 void seq_set_part_pattern(int part, const SeqPattern *p);
 
 // Live recording (only acts while playing and recording): the hit lands on
-// the nearest step. Synth notes are as long as you hold them: call
-// seq_record_release() with the same note when the key comes up.
+// the step nearest to what the player heard when they pressed. Synth notes
+// are as long as you hold them: call seq_record_release() with the same
+// note when the key comes up.
+// The clock runs ahead of the speaker by the audio queued for output: the
+// audio thread says by how much, in frames, as it changes. And a press
+// reaches the sequencer a little after it happened (input is read once a
+// frame): the UI says how long that is on average, in frames.
+void seq_set_latency(int frames);
+void seq_set_input_delay(int frames);
 void seq_record_drum(int lane);
 void seq_record_synth(int part, const SeqNote *note);
 void seq_record_release(int part, const SeqNote *note);
