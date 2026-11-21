@@ -14,6 +14,7 @@
 #include "engine.h"
 #include "sampler.h"
 #include "sounds.h"
+#include "tables.h"
 
 #define SECONDS_TO_BLOCKS(s) ((int)((s) * AMY_SAMPLE_RATE / AMY_BLOCK_SIZE))
 
@@ -204,6 +205,16 @@ int main(void) {
         int16_t *ram = pcm_load(SAMPLER_PRESET, (uint32_t)n, SAMPLER_RATE, 1, 60.0f, 0, 0);
         memcpy(ram, boing, (size_t)n * sizeof(int16_t));
     }
+    {   // ORGAN and VOX's wavetables, and SAMPLE's sample for part 1 (as the app loads them)
+        static int16_t organ[ORGAN_CYCLES * TABLE_CYCLE], vox[VOX_CYCLES * TABLE_CYCLE];
+        tables_organ(organ);
+        tables_vox(vox);
+        memcpy(pcm_load(ORGAN_PRESET, ORGAN_CYCLES * TABLE_CYCLE, 44100, 1, 60.0f, 0, 0), organ, sizeof(organ));
+        memcpy(pcm_load(VOX_PRESET, VOX_CYCLES * TABLE_CYCLE, 44100, 1, 60.0f, 0, 0), vox, sizeof(vox));
+        static int16_t boing[SAMPLER_RATE];
+        const int n = sampler_boing(boing, SAMPLER_RATE);
+        memcpy(pcm_load(PART_SAMPLE_PRESET, (uint32_t)n, SAMPLER_RATE, 1, 60.0f, 0, 0), boing, (size_t)n * sizeof(int16_t));
+    }
     {   // the DRAW sound's wave for part 1 (preset DRAW_PRESET): a saw
         DrawWave w;
         draw_preset(&w, 1);
@@ -236,6 +247,30 @@ int main(void) {
             double drms = fabs(hi.rms - lo.rms) / fmax(fmax(hi.rms, lo.rms), 1e-6);
             double dbr = fabs(hi.bright - lo.bright) / fmax(fmax(hi.bright, lo.bright), 1e-6);
             bool dead = drms < 0.03 && dbr < 0.03;
+            if (dead && strcmp(s->macro_name[k], "VIBRATO") == 0) {  // it moves the pitch, not level or tone
+                double wob[2];
+                for (int side = 0; side < 2; side++) {
+                    sound_macro_wire(i, k, side ? 0.95f : 0.05f, 1, msg, sizeof(msg));
+                    wire(msg);
+                    note(57, 0.8f);
+                    render(0.3);
+                    double lo_hz = 1e9, hi_hz = 0;
+                    for (int w = 0; w < 12; w++) {
+                        const double hz = pitch_of(0.04);
+                        lo_hz = hz < lo_hz ? hz : lo_hz;
+                        hi_hz = hz > hi_hz ? hz : hi_hz;
+                    }
+                    note(57, 0.0f);
+                    render(1.0);
+                    wob[side] = hi_hz - lo_hz;
+                }
+                sound_macro_wire(i, k, s->macro_default[k], 1, msg, sizeof(msg));
+                wire(msg);
+                dead = !(wob[1] > wob[0] + 3.0);
+                printf(" | %s pitch swing %.1f->%.1f Hz%s", s->macro_name[k], wob[0], wob[1], dead ? " NO EFFECT!" : "");
+                failures += dead;
+                continue;
+            }
             printf(" | %s %.3f->%.3f, %.2f->%.2f%s", s->macro_name[k], lo.rms, hi.rms, lo.bright, hi.bright,
                    dead ? " NO EFFECT!" : "");
             failures += dead;
@@ -326,14 +361,20 @@ int main(void) {
         printf(" %s\n", ok_ ? "ok" : "FAIL");              \
         failures += !ok_;                                   \
     } while (0)
-        // An untouched edit sounds exactly like the plain sound.
-        load(saw);
-        Measure plain = play(0.4);
-        fresh_edit(saw, &e);
-        load_edit(saw, &e);
-        Measure same = play(0.4);
-        CHECK(fabs(plain.rms - same.rms) < 0.1 * plain.rms && fabs(plain.bright - same.bright) < 0.1 * plain.bright,
-              "  untouched: rms %.4f / %.4f, bright %.3f / %.3f", plain.rms, same.rms, plain.bright, same.bright);
+        // An untouched edit changes nothing: for every sound, the same patch,
+        // the same voices and no extra commands. (Checked exactly, not by ear:
+        // successive notes land on different voices and differ a little.)
+        bool untouched = true;
+        for (int i = 0; i < sound_count(); i++) {
+            const Sound *s = sound_get(i);
+            fresh_edit(i, &e);
+            char body[400], cmds[16][64];
+            sound_edit_patch(i, &e, body, sizeof(body));
+            const int n = sound_edit_wire(i, &e, 1, &cmds[0][0], 64, 16);
+            untouched = untouched && n == 0 && sound_edit_voices(i, &e) == s->voices &&
+                        (s->kind == SOUND_BANK || strcmp(body, s->patch) == 0);
+        }
+        CHECK(untouched, "  untouched: every sound keeps its patch and voices, no extra commands");
         // CUTOFF darkens and brightens.
         fresh_edit(saw, &e);
         edit_set(&e, ED_CUTOFF, 0.15f);

@@ -338,10 +338,13 @@ on part 2 and a BELL lead on part 3, all playing together. They start as
 
 ![SYNTH page with the PLUCK creature](images/synth-creature.png)
 
-On the left, eleven **sound tiles**, each with its own mascot. Tap one to
-switch sound. **SELECT** cycles through them too. Under them, **PRESET**
-opens your saved sounds, and **EDIT** (along the bottom) opens the sound's
-insides: see [EDIT](#edit-shaping-any-sound) below.
+On the left, the **sound tiles**, each with its own mascot: **21 sounds on
+two pages**. The last tile (**1/2 ▶**) turns the page; a dot on it means
+the sound playing is on the other page. Tap a tile to switch sound;
+**SELECT** cycles through them all too. Along the bottom: **EDIT** opens the
+sound's insides (see [EDIT](#edit-shaping-any-sound)), **KIT** the drum kit
+(see [the drum kit](#the-drum-kit)) and the **floppy** your saved sounds
+(PRESETS).
 
 ### The creature pad
 
@@ -361,6 +364,28 @@ The crosshairs show where it is, and its eyes follow your stylus. The
 | **WAVY** | Slowly morphing wavetables | MORPH: where in the table | TABLE: which of five tables |
 | **MIC** | Your microphone recording, on the keys | DECAY: short chops → plays to the end | TONE: dark → bright |
 | **DRAW** | A wave you draw yourself (see below) | — the pad is the drawing | |
+
+**Page 2:**
+
+| Sound | What it is | X (left → right) | Y (down → up) |
+|---|---|---|---|
+| **CHIP** | 8-bit pulse, like an old game cartridge | DUTY: thin → hollow → square, in the classic steps | VIBRATO: none → wobbly |
+| **BOOM** | 808 bass: a sine that drops into the note | DROP: a little → a long dive | DRIVE: clean → growly |
+| **ORGAN** | Drawbar organ with a rotating speaker | DRAWBARS: flute → full organ | WOBBLE: slow → fast speaker |
+| **VOX** | A sung choir vowel | VOWEL: ooh → oh → aah → eh → eeh | VIBRATO |
+| **REESE** | Two saws beating against each other: a drum & bass growl | DETUNE: close → wide | CUTOFF: dark → bright |
+| **STRINGS** | A slow, lush string section | SPREAD: one → ensemble | ATTACK: quick → slow swell |
+| **MALLET** | Marimba, kalimba, wood blocks | TONE: wood → metal | DECAY: short → ringing |
+| **E.PIANO** | A soft electric-piano tine | BARK: mellow → biting | TINE: changes the tine's character, in steps |
+| **ZAP** | Lasers, pew-pews, sci-fi toms | SWEEP: a blip → a dive | LENGTH: short → long |
+| **SAMPLE** | A sample of your own on this part (see below) | DECAY | TONE |
+
+**SAMPLE** gives each part a sample of its own, separate from MIC: tap
+**MIC** (in the pad's header) to copy the MIC sound's sample (between its S
+and E handles), or **LIB** to load a WAV from the library straight into this
+part. Middle C plays it at its own pitch; the other keys play it higher or
+lower. Each part's sample is saved with the song (`part1.wav`…`part3.wav`).
+Until you give it one, it plays the boing.
 
 ### The Juno and DX7 banks
 

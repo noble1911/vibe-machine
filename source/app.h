@@ -55,6 +55,7 @@ typedef struct {
     int edit_page;              // EditPage
     int edit_grab;              // what's being dragged in it (page-specific), or -1
     bool kit_view;              // SYNTH: the pad shows the drum KIT
+    int syn_page;               // SYNTH: which page of sound tiles is showing
     int kit_lane;               // the lane picked in it
     int kit_grab;               // KIT: 0, or 1 TUNE / 2 LEVEL being dragged
     DrumKit kit;                // the drum kit
@@ -109,6 +110,8 @@ typedef struct {
     int smp_flash, smp_flash_frames;  // a slice (or -1: the region) just auditioned
     bool lib_samples;           // the SONGS page is showing the sample library (or, with lib_presets, sounds)
     bool lib_presets;           // ... the saved sounds (PRESETS)
+    int lib_part;               // samples library opened from a part's SAMPLE sound: LOAD goes there (else -1)
+    float part_sample_secs[3];  // each part's SAMPLE: how long it is (0: the boing)
 
     // TAPE page
     TapeStatus tape;            // read back from the tape each frame

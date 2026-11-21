@@ -825,10 +825,13 @@ static void draw_mascot(int sound, float x, float y, float size, float look_x, f
 
 static void draw_sound_tiles(const AppState *app) {
     const Theme *t = ui_theme();
-    for (int i = 0; i < sound_count(); i++) {
+    const int page = app->syn_page;
+    for (int slot = 0; slot < SOUNDS_PER_PAGE; slot++) {
+        const int i = page * SOUNDS_PER_PAGE + slot;
+        if (i >= sound_count()) break;
         const bool on = app->sound == i;
-        const float x = SYN_TILE_X0 + (i % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
-        const float y = SYN_TILE_Y0 + (i / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
+        const float x = SYN_TILE_X0 + (slot % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
+        const float y = SYN_TILE_Y0 + (slot / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
         const uint32_t face = on ? t->pal[i % THEME_PALETTE] : t->card;
         sh_card(x, y, SYN_TILE_W, SYN_TILE_H, rgba(face, 0xFF), rgba(t->ink, 0xFF), on ? 3.0f : 1.5f);
         uint32_t body = on ? t->card : t->pal[i % THEME_PALETTE];
@@ -836,24 +839,34 @@ static void draw_sound_tiles(const AppState *app) {
         draw_mascot(i, x + 10, y + SYN_TILE_H / 2.0f + bob, on ? 6.5f : 5.5f, 0, 0, body);
         ui_text(x + 32, y + 1.5f, 0.34f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter, "%s", sound_get(i)->tag);
     }
-    // PRESETS (after the last sound) and EDIT (across the bottom).
-    const int n = sound_count();
-    const float px = SYN_TILE_X0 + (n % SYN_TILE_COLS) * SYN_TILE_PITCH_X, py = SYN_TILE_Y0 + (n / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
-    const uint32_t pf = colourful(t, 4);
-    sh_card(px, py, SYN_TILE_W, SYN_TILE_H, rgba(pf, 0xFF), rgba(t->ink, 0xFF), 1.5f);
-    sh_floppy(px + 3, py + 3, 11, rgba(t->pal[1], 0xFF), rgba(t->card, 0xFF), rgba(t->ink, 0xFF));
-    ui_text(px + 31, py + 1.5f, 0.32f, rgba(ink_on(t, pf), 0xFF), C2D_AlignCenter, "PRESET");
+    // The PAGE tile: which page, and an arrow to the next. A dot if the
+    // sound playing is on the other page.
+    {
+        const float x = SYN_TILE_X0 + (SYN_PAGE_SLOT % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
+        const float y = SYN_TILE_Y0 + (SYN_PAGE_SLOT / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
+        const uint32_t f = colourful(t, 1);
+        sticker(x, y, SYN_TILE_W, SYN_TILE_H, f, false, 0);
+        const u32 c = rgba(ink_on(t, f), 0xFF);
+        ui_text(x + 20, y + 1.5f, 0.34f, c, C2D_AlignCenter, "%d/%d", page + 1, ui_sound_pages());
+        sh_tri(x + SYN_TILE_W - 9, y + SYN_TILE_H / 2.0f, 4.5f, 0.0f, c);
+        if (app->sound / SOUNDS_PER_PAGE != page) sh_rect(x + 3, y + 3, 3, 3, c);
+    }
+    // EDIT | KIT | PRESET along the bottom.
+    const PartEdit *pe = &app->parts[app->part].pe;
     const uint32_t ef = app->edit_view ? t->pal[0] : colourful(t, 2);
     sticker(SYN_TILE_X0, SYN_EDIT_Y, SYN_EDIT_W, SYN_TILE_H, ef, app->edit_view, 0);
-    const PartEdit *pe = &app->parts[app->part].pe;
     const float o = app->edit_view ? 2.0f : 0.0f;
-    ui_text(SYN_TILE_X0 + SYN_EDIT_W / 2.0f + o, SYN_EDIT_Y + 1.5f + o, 0.38f, rgba(ink_on(t, ef), 0xFF), C2D_AlignCenter,
-            pe->cur.set ? "EDIT *" : "EDIT");
+    ui_text(SYN_TILE_X0 + SYN_EDIT_W / 2.0f + o, SYN_EDIT_Y + 2 + o, 0.32f, rgba(ink_on(t, ef), 0xFF), C2D_AlignCenter,
+            pe->cur.set ? "EDIT*" : "EDIT");
     const uint32_t kf = app->kit_view ? t->pal[0] : colourful(t, 3);
     sticker(SYN_KIT_X, SYN_EDIT_Y, SYN_EDIT_W, SYN_TILE_H, kf, app->kit_view, 0);
     const float ko = app->kit_view ? 2.0f : 0.0f;
-    ui_text(SYN_KIT_X + SYN_EDIT_W / 2.0f + ko, SYN_EDIT_Y + 1.5f + ko, 0.38f, rgba(ink_on(t, kf), 0xFF), C2D_AlignCenter,
-            app->kit.edited ? "KIT *" : "KIT");
+    ui_text(SYN_KIT_X + SYN_EDIT_W / 2.0f + ko, SYN_EDIT_Y + 2 + ko, 0.32f, rgba(ink_on(t, kf), 0xFF), C2D_AlignCenter,
+            app->kit.edited ? "KIT*" : "KIT");
+    const uint32_t pf = colourful(t, 4);
+    sticker(SYN_PRESET_X, SYN_EDIT_Y, SYN_PRESET_W, SYN_TILE_H, pf, false, 0);
+    sh_floppy(SYN_PRESET_X + SYN_PRESET_W / 2.0f - 6, SYN_EDIT_Y + 2.5f, 12, rgba(t->pal[1], 0xFF), rgba(t->card, 0xFF),
+              rgba(t->ink, 0xFF));
 }
 
 // ------------------------------------------------------------- KIT ----
@@ -1040,8 +1053,22 @@ static void draw_creature_pad(const AppState *app, const Sound *s) {
     const float x0 = SYN_PAD_X + 8, y0 = SYN_PAD_Y + 20, w = SYN_PAD_W - 16, h = SYN_PAD_H - 28;
     sh_grid(x0, y0, w, h, 13, rgba(t->ink, 0x16));
     ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(ink_on(t, t->card), 0xFF), 0, "%s", s->name);
-    if (app->sound != sound_mic_index())
+    if (app->sound == sound_sample_index()) {  // SAMPLE: where its sample comes from, and how long it is
+        static const char *const src[2] = {"MIC", "LIB"};
+        for (int i = 0; i < 2; i++) {
+            const float cx = DRAW_CHIP_X + i * DRAW_CHIP_PITCH;
+            sh_card(cx, DRAW_CHIP_Y, DRAW_CHIP_W, DRAW_CHIP_H, rgba(colourful(t, i), 0xFF), rgba(t->ink, 0xFF), 1.5f);
+            ui_text(cx + DRAW_CHIP_W / 2.0f, DRAW_CHIP_Y + 0.5f, 0.3f, rgba(ink_on(t, colourful(t, i)), 0xFF),
+                    C2D_AlignCenter, "%s", src[i]);
+        }
+        const float secs = app->part_sample_secs[app->part];
+        if (secs > 0.0f)
+            ui_text(SYN_DICE_X - 4, SYN_PAD_Y + 3, 0.32f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "%.1fs", secs);
+        else
+            ui_text(SYN_DICE_X - 4, SYN_PAD_Y + 3, 0.32f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "boing");
+    } else if (app->sound != sound_mic_index()) {
         ui_text(SYN_DICE_X - 4, SYN_PAD_Y + 3, 0.32f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "%s", s->blurb);
+    }
 
     const float cx = x0 + app->macro[0] * w, cy = y0 + (1.0f - app->macro[1]) * h;
     // Crosshair to the axes, as dashed lines in the axis colours.

@@ -45,6 +45,9 @@ void engine_load_wave(int part, const int16_t *cycle, int n);
 // The drum kit: each lane's sample, tuning and level (drums.h).
 #include "drums.h"
 void engine_set_kit(const DrumKit *k);
+// The SAMPLE sound's sample for a part (PART_SAMPLE_PRESET + part): middle
+// C plays it at its own pitch.
+bool engine_load_part_sample(int part, const int16_t *data, int frames, int rate);
 // A lane's own sample (for DRUM_USER_PRESET + lane), mono at `rate` Hz.
 bool engine_load_drum_sample(int lane, const int16_t *data, int frames, int rate);
 // Pitch bend, in semitones (+-2 at full tilt), on every part.

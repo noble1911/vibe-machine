@@ -41,6 +41,12 @@ bool sound_macro_wire(int index, int m, float t, int synth, char *out, size_t le
 
 // Index of the MIC sound (the one that plays the microphone take).
 int sound_mic_index(void);
+// Index of the SAMPLE sound: each part plays its own sample, memory preset
+// PART_SAMPLE_PRESET + part.
+#define PART_SAMPLE_PRESET 250
+int sound_sample_index(void);
+// The SYNTH page shows the sounds in pages of SOUNDS_PER_PAGE tiles.
+#define SOUNDS_PER_PAGE 11
 
 // --- DRAW and EDIT --------------------------------------------------------
 #include "synthedit.h"

@@ -2,8 +2,9 @@
 
 **A loud, 90s-Memphis pocket synth and groovebox for the Nintendo 3DS** (homebrew).
 
-Three instrument parts plus drums, nine original synth engines (one of them
-a wave you draw with the stylus) plus the Juno-6 and DX7 banks, an EDIT
+Three instrument parts plus drums, nineteen original sounds (a wave you
+draw with the stylus, an 808 boom, a drawbar organ, a vowel choir, chiptune,
+strings, mallets, e-piano, a per-part sampler and more) plus the Juno-6 and DX7 banks, an EDIT
 layer that reaches inside any of them (a drawable envelope, filter, LFO,
 mono and glide, unison, DX7 brightness, A/B morphing, mutation) with
 presets to keep what you make, seven drum kits (TR-808, TR-909, Linn 9000, MR-12 and more)
@@ -42,7 +43,7 @@ at a time, from the keys to the mixdown (also the app playing itself, with
 |---|---|
 | ![SOUND page](docs/images/sound.png) | **SOUND**: tone, echo, reverb and volume; the song's **key** (any root, major, minor, modes, pentatonics, blues); the **arpeggiator** (up, down, up-down, random; 1/8 to 1/32; 1–2 octaves; records into patterns); nine colour themes, and the SONGS browser. |
 | ![SEQ page](docs/images/seq.png) | **SEQ**: a 16-step sequencer with a synth row, accents and eight drum lanes, plus a **piano roll** for melodies, chords and long notes. Eight pattern slots (A–H) of 1, 2 or 4 bars each, arranged into a song. Swing, live recording, and a dice that rolls new grooves. |
-| ![SYNTH creature pad](docs/images/synth-creature.png) | **SYNTH**: eleven sounds, each with a googly-eyed mascot. Drag the mascot around the pad to play its two macros. **DRAW** lets you draw the wave itself. **EDIT** opens any sound up: draw its envelope, play its filter and LFO on XY pads, make it MONO with GLIDE, stack unison, brighten a DX7, MUTATE it, store A and B and MORPH between them. **PRESET** saves and loads your sounds. |
+| ![SYNTH creature pad](docs/images/synth-creature.png) | **SYNTH**: 21 sounds on two pages, each with a googly-eyed mascot. Drag the mascot around the pad to play its two macros. **DRAW** lets you draw the wave itself. **EDIT** opens any sound up: draw its envelope, play its filter and LFO on XY pads, make it MONO with GLIDE, stack unison, brighten a DX7, MUTATE it, store A and B and MORPH between them. **PRESET** saves and loads your sounds. |
 | ![SYNTH EDIT, drawing the envelope](docs/images/synth-edit.png) | **EDIT**: drag the envelope's handles; FILT and LFO are XY pads (here the LFO's speed and depth, wobbling the filter); VOICE has MONO, GLIDE, UNISON, BRIGHT, MUTATE and A/B MORPH. |
 | ![SYNTH DRAW](docs/images/synth-draw.png) | **DRAW**: draw one cycle of a wave with the stylus and play it on the keys. It changes while the note sounds. |
 | ![The KIT view](docs/images/kit.png) | **KIT**: seven drum kits (TR-808, TR-909, Linn 9000, MR-12, Tokyo Synthetics, Power, Percussion). Build your own: any of the 155 drum samples (or your MIC sample) on any lane, tuned and levelled. The closed hat chokes the open one. |

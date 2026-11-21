@@ -32,7 +32,8 @@ enum { M_TRI = 0, M_TRI_OUTLINE, M_TRI_STRIPED, M_TRI_DOTTED, M_CIRCLE, M_RING, 
 #define STR_(x) #x
 #define STR(x) STR_(x)
 
-enum { S_JUNO, S_DX7, S_PLUCK, S_SQUELCH, S_BELL, S_BREEZE, S_SUPERSAW, S_FOLD, S_WAVY, S_MIC, S_DRAW, S_COUNT };
+enum { S_JUNO, S_DX7, S_PLUCK, S_SQUELCH, S_BELL, S_BREEZE, S_SUPERSAW, S_FOLD, S_WAVY, S_MIC, S_DRAW,
+       S_CHIP, S_BOOM, S_ORGAN, S_VOX, S_REESE, S_STRINGS, S_MALLET, S_EPIANO, S_ZAP, S_SAMPLE, S_COUNT };
 
 static const Sound kSounds[S_COUNT] = {
     [S_JUNO] = {"JUNO", "JUNO", "128 vintage poly patches", M_TRI, SOUND_BANK, 0, 128, 6, 2.2f, 0, {0, 0}, {0, 0}},
@@ -70,6 +71,50 @@ static const Sound kSounds[S_COUNT] = {
     [S_DRAW] = {"DRAW", "DRAW", "a wave you draw yourself", M_CROSS, SOUND_CUSTOM, 0, 0, 4, 1.4f,
                 "v0w19p220G1F7000,0.2R0.7A5,1,300,0.8,250,0",
                 {"CUTOFF", "SOFT"}, {0.7f, 0.0f}},
+    // --- page 2 ---
+    // A handheld-game pulse: the duty in its classic steps, chip vibrato.
+    [S_CHIP] = {"CHIP", "CHIP", "8-bit cartridge pulse", M_BAR, SOUND_CUSTOM, 0, 0, 4, 1.1f,
+                "v1w0f6,0a1,,0,0Zv0w1d0.25L1f,,,,,0A2,1,120,0.75,80,0",
+                {"DUTY", "VIBRATO"}, {0.5f, 0.0f}},
+    // An 808 boom: a sine that drops from high (pitch envelope on eg1, B)
+    // into the note, through a little folding drive.
+    [S_BOOM] = {"BOOM", "BOOM", "808 bass that drops", M_CIRCLE, SOUND_CUSTOM, 0, 0, 4, 1.1f,
+                "v0w0f,,,,3B0,1,90,0,0,0GF1GD1.5GM0.3A0,1,700,0.5,250,0",
+                {"DROP", "DRIVE"}, {0.5f, 0.3f}},
+    // Drawbars: a wavetable we build (tables.c), DRAWBARS glides through
+    // eight registrations; the LFO is a rotating-speaker tremolo.
+    [S_ORGAN] = {"ORGAN", "ORGN", "drawbars, spinning speaker", M_TRI_OUTLINE, SOUND_CUSTOM, 0, 0, 6, 0.45f,
+                 "v1w0f1.5,0a1,,0,0Zv0w19p240L1a,,,,,0.25d0.3A8,1,40,1,60,0",
+                 {"DRAWBARS", "WOBBLE"}, {0.3f, 0.3f}},
+    // Five sung vowels as a wavetable (tables.c), with a touch of vibrato.
+    [S_VOX] = {"VOX", "VOX", "a choir: aah, ooh, eeh", M_SPOT, SOUND_CUSTOM, 0, 0, 4, 1.8f,
+               "v1w0f5.5,0a1,,0,0Zv0w19p241L1f,,,,,0.006d0.5A150,1,300,0.9,400,0",
+               {"VOWEL", "VIBRATO"}, {0.5f, 0.3f}},
+    // Two detuned saws beating against each other, low-passed: a growl.
+    [S_REESE] = {"REESE", "RESE", "two saws, growling", M_ZIGZAG, SOUND_CUSTOM, 0, 0, 3, 1.05f,
+                 "v0w2C2,0.012,-0.006,1F700,0.3,,1G4R1.8A5,1,300,0.9,200,0",
+                 {"DETUNE", "CUTOFF"}, {0.4f, 0.45f}},
+    // Three saws, a slow swell and a soft filter: an ensemble pad.
+    [S_STRINGS] = {"STRINGS", "STRG", "slow, lush strings", M_SQUIGGLE, SOUND_CUSTOM, 0, 0, 4, 1.5f,
+                   "v0w2C3,0.008,-0.008,0.9F2400,0.3G1R0.7A450,1,600,0.85,900,0",
+                   {"SPREAD", "ATTACK"}, {0.5f, 0.45f}},
+    // A short plucked-string model: marimba and kalimba woods to metal.
+    [S_MALLET] = {"MALLET", "MALT", "marimba to kalimba", M_DOTS, SOUND_CUSTOM, 0, 0, 6, 7.0f,
+                  "v0w6b0.985d0.1A0,1,3000,0,250,0",
+                  {"TONE", "DECAY"}, {0.3f, 0.5f}},
+    // Two-operator FM with a bright attack that mellows: a soft tine piano.
+    [S_EPIANO] = {"E.PIANO", "EPNO", "soft electric-piano tines", M_RING, SOUND_CUSTOM, 0, 0, 6, 4.0f,
+                  "v2w0I1a2.2,,0,1A0,1,600,0,250,0Zv1w0I1a1,,0,1A0,1,3500,0.25,500,0Zv0w8o1O,,,,2,1",
+                  {"BARK", "TINE"}, {0.4f, 0.0f}},
+    // A sine with a big fast pitch sweep: lasers and sci-fi toms.
+    [S_ZAP] = {"ZAP", "ZAP", "lasers and sci-fi toms", M_BOLT, SOUND_CUSTOM, 0, 0, 4, 4.0f,
+               "v0w0f,,,,5B0,1,140,0,0,0A0,1,220,0,60,0",
+               {"SWEEP", "LENGTH"}, {0.6f, 0.3f}},
+    // Any WAV from the library (or the MIC sample), its own per part:
+    // memory preset PART_SAMPLE_PRESET + part.
+    [S_SAMPLE] = {"SAMPLE", "SMPL", "your own sample, on keys", M_CROSS, SOUND_CUSTOM, 0, 0, 4, 2.7f,
+                  "v0w7p250F9000,0.2G1R0.8A2,1,30,1,250,0",
+                  {"DECAY", "TONE"}, {1.0f, 0.85f}},
 };
 
 int sound_count(void) { return S_COUNT; }
@@ -138,11 +183,65 @@ bool sound_macro_wire(int index, int m, float t, int synth, char *out, size_t le
         case S_DRAW * 2 + 1:
             snprintf(out, len, "i%dv0A%d,1,300,0.8,%d,0", synth, (int)expo(t, 5.0f, 900.0f), (int)expo(t, 250.0f, 1200.0f));
             return true;
+        // CHIP: duty in the classic steps (12.5, 25, 50%), chip vibrato.
+        case S_CHIP * 2 + 0: {
+            static const float duty[3] = {0.125f, 0.25f, 0.5f};
+            snprintf(out, len, "i%dv0d%.3f", synth, duty[(int)(t * 2.99f)]);
+            return true;
+        }
+        case S_CHIP * 2 + 1: snprintf(out, len, "i%dv0f,,,,,%.4f", synth, t * t * 0.08f); return true;
+        // BOOM: how far it drops (octaves), how hard it's driven.
+        case S_BOOM * 2 + 0: snprintf(out, len, "i%dv0f,,,,%.2f", synth, lin(t, 0.3f, 5.0f)); return true;
+        case S_BOOM * 2 + 1: snprintf(out, len, "i%dv0GD%.2f", synth, expo(t, 1.0f, 10.0f)); return true;
+        // ORGAN: through the registrations; the speaker's speed.
+        case S_ORGAN * 2 + 0: snprintf(out, len, "i%dv0d%.3f", synth, t); return true;
+        case S_ORGAN * 2 + 1: snprintf(out, len, "i%dv1f%.2f", synth, expo(t, 0.4f, 7.0f)); return true;
+        // VOX: U O A E I; vibrato depth.
+        case S_VOX * 2 + 0: snprintf(out, len, "i%dv0d%.3f", synth, t); return true;
+        case S_VOX * 2 + 1: snprintf(out, len, "i%dv0f,,,,,%.4f", synth, t * 0.03f); return true;
+        // REESE: the saws' detune (centred); the cutoff.
+        case S_REESE * 2 + 0: {
+            const float sp = lin(t, 0.002f, 0.04f);
+            snprintf(out, len, "i%dv0C2,%.4f,%.4f,1", synth, sp, -0.5f * sp);
+            return true;
+        }
+        case S_REESE * 2 + 1: snprintf(out, len, "i%dv0F%.1f", synth, expo(t, 150.0f, 3500.0f)); return true;
+        // STRINGS: the ensemble's spread; how slowly it swells (and fades).
+        case S_STRINGS * 2 + 0: {
+            const float sp = lin(t, 0.0f, 0.02f);
+            snprintf(out, len, "i%dv0C3,%.4f,%.4f,0.9", synth, sp, -sp);
+            return true;
+        }
+        case S_STRINGS * 2 + 1:
+            snprintf(out, len, "i%dv0A%d,1,600,0.85,%d,0", synth, (int)expo(t, 30.0f, 1500.0f), (int)expo(t, 400.0f, 1500.0f));
+            return true;
+        // MALLET: where it's struck (wood -> metal); how long it rings.
+        case S_MALLET * 2 + 0: snprintf(out, len, "i%dv0d%.3f", synth, lin(t, 0.03f, 0.5f)); return true;
+        case S_MALLET * 2 + 1: snprintf(out, len, "i%dv0b%.4f", synth, lin(t, 0.93f, 0.995f)); return true;
+        // E.PIANO: how hard the tine barks (modulation); the tine's ratio.
+        case S_EPIANO * 2 + 0: snprintf(out, len, "i%dv2a%.2f", synth, lin(t, 0.2f, 4.0f)); return true;
+        case S_EPIANO * 2 + 1: {
+            static const float ratios[4] = {1.0f, 2.0f, 3.0f, 14.0f};
+            snprintf(out, len, "i%dv2I%.1f", synth, ratios[(int)(t * 3.99f)]);
+            return true;
+        }
+        // ZAP: how far the pitch sweeps (octaves); how long it lasts.
+        case S_ZAP * 2 + 0: snprintf(out, len, "i%dv0f,,,,%.2f", synth, lin(t, 0.5f, 7.0f)); return true;
+        case S_ZAP * 2 + 1: snprintf(out, len, "i%dv0A0,1,%d,0,60,0", synth, (int)expo(t, 40.0f, 900.0f)); return true;
+        // SAMPLE: as MIC.
+        case S_SAMPLE * 2 + 0:
+            if (t > 0.97f)
+                snprintf(out, len, "i%dv0A2,1,30,1,250,0", synth);
+            else
+                snprintf(out, len, "i%dv0A2,1,%d,0,120,0", synth, (int)expo(t, 40.0f, 3000.0f));
+            return true;
+        case S_SAMPLE * 2 + 1: snprintf(out, len, "i%dv0F%.0f", synth, expo(t, 300.0f, 12000.0f)); return true;
         default: return false;
     }
 }
 
 int sound_mic_index(void) { return S_MIC; }
+int sound_sample_index(void) { return S_SAMPLE; }
 int sound_draw_index(void) { return S_DRAW; }
 
 // ------------------------------------------------------------------ EDIT --
@@ -156,22 +255,33 @@ typedef struct {
     float a, d, s, r;     // ms, ms, level, ms
     float cut, q, fenv;   // Hz, Q, octaves
     int8_t env_osc, lfo_osc;
-    bool lfo_shared, filter, unison;  // unison: the sound is already a unison cluster
+    bool lfo_shared, filter;
+    uint8_t unison;       // copies, if the sound is already a unison cluster (else 0)
     bool uni_ok;          // its oscillators can be a unison cluster (not KS, PCM or FM)
 } EditInfo;
 
 static const EditInfo kEdit[S_COUNT] = {
-    [S_JUNO] = {5, 600, 0.7f, 300, 2000, 1.5f, 2.0f, 0, -1, false, false, false, true},
-    [S_DX7] = {1, 1500, 0.5f, 400, 16000, 0.7f, 0, 0, -1, false, false, false, false},
-    [S_PLUCK] = {1, 6000, 1.0f, 900, 16000, 0.7f, 0, 0, 1, false, false, false, false},
-    [S_SQUELCH] = {3, 250, 0.45f, 120, 250, 4.0f, 3.5f, 0, 1, true, true, false, true},
-    [S_BELL] = {1, 3000, 0.0f, 600, 16000, 0.7f, 0, 1, 3, false, false, false, false},
-    [S_BREEZE] = {250, 600, 0.6f, 900, 440, 10.0f, 0, 0, 1, false, true, false, false},
-    [S_SUPERSAW] = {10, 400, 0.7f, 300, 1800, 1.2f, 2.0f, 0, 1, false, true, true, true},
-    [S_FOLD] = {5, 350, 0.6f, 250, 16000, 0.7f, 0, 0, 1, false, false, false, true},
-    [S_WAVY] = {20, 500, 0.7f, 400, 16000, 0.7f, 0, 0, 1, true, false, false, true},
-    [S_MIC] = {2, 30, 1.0f, 250, 9000, 0.8f, 0, 0, 1, false, true, false, false},
-    [S_DRAW] = {5, 300, 0.8f, 250, 7000, 0.7f, 0, 0, 1, false, true, false, true},
+    [S_JUNO] = {5, 600, 0.7f, 300, 2000, 1.5f, 2.0f, 0, -1, false, false, 0, true},
+    [S_DX7] = {1, 1500, 0.5f, 400, 16000, 0.7f, 0, 0, -1, false, false, 0, false},
+    [S_PLUCK] = {1, 6000, 1.0f, 900, 16000, 0.7f, 0, 0, 1, false, false, 0, false},
+    [S_SQUELCH] = {3, 250, 0.45f, 120, 250, 4.0f, 3.5f, 0, 1, true, true, 0, true},
+    [S_BELL] = {1, 3000, 0.0f, 600, 16000, 0.7f, 0, 1, 3, false, false, 0, false},
+    [S_BREEZE] = {250, 600, 0.6f, 900, 440, 10.0f, 0, 0, 1, false, true, 0, false},
+    [S_SUPERSAW] = {10, 400, 0.7f, 300, 1800, 1.2f, 2.0f, 0, 1, false, true, 5, true},
+    [S_FOLD] = {5, 350, 0.6f, 250, 16000, 0.7f, 0, 0, 1, false, false, 0, true},
+    [S_WAVY] = {20, 500, 0.7f, 400, 16000, 0.7f, 0, 0, 1, true, false, 0, true},
+    [S_MIC] = {2, 30, 1.0f, 250, 9000, 0.8f, 0, 0, 1, false, true, 0, false},
+    [S_DRAW] = {5, 300, 0.8f, 250, 7000, 0.7f, 0, 0, 1, false, true, 0, true},
+    [S_CHIP] = {2, 120, 0.75f, 80, 16000, 0.7f, 0, 0, 1, true, false, 0, true},
+    [S_BOOM] = {1, 700, 0.5f, 250, 16000, 0.7f, 0, 0, 1, false, false, 0, true},
+    [S_ORGAN] = {8, 40, 1.0f, 60, 16000, 0.7f, 0, 0, 1, true, false, 0, true},
+    [S_VOX] = {150, 300, 0.9f, 400, 16000, 0.7f, 0, 0, 1, true, false, 0, true},
+    [S_REESE] = {5, 300, 0.9f, 200, 700, 1.8f, 1.0f, 0, 1, false, true, 2, true},
+    [S_STRINGS] = {450, 600, 0.85f, 900, 2400, 0.7f, 0, 0, 1, false, true, 3, true},
+    [S_MALLET] = {1, 3000, 0.0f, 250, 16000, 0.7f, 0, 0, 1, false, false, 0, false},
+    [S_EPIANO] = {1, 3500, 0.25f, 500, 16000, 0.7f, 0, 1, 3, false, false, 0, false},
+    [S_ZAP] = {1, 220, 0.0f, 60, 16000, 0.7f, 0, 0, 1, false, false, 0, true},
+    [S_SAMPLE] = {2, 30, 1.0f, 250, 9000, 0.8f, 0, 0, 1, false, true, 0, false},
 };
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
@@ -190,7 +300,7 @@ void sound_edit_defaults(int index, float out[ED_PARAMS]) {
     out[ED_LFO_RATE] = edit_norm(ED_LFO_RATE, 4.0f);
     out[ED_LFO_DEPTH] = 0.0f;
     out[ED_GLIDE] = 0.0f;
-    out[ED_DETUNE] = edit_norm(ED_DETUNE, k->unison ? 14.0f : 8.0f);
+    out[ED_DETUNE] = edit_norm(ED_DETUNE, k->unison ? 14.0f : 8.0f);  // (built-in clusters start at their own spread)
     out[ED_BRIGHT] = 0.5f;  // x1
 }
 
@@ -293,8 +403,8 @@ int sound_edit_wire(int index, const SynthEdit *e, int synth, char *out, int wid
     // Unison: copies of each voice, spread by DETUNE, centred on the note.
     const int u = unison_of(i, e);
     const float sp = edit_real(ED_DETUNE, p[ED_DETUNE]) / 1200.0f;
-    if (k->unison && is_set(e, ED_DETUNE)) {
-        EMIT("i%dv0C5,%.4f,%.4f,0.85", synth, (double)sp, (double)(-2.0f * sp));
+    if (k->unison && is_set(e, ED_DETUNE)) {  // a built-in cluster: DETUNE spreads its own copies
+        EMIT("i%dv0C%d,%.4f,%.4f,0.85", synth, k->unison, (double)sp, (double)(-0.5f * (float)(k->unison - 1) * sp));
     } else if (u > 1) {
         const double off = -0.5f * (float)(u - 1) * sp;
         if (i == S_JUNO)

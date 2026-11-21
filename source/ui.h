@@ -160,11 +160,15 @@ typedef enum {
 #define SYN_TILE_H 17
 #define SYN_TILE_PITCH_X 52
 #define SYN_TILE_PITCH_Y 19
-#define SYN_TILE_ROWS 6      // 11 sounds + PRESETS, then EDIT across the bottom
+#define SYN_TILE_ROWS 6      // a page: SOUNDS_PER_PAGE sounds + the PAGE tile; then EDIT | KIT | PRESET
 #define SYN_EDIT_Y (SYN_TILE_Y0 + SYN_TILE_ROWS * SYN_TILE_PITCH_Y)
-#define SYN_EDIT_W SYN_TILE_W            // EDIT and KIT share the bottom row
-#define SYN_KIT_X (SYN_TILE_X0 + SYN_TILE_PITCH_X)
-typedef enum { SYN_HIT_NONE = -1, SYN_HIT_PRESETS, SYN_HIT_EDIT, SYN_HIT_KIT } SynHit;
+#define SYN_EDIT_W 32                    // EDIT, KIT and PRESET share the bottom row
+#define SYN_KIT_X (SYN_TILE_X0 + 34)
+#define SYN_PRESET_X (SYN_TILE_X0 + 68)
+#define SYN_PRESET_W 33
+#define SYN_PAGE_SLOT SOUNDS_PER_PAGE    // the tile after a page's sounds turns the page
+typedef enum { SYN_HIT_NONE = -1, SYN_HIT_PRESETS, SYN_HIT_EDIT, SYN_HIT_KIT, SYN_HIT_PAGE } SynHit;
+int ui_sound_pages(void);
 
 // KIT view (in the SYNTH pad): the kit along the top (◀ name ▶), the eight
 // lanes (tap: pick and hear), then the picked lane's sample (◀ name ▶, MIC:
@@ -477,7 +481,7 @@ int ui_hit_arr(int x, int y);  // SONG sheet: an ArrHit
 // the bottom. The clamped form always answers (for drags off the edge).
 bool ui_roll_cell(int x, int y, int *step, int *row);
 void ui_roll_cell_clamped(int x, int y, int *step, int *row);
-int ui_hit_sound_tile(int x, int y);
+int ui_hit_sound_tile(int x, int y, int page);  // the sound tapped on that page, or -1
 int ui_hit_synth_extra(int x, int y);   // PRESETS / EDIT tiles: a SynHit
 int ui_hit_edit(int x, int y);          // the EDIT view's header: an EditHit
 // ENV: where the three handles are for these values (A peak, D/S, R end)...

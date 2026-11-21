@@ -10,6 +10,7 @@
 #include "sampler.h"
 #include "drums.h"
 #include "sounds.h"
+#include "tables.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -124,6 +125,19 @@ void engine_init(void) {
     drum_kit_stock(&kit, 0);
     engine_set_kit(&kit);
 
+    // ORGAN's and VOX's wavetables, built once (tables.c).
+    {
+        static int16_t organ[ORGAN_CYCLES * TABLE_CYCLE], vox[VOX_CYCLES * TABLE_CYCLE];
+        tables_organ(organ);
+        tables_vox(vox);
+        LightLock_Lock(&s_lock);
+        int16_t *ram = pcm_load(ORGAN_PRESET, ORGAN_CYCLES * TABLE_CYCLE, 44100, 1, 60.0f, 0, 0);
+        if (ram) memcpy(ram, organ, sizeof(organ));
+        ram = pcm_load(VOX_PRESET, VOX_CYCLES * TABLE_CYCLE, 44100, 1, 60.0f, 0, 0);
+        if (ram) memcpy(ram, vox, sizeof(vox));
+        LightLock_Unlock(&s_lock);
+    }
+
     // The master bus (dry), the echo bus and the reverb bus (see mixer.h),
     // all at full volume to start with. Echo character is fixed for now;
     // the ECHO slider only sets the level.
@@ -197,6 +211,15 @@ void engine_set_kit(const DrumKit *k) {
         s_lane_gain[lane] = drum_lane_gain(k, lane);
     }
     LightLock_Unlock(&s_lock);
+}
+
+bool engine_load_part_sample(int part, const int16_t *data, int frames, int rate) {
+    if (part < 0 || part >= PARTS || frames <= 0) return false;
+    LightLock_Lock(&s_lock);
+    int16_t *ram = pcm_load((uint16_t)(PART_SAMPLE_PRESET + part), (uint32_t)frames, (uint32_t)rate, 1, 60.0f, 0, 0);
+    if (ram) memcpy(ram, data, (size_t)frames * sizeof(int16_t));
+    LightLock_Unlock(&s_lock);
+    return ram != NULL;
 }
 
 bool engine_load_drum_sample(int lane, const int16_t *data, int frames, int rate) {
@@ -331,9 +354,13 @@ void engine_load_sound(int part, int sound, int patch, const SynthEdit *edit) {
         sound_edit_patch(sound, edit, body, sizeof(body));
         snprintf(msg, sizeof(msg), "i%div%du%s", synth, sound_edit_voices(sound, edit), body);
         wire_locked(msg);
-        // Each part draws its own wave.
+        // Each part draws its own wave, and plays its own SAMPLE.
         if (sound == sound_draw_index()) {
             snprintf(msg, sizeof(msg), "i%dv0p%d", synth, DRAW_PRESET + part);
+            wire_locked(msg);
+        }
+        if (sound == sound_sample_index()) {
+            snprintf(msg, sizeof(msg), "i%dv0p%d", synth, PART_SAMPLE_PRESET + part);
             wire_locked(msg);
         }
     }

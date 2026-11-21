@@ -133,7 +133,6 @@ bool ui_hit_theme(int x, int y) {
     return x >= THEME_X - 4 && x < THEME_X + THEME_W + 4 && y >= THEME_Y - 4 && y < THEME_Y + THEME_H + 30;
 }
 
-#define SOUNDS_SHOWN sound_count()  // the PRESETS tile comes after the last sound
 
 static bool in_box(int x, int y, int bx, int by, int bw, int bh) {
     return x >= bx && x < bx + bw && y >= by && y < by + bh;
@@ -179,11 +178,12 @@ bool ui_hit_seq_cell(int x, int y, int *step, int *row) {
 }
 
 int ui_hit_synth_extra(int x, int y) {
-    const int px = SYN_TILE_X0 + (SOUNDS_SHOWN % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
-    const int py = SYN_TILE_Y0 + (SOUNDS_SHOWN / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
-    if (in_box(x, y, px - 1, py - 1, SYN_TILE_W + 2, SYN_TILE_H + 2)) return SYN_HIT_PRESETS;
-    if (in_box(x, y, SYN_TILE_X0 - 1, SYN_EDIT_Y - 1, SYN_EDIT_W + 2, SYN_TILE_H + 4)) return SYN_HIT_EDIT;
-    if (in_box(x, y, SYN_KIT_X - 1, SYN_EDIT_Y - 1, SYN_EDIT_W + 2, SYN_TILE_H + 4)) return SYN_HIT_KIT;
+    const int px = SYN_TILE_X0 + (SYN_PAGE_SLOT % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
+    const int py = SYN_TILE_Y0 + (SYN_PAGE_SLOT / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
+    if (in_box(x, y, px - 1, py - 1, SYN_TILE_W + 2, SYN_TILE_H + 2)) return SYN_HIT_PAGE;
+    if (in_box(x, y, SYN_TILE_X0 - 1, SYN_EDIT_Y - 1, SYN_EDIT_W + 1, SYN_TILE_H + 4)) return SYN_HIT_EDIT;
+    if (in_box(x, y, SYN_KIT_X - 1, SYN_EDIT_Y - 1, SYN_EDIT_W + 1, SYN_TILE_H + 4)) return SYN_HIT_KIT;
+    if (in_box(x, y, SYN_PRESET_X - 1, SYN_EDIT_Y - 1, SYN_PRESET_W + 2, SYN_TILE_H + 4)) return SYN_HIT_PRESETS;
     return SYN_HIT_NONE;
 }
 
@@ -256,10 +256,14 @@ void ui_edit_pad_pos(int x, int y, float *nx, float *ny) {
 
 float ui_edit_slider(int x, int x0, int w) { return unit((float)(x - x0 - 3) / (w - 6)); }
 
-int ui_hit_sound_tile(int x, int y) {
-    for (int i = 0; i < sound_count(); i++) {
-        int tx = SYN_TILE_X0 + (i % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
-        int ty = SYN_TILE_Y0 + (i / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
+int ui_sound_pages(void) { return (sound_count() + SOUNDS_PER_PAGE - 1) / SOUNDS_PER_PAGE; }
+
+int ui_hit_sound_tile(int x, int y, int page) {
+    for (int slot = 0; slot < SOUNDS_PER_PAGE; slot++) {
+        const int i = page * SOUNDS_PER_PAGE + slot;
+        if (i >= sound_count()) break;
+        int tx = SYN_TILE_X0 + (slot % SYN_TILE_COLS) * SYN_TILE_PITCH_X;
+        int ty = SYN_TILE_Y0 + (slot / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
         if (in_box(x, y, tx - 1, ty - 1, SYN_TILE_W + 2, SYN_TILE_H + 2)) return i;
     }
     return -1;

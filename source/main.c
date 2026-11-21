@@ -317,6 +317,7 @@ static void select_sound(int index) {
     const Sound *snd = sound_get(index);
     release_all();
     s_app.sound = index;
+    s_app.syn_page = index / SOUNDS_PER_PAGE;  // the tiles show the page it's on
     if (snd->kind == SOUND_BANK) s_app.patch = snd->bank_first;
     for (int m = 0; m < SOUND_MACROS; m++) s_app.macro[m] = snd->macro_default[m];
     edit_reset_sound();  // a new sound starts as designed
@@ -355,6 +356,7 @@ static void switch_part(int part) {
     s_app.part = part;
     const PartState *ps = &s_app.parts[part];
     s_app.sound = ps->sound;
+    s_app.syn_page = ps->sound / SOUNDS_PER_PAGE;
     s_app.patch = ps->patch;
     memcpy(s_app.macro, ps->macro, sizeof(s_app.macro));
 }
@@ -621,6 +623,60 @@ static uint32_t s_kit_gen, s_song_kit_gen;  // bumps when a lane's own sample ch
 
 static bool lane_own(int lane) { return s_app.kit.lane[lane].preset == DRUM_USER_PRESET + lane; }
 
+// Each part's SAMPLE sound plays its own sample (PART_SAMPLE_PRESET + part).
+static int16_t s_part_buf[PARTS][SAMPLER_MAX_FRAMES];
+static int s_part_frames[PARTS];
+static uint32_t s_part_gen, s_song_part_gen;
+
+static bool part_take(int part, const int16_t *data, int frames) {
+    if (part < 0 || part >= PARTS || frames <= 0) return false;
+    if (frames > SAMPLER_MAX_FRAMES) frames = SAMPLER_MAX_FRAMES;
+    memmove(s_part_buf[part], data, (size_t)frames * sizeof(int16_t));
+    s_part_frames[part] = frames;
+    if (!engine_load_part_sample(part, s_part_buf[part], frames, SAMPLER_RATE)) return false;
+    s_app.part_sample_secs[part] = frames / (float)SAMPLER_RATE;
+    s_part_gen++;
+#ifndef VM_DEMO
+    char path[64];
+    snprintf(path, sizeof(path), STORAGE_DIR "/part%d.wav", part + 1);
+    wav_write(path, s_part_buf[part], frames, SAMPLER_RATE);  // the autosave keeps it
+#endif
+    return true;
+}
+
+// Each part's sample to / from a folder (the song's, or the autosave's).
+// A part without one gets the boing, so SAMPLE always makes a sound.
+static bool save_part_samples(const char *dir) {
+    bool ok = true;
+    for (int k = 0; k < PARTS; k++) {
+        char path[160];
+        snprintf(path, sizeof(path), "%.140s/part%d.wav", dir, k + 1);
+        if (s_part_frames[k] > 0)
+            ok &= wav_write(path, s_part_buf[k], s_part_frames[k], SAMPLER_RATE);
+        else
+            remove(path);
+    }
+    return ok;
+}
+
+static void load_part_samples(const char *dir) {
+    for (int k = 0; k < PARTS; k++) {
+        char path[160];
+        snprintf(path, sizeof(path), "%.140s/part%d.wav", dir, k + 1);
+        int rate = 0, n = wav_read(path, s_part_buf[k], SAMPLER_MAX_FRAMES, &rate);
+        if (n > 0 && rate == SAMPLER_RATE && engine_load_part_sample(k, s_part_buf[k], n, SAMPLER_RATE)) {
+            s_part_frames[k] = n;
+            s_app.part_sample_secs[k] = n / (float)SAMPLER_RATE;
+        } else {
+            s_part_frames[k] = 0;
+            s_app.part_sample_secs[k] = 0.0f;
+            static int16_t boing[SAMPLER_RATE];
+            const int bn = sampler_boing(boing, SAMPLER_RATE);
+            engine_load_part_sample(k, boing, bn, SAMPLER_RATE);
+        }
+    }
+}
+
 static void apply_kit(void) {
     drum_kit_clamp(&s_app.kit);
     engine_set_kit(&s_app.kit);
@@ -645,7 +701,7 @@ static bool lane_take(int lane, const int16_t *data, int frames) {
 }
 
 static void lane_wav_path(char *out, size_t len, const char *dir, int lane) {
-    snprintf(out, len, "%s/drum%d.wav", dir, lane + 1);
+    snprintf(out, len, "%.140s/drum%d.wav", dir, lane + 1);
 }
 
 // Each lane's own sample to / from a folder (the song's, or the autosave's).
@@ -1072,6 +1128,7 @@ static void song_mark_clean(void) {
     s_song_tape_gen = tape_generation();
     s_song_mic_gen = s_mic_gen;
     s_song_kit_gen = s_kit_gen;
+    s_song_part_gen = s_part_gen;
     capture(&s_song_base);
     s_force_dirty = false;
     s_app.song_dirty = false;
@@ -1081,7 +1138,8 @@ static void update_song_dirty(void) {
     SaveState now;
     capture(&now);
     s_app.song_dirty = s_force_dirty || memcmp(&now, &s_song_base, sizeof(now)) != 0 ||
-                       tape_generation() != s_song_tape_gen || s_mic_gen != s_song_mic_gen || s_kit_gen != s_song_kit_gen;
+                       tape_generation() != s_song_tape_gen || s_mic_gen != s_song_mic_gen || s_kit_gen != s_song_kit_gen ||
+                       s_part_gen != s_song_part_gen;
 }
 
 // The autosaved MIC take should always be the current song's.
@@ -1169,6 +1227,7 @@ static bool save_song(const char *name) {
             remove(path);
     }
     if (ok) ok &= save_lanes(dir);  // the drum lanes' own samples
+    if (ok) ok &= save_part_samples(dir);  // each part's SAMPLE
     // song.vms goes last: if the audio failed, the old song.vms still
     // describes the old song.
     if (ok) ok = song_save_state(SONGS_ROOT, clean, &st);
@@ -1227,6 +1286,8 @@ static bool load_song(const char *name) {
         song_path(SONGS_ROOT, name, NULL, dir, sizeof(dir));
         load_lanes(dir);
         save_lanes(STORAGE_DIR);
+        load_part_samples(dir);
+        save_part_samples(STORAGE_DIR);
     }
     song_mark_clean();
     sync_scratch_mic();
@@ -1245,6 +1306,9 @@ static void new_song(void) {
     drum_kit_stock(&s_app.kit, 0);
     apply_kit();
     save_lanes(STORAGE_DIR);
+    memset(s_part_frames, 0, sizeof(s_part_frames));
+    save_part_samples(STORAGE_DIR);
+    load_part_samples(STORAGE_DIR);  // (none: the boing)
     set_key(0, 0);
     set_arp(&(SeqArp){false, ARP_UP, ARP_16TH, 1});
     load_boing();
@@ -1333,6 +1397,7 @@ static uint8_t s_restored_tape_changed;
 
 static void open_library(bool samples) {
     s_app.lib_samples = samples;
+    s_app.lib_part = -1;
     s_app.lib_presets = false;
     s_app.page = PAGE_SONGS;
     s_app.confirm_name[0] = '\0';
@@ -1423,6 +1488,17 @@ static void load_sample(int i) {
     sample_path(SAMPLES_ROOT, s_sample_files[i].file, path, sizeof(path));
     int rate = 0, frames = wav_read(path, raw, (int)(sizeof(raw) / sizeof(raw[0])), &rate);
     int n = frames > 0 ? sampler_resample(raw, frames, rate, res, SAMPLER_MAX_FRAMES, SAMPLER_RATE) : 0;
+    if (s_app.lib_part >= 0) {  // opened from a part's SAMPLE sound: it goes there
+        if (n < SAMPLER_RATE / 50 || !part_take(s_app.lib_part, res, n)) {
+            notice("CAN'T READ THAT WAV");
+            return;
+        }
+        char msg[sizeof(s_app.notice)];
+        snprintf(msg, sizeof(msg), "LOADED ON PART %d'S SAMPLE", s_app.lib_part + 1);
+        notice(msg);
+        s_app.page = PAGE_SYNTH;
+        return;
+    }
     if (n < SAMPLER_RATE / 50 || !use_take(res, n)) {
         notice("CAN'T READ THAT WAV");
         return;
@@ -2266,6 +2342,11 @@ static bool edit_touch(int x, int y) {
         s_touch = TOUCH_IGNORE;
         return true;
     }
+    if (extra == SYN_HIT_PAGE) {
+        s_app.syn_page = (s_app.syn_page + 1) % ui_sound_pages();
+        s_touch = TOUCH_IGNORE;
+        return true;
+    }
     if (extra == SYN_HIT_KIT) {
         s_app.kit_view = !s_app.kit_view;
         s_app.edit_view = false;
@@ -2427,7 +2508,7 @@ static void touch_begin(int x, int y) {
     }
     if (s_app.page == PAGE_SYNTH && s_app.sound == sound_mic_index() && sampler_begin(x, y)) return;
     if (s_app.page == PAGE_SYNTH) {
-        int tile = ui_hit_sound_tile(x, y);
+        int tile = ui_hit_sound_tile(x, y, s_app.syn_page);
         if (tile >= 0) {
             select_sound(tile);
             s_touch = TOUCH_IGNORE;
@@ -2435,6 +2516,21 @@ static void touch_begin(int x, int y) {
             if (sound_get(s_app.sound)->kind == SOUND_BANK) {
                 s_touch = TOUCH_BANK;
                 s_paint_step = -1;
+            } else if (s_app.sound == sound_sample_index() && ui_hit_draw_shape(x, y) == 0) {
+                // MIC: the MIC sound's sample (START..END) becomes this part's.
+                int first, n = sampler_region(&s_app.sample_edit, s_take_frames, -1, &first);
+                if (s_take_frames <= 0 || n <= 0) {
+                    notice("RECORD OR LOAD A MIC SAMPLE FIRST");
+                } else if (part_take(s_app.part, s_take_buf + first, n)) {
+                    char msg[sizeof(s_app.notice)];
+                    snprintf(msg, sizeof(msg), "MIC SAMPLE ON PART %d", s_app.part + 1);
+                    notice(msg);
+                }
+                s_touch = TOUCH_IGNORE;
+            } else if (s_app.sound == sound_sample_index() && ui_hit_draw_shape(x, y) == 1) {
+                open_library(true);  // LIB: a WAV for this part
+                s_app.lib_part = s_app.part;
+                s_touch = TOUCH_IGNORE;
             } else if (s_app.sound == sound_draw_index() && ui_hit_draw_shape(x, y) >= 0) {
                 draw_preset(&s_app.parts[s_app.part].wave, ui_hit_draw_shape(x, y));
                 upload_wave(s_app.part);
@@ -2987,7 +3083,10 @@ static void story_scroll_chords(void) { s_app.roll_scroll = music_roll_row(57, f
 #define TWINY (TAPE_WIN_Y + TAPE_WIN_H / 2)
 #define SONGBTNY(i) (SONG_BTN_Y0 + (i) * SONG_BTN_PITCH + SONG_BTN_H / 2)
 #define SONGBTNX (SONG_BTN_X + SONG_BTN_W / 2)
-enum { T_JUNO, T_DX7, T_PLUCK, T_SQUELCH, T_BELL, T_BREEZE, T_SAW, T_FOLD, T_WAVY, T_MIC, T_DRAW, T_PRESET };
+enum { T_JUNO, T_DX7, T_PLUCK, T_SQUELCH, T_BELL, T_BREEZE, T_SAW, T_FOLD, T_WAVY, T_MIC, T_DRAW, T_PAGE };
+// Page 2's tiles, by slot.
+enum { T2_CHIP, T2_BOOM, T2_ORGAN, T2_VOX, T2_REESE, T2_STRINGS, T2_MALLET, T2_EPIANO, T2_ZAP, T2_SAMPLE };
+#define PRESETX (SYN_PRESET_X + SYN_PRESET_W / 2)
 
 static void tour_setup(void) {
     story_blank();
@@ -3064,6 +3163,18 @@ static const StoryEv kStory[] = {
     TAP(TILEX(T_BREEZE), TILEY(T_BREEZE)), PRESS(KEY_DUP, 40),
     TAP(TILEX(T_FOLD), TILEY(T_FOLD)), PRESS(KEY_DLEFT, 14), PRESS(KEY_DRIGHT, 14),
     TAP(TILEX(T_WAVY), TILEY(T_WAVY)), PRESS(KEY_Y, 30),
+    CAP(10, "PAGE 2: TEN MORE SOUNDS"),
+    TAP(TILEX(T_PAGE), TILEY(T_PAGE)),
+    TAP(TILEX(T2_CHIP), TILEY(T2_CHIP)), PRESS(KEY_DLEFT, 8), PRESS(KEY_DRIGHT, 8), PRESS(KEY_Y, 12),
+    TAP(TILEX(T2_BOOM), TILEY(T2_BOOM)), PRESS(KEY_DLEFT, 20), PRESS(KEY_DUP, 20),
+    TAP(TILEX(T2_ORGAN), TILEY(T2_ORGAN)), PRESS(KEY_L | KEY_DLEFT, 40),
+    TAP(TILEX(T2_VOX), TILEY(T2_VOX)), PRESS(KEY_L | KEY_DLEFT, 40),
+    TAP(TILEX(T2_REESE), TILEY(T2_REESE)), PRESS(KEY_DLEFT, 30),
+    TAP(TILEX(T2_STRINGS), TILEY(T2_STRINGS)), PRESS(KEY_L | KEY_Y, 60),
+    TAP(TILEX(T2_MALLET), TILEY(T2_MALLET)), PRESS(KEY_DLEFT, 8), PRESS(KEY_DRIGHT, 8), PRESS(KEY_Y, 8), PRESS(KEY_X, 14),
+    TAP(TILEX(T2_EPIANO), TILEY(T2_EPIANO)), PRESS(KEY_L | KEY_DLEFT, 40),
+    TAP(TILEX(T2_ZAP), TILEY(T2_ZAP)), PRESS(KEY_DLEFT, 10), PRESS(KEY_DUP, 10), PRESS(KEY_X, 10),
+    TAP(TILEX(T_PAGE), TILEY(T_PAGE)),  // back to page 1
     CAP(11, "DRAG THE CREATURE: ITS TWO MACROS"),
     TAP(TILEX(T_SAW), TILEY(T_SAW)),
     KEYS(KEY_L | KEY_DLEFT),
@@ -3129,7 +3240,7 @@ static const StoryEv kStory[] = {
     KEYS(0),
     CAP(19, "PRESETS: SAVE THE SOUND YOU MADE"),
     CALL(tour_name_preset),
-    TAP(TILEX(T_PRESET), TILEY(T_PRESET)),
+    TAP(PRESETX, EDITY),
     TAP(SONGBTNX, SONGBTNY(0)),  // SAVE AS
     WAIT(60),
     TAP(SONGBTNX, SONGBTNY(4)),  // BACK
@@ -3553,6 +3664,11 @@ int main(void) {
 
     romfsInit();  // the drum kits' samples live in the app's romfs
     engine_init();
+#ifndef VM_DEMO
+    load_part_samples(STORAGE_DIR);  // each part's SAMPLE (or the boing)
+#else
+    load_part_samples("sdmc:/nowhere");
+#endif
     drum_kit_stock(&s_app.kit, 0);
     s_app.kit_lane = 0;
     seq_init(seq_out);
