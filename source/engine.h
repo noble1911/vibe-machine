@@ -72,9 +72,36 @@ const char *engine_param_name(EngineParam param);
 // --- audio thread --------------------------------------------------------
 // Renders one AMY block (engine_block_frames() stereo frames, interleaved
 // L/R int16) and returns a pointer to it. Valid until the next call.
-const int16_t *engine_render_block(void);
+// `safe_point` (may be NULL) is called once per block at the moment nothing
+// is rendering: the place for the sequencer to play its notes (they sound
+// in the NEXT block handed back: the engine runs one block ahead).
+const int16_t *engine_render_block(void (*safe_point)(void));
 bool engine_two_cores(void);  // the second core is helping render
 uint32_t engine_core1_stalls(void);  // times core 1 didn't start its share in time (core 0 did it)
 float engine_core1_share(void);      // the share of the oscillators core 1 is given now
+// UI thread: several engine calls as one (a chord's notes, a sound and its
+// macros). Each call otherwise waits for the engine's next safe point (up
+// to a block, 4 ms); a batch waits once. Keep them short: the audio thread
+// waits at its safe point until the batch ends.
+void engine_batch_begin(void);
+void engine_batch_end(void);
+// Audio thread, once a block's work is all done (the engine's and
+// everything after it): how long the whole block took. The core split
+// balances on it.
+void engine_block_done(uint32_t total_ticks);
+// Where a block's time goes, as fractions of the block's own length (1.0 =
+// all of real time), smoothed over ~0.25 s. total_max: the worst block
+// since the last call.
+typedef struct {
+    float render0;  // core 0 rendering its oscillators
+    float core1;    // core 1 rendering its (in parallel)
+    float fill;     // AMY's mixdown: buses, echo, reverb, EQ, the mixer
+    float post;     // PUNCH, FX, tape, capture
+    float total, total_max;
+    float oscs;     // oscillators sounding
+    float share;    // core 1's share of them
+    uint32_t stalls;
+} EnginePerf;
+EnginePerf engine_perf(void);
 int engine_block_frames(void);
 int engine_sample_rate(void);

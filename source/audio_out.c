@@ -126,22 +126,32 @@ static void record_block(const int16_t *block, int frames, uint64_t ticks) {
     LightLock_Unlock(&s_stats_lock);
 }
 
+// The sequencer's clock, on the sample clock: steps that fall due send
+// their notes to the engine, which renders them into the next block it
+// hands back (it runs one block ahead: see engine_render_block).
+static SeqClock s_clk, s_clk_next;
+static void block_safe_point(void) {
+    seq_advance(engine_block_frames(), engine_sample_rate());
+    s_clk_next = seq_clock();
+}
+
 static void fill_wavebuf(ndspWaveBuf *wb) {
     int16_t *dst = wb->data_pcm16;
     const int frames = engine_block_frames();
     for (int b = 0; b < BLOCKS_PER_WAVEBUF; b++) {
         // The CPU meter times all of the block's work, not just the synth.
         const uint64_t t0 = svcGetSystemTick();
-        // The sequencer clock runs here, on the sample clock: steps that fall
-        // due are sent to the engine just before the block that plays them.
-        seq_advance(frames, engine_sample_rate());
-        const SeqClock clk = seq_clock();  // PUNCH engages on the 16ths the sequencer fires
-        punch_clock(clk.fired, clk.step, clk.playing, clk.punch, (float)clk.bpm);
-        if (clk.fired)  // the FX pad's recorded moves, on their step, to the sample
-            fx_auto_step(clk.fx, clk.fx_x / 255.0f, clk.fx_y / 255.0f, true);
-        else if (!clk.playing)
+        // The sequencer's clock runs inside the engine's block, at its safe
+        // point (block_safe_point, below).
+        const int16_t *block = engine_render_block(block_safe_point);
+        // PUNCH and the FX pad's recorded moves follow the step whose notes
+        // are in THIS block: the one the sequencer fired a block ago.
+        punch_clock(s_clk.fired, s_clk.step, s_clk.playing, s_clk.punch, (float)s_clk.bpm);
+        if (s_clk.fired)  // on their step, to the sample
+            fx_auto_step(s_clk.fx, s_clk.fx_x / 255.0f, s_clk.fx_y / 255.0f, true);
+        else if (!s_clk.playing)
             fx_auto_step(0, 0.0f, 0.0f, false);
-        const int16_t *block = engine_render_block();
+        s_clk = s_clk_next;
         memcpy(dst, block, (size_t)frames * 2 * sizeof(int16_t));
         tape_play_block(dst, frames, engine_sample_rate());  // the tape plays along...
         punch_process(dst, frames);                          // ...PUNCH-ins and the performance FX go
@@ -150,7 +160,9 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
         for (int k = 0; k < TAPE_SOURCES; k++) strips[k] = mixer_strip_block(k);
         tape_record_block(dst, strips, frames);              // ...and the armed track records
         capture_block(dst, frames);                          // the mixdown, if one is running
-        record_block(dst, frames, svcGetSystemTick() - t0);
+        const uint64_t block_ticks = svcGetSystemTick() - t0;
+        engine_block_done((uint32_t)block_ticks);
+        record_block(dst, frames, block_ticks);
 #ifdef VM_DEMO
         memset(dst, 0, (size_t)frames * 2 * sizeof(int16_t));  // attract mode: scope moves, speakers stay quiet
 #endif
@@ -182,7 +194,8 @@ static void audio_thread(void *arg) {
         }
         u32 played = ndspChnGetSamplePos(CHANNEL);  // of the buffer playing now
         if (played > (u32)s_frames_per_wavebuf) played = (u32)s_frames_per_wavebuf / 2;
-        seq_set_latency(ahead > played ? (int)(ahead - played) : 0);
+        // (+ a block: the engine renders one ahead of what it hands back)
+        seq_set_latency((ahead > played ? (int)(ahead - played) : 0) + engine_block_frames());
         // If nothing was still queued, the DSP had drained completely: an
         // audible gap. Count it so the UI can show it.
         if (queued == 0 && s_stats.blocks > NUM_WAVEBUFS * BLOCKS_PER_WAVEBUF) {

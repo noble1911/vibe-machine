@@ -169,7 +169,9 @@ static void source_release(int src) {
         arp_update();
         return;
     }
+    engine_batch_begin();
     for (int i = 0; i < h->count; i++) engine_note_off(h->synth, h->notes[i]);
+    engine_batch_end();
     if (h->synth != SYNTH_DRUMS) {  // a live-recorded note is as long as you held it
         SeqNote n = {(int8_t)h->key, (uint8_t)h->count, {0}};
         for (int i = 0; i < h->count && i < MUSIC_MAX_NOTES; i++) n.notes[i] = (uint8_t)h->notes[i];
@@ -197,7 +199,9 @@ static void source_press(int src, int key) {
         return;
     }
     float velocity = s_app.mode == PLAY_DRUM ? 1.0f : 0.8f;
+    engine_batch_begin();  // a chord's notes together
     for (int i = 0; i < h->count; i++) engine_note_on(h->synth, h->notes[i], velocity);
+    engine_batch_end();
     if (h->synth == SYNTH_DRUMS && key >= 0 && key < DRUM_LANES) s_app.drum_flash[key] = 8;
     if (s_app.roll_view && s_app.page == PAGE_SEQ && h->synth != SYNTH_DRUMS && h->count > 0)
         roll_show_pitch(h->notes[0]);  // bring what you play into view
@@ -303,12 +307,14 @@ static void upload_wave(int part) {
 // on top (so the edit wins where both touch the same thing).
 static void reload_sound(void) {
     const SynthEdit *e = &part_edit()->cur;
+    engine_batch_begin();
     engine_load_sound(s_app.part, s_app.sound, s_app.patch, e);
     s_edit_key[s_app.part] = sound_edit_key(s_app.sound, e);
     if (s_app.sound == sound_draw_index()) upload_wave(s_app.part);
     for (int m = 0; m < SOUND_MACROS; m++) engine_set_macro(s_app.part, s_app.sound, m, s_app.macro[m]);
     engine_apply_edit(s_app.part, e);
     reapply_params();
+    engine_batch_end();
 }
 
 // The EDIT layer changed: live, unless MONO / UNISON / the LFO's extra
@@ -4232,15 +4238,30 @@ int main(void) {
         mixdown_tick();
 
         AudioStats stats = audio_out_stats();
-#ifdef VM_STORY
-        {   // perf log: once a second, the CPU meter and the gap count
+#ifndef VM_DEMO
+        {   // perf log (sdmc:/3ds/vibe-machine/perf.txt, started afresh each run):
+            // every 2 s while something plays, where each audio block's time
+            // went, as percentages of real time. For tuning on real hardware.
             static FILE *pf;
-            if (!pf) pf = fopen(STORAGE_DIR "/perf.txt", "w");
-            if (pf && s_app.frame % 60 == 0) {
-                fprintf(pf, "%u page %d load %.3f peak %.3f late %u core1 %.2f stalls %u\n", (unsigned)s_app.frame,
-                        (int)s_app.page, (double)stats.load, (double)stats.load_peak, (unsigned)stats.late,
-                        (double)engine_core1_share(), (unsigned)engine_core1_stalls());
-                fflush(pf);
+            static int lines;
+            static uint32_t late_was;
+            if (!pf) {
+                pf = fopen(STORAGE_DIR "/perf.txt", "w");
+                if (pf) fprintf(pf, "frame page oscs | core0: render mix post | core1 | total worst | cpu peak gaps | share stalls punch\n");
+            }
+            if (pf && s_app.frame % 120 == 0 && lines < 3000) {
+                const EnginePerf ep = engine_perf();
+                if (s_app.seq.playing || ep.oscs > 0.5f || stats.late != late_was) {
+                    fprintf(pf, "%u %d %.0f | %.0f %.0f %.0f | %.0f | %.0f %.0f | %.0f %.0f %u | %.2f %u %04X\n",
+                            (unsigned)s_app.frame, (int)s_app.page, (double)ep.oscs, (double)(ep.render0 * 100),
+                            (double)(ep.fill * 100), (double)(ep.post * 100), (double)(ep.core1 * 100),
+                            (double)(ep.total * 100), (double)(ep.total_max * 100), (double)(stats.load * 100),
+                            (double)(stats.load_peak * 100), (unsigned)stats.late, (double)ep.share, (unsigned)ep.stalls,
+                            (unsigned)punch_state().active);
+                    lines++;
+                    late_was = stats.late;
+                }
+                if (s_app.frame % 600 == 0) fflush(pf);
             }
         }
 #endif

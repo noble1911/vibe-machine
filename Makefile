@@ -257,6 +257,8 @@ $(OFILES_SOURCES) : $(HFILES)
 # AMY is the audio hot path: build it at -O3 and keep its upstream warning set
 # quiet (it is vendored code; warnings there are not ours to fix here).
 $(AMY_CFILES:.c=.o) : CFLAGS += -O3 -w
+# The audio thread's own per-sample loops (mixer hook, PUNCH, FX, tape) too.
+mixer.o punch.o fx.o tape.o audio_out.o : CFLAGS += -O3
 
 $(OUTPUT).elf	:	$(OFILES)
 

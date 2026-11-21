@@ -17,6 +17,7 @@
 #include <string.h>
 
 static LightLock s_lock;
+#define PERF_K (1.0f / 64.0f)
 static void load_drum_banks(void);
 
 // The second core (the old 3DS's "system core", which an app may use up to
@@ -42,15 +43,21 @@ static volatile uint32_t s_core1_ticks;  // how long the worker's last share too
 static int s_worker_rest, s_worker_rest_len = WORKER_REST_MIN;
 static uint32_t s_worker_stalls;
 
-// Core 1's share of the oscillators. 60% to start with; then it follows
-// how long each core takes per oscillator (smoothed over ~1 s, and only
-// moved in steps, so the split doesn't wander block to block). Any split
-// renders the same sound, bit for bit (tests/dual_probe).
-#define CORE1_SHARE 0.6f
+// Core 1's share of the oscillators. Core 0 has much more to do than
+// render: AMY's mixdown (seven buses, echo, reverb, EQ, the mixer's hook),
+// then PUNCH, the FX and the tape, and the screen besides; core 1 only
+// renders. So the split evens out the cores' TOTAL time per block: core 0's
+// fixed work counts against it, and core 1 may take every oscillator.
+// (Smoothed over ~1 s and moved in steps, so it doesn't wander block to
+// block. Any split renders the same sound, bit for bit: tests/dual_probe.)
+#define CORE1_SHARE 0.8f
 #define CORE1_SHARE_MIN 0.4f
-#define CORE1_SHARE_MAX 0.8f
+#define CORE1_SHARE_MAX 1.0f
 static float s_core1_share = CORE1_SHARE;
 static float s_cost0, s_cost1;  // smoothed ticks per sounding oscillator on each core (0: not yet known)
+static float s_fixed0;          // smoothed ticks of core 0's other work per block (mixdown + PUNCH / FX / tape)
+static uint32_t s_fill_ticks, s_engine_ticks;  // the last block's mixdown, and all of engine_render_block
+static EnginePerf s_perf;
 
 static void render_worker(void *arg) {
     (void)arg;
@@ -69,13 +76,20 @@ static void render_worker(void *arg) {
 }
 
 static void balance_cores(uint32_t ticks0, int oscs0, uint32_t ticks1, int oscs1) {
-    if (oscs0 < 4 || oscs1 < 4) return;  // too few to say anything
-    const float c0 = (float)ticks0 / oscs0, c1 = (float)ticks1 / oscs1;
     const float k = 1.0f / 256.0f;  // ~0.75 s of blocks
-    s_cost0 = s_cost0 > 0.0f ? s_cost0 + (c0 - s_cost0) * k : c0;
-    s_cost1 = s_cost1 > 0.0f ? s_cost1 + (c1 - s_cost1) * k : c1;
-    // Even: core 1 takes the share that makes both take as long.
-    float want = s_cost0 / (s_cost0 + s_cost1);
+    if (oscs0 >= 4) {  // (too few to say anything: keep the last estimate)
+        const float c0 = (float)ticks0 / oscs0;
+        s_cost0 = s_cost0 > 0.0f ? s_cost0 + (c0 - s_cost0) * k : c0;
+    }
+    if (oscs1 >= 4) {
+        const float c1 = (float)ticks1 / oscs1;
+        s_cost1 = s_cost1 > 0.0f ? s_cost1 + (c1 - s_cost1) * k : c1;
+    }
+    const int n = oscs0 + oscs1;
+    if (n < 4 || s_cost1 <= 0.0f) return;
+    const float c0 = s_cost0 > 0.0f ? s_cost0 : s_cost1;  // core 0 hasn't rendered enough to know: as core 1
+    // Even totals: (1 - s) n c0 + fixed = s n c1.
+    float want = (n * c0 + s_fixed0) / (n * (c0 + s_cost1));
     want = want < CORE1_SHARE_MIN ? CORE1_SHARE_MIN : want > CORE1_SHARE_MAX ? CORE1_SHARE_MAX : want;
     if (want > s_core1_share + 0.05f || want < s_core1_share - 0.05f)  // a dead band: no hunting
         s_core1_share = (float)(int)(want * 20.0f + 0.5f) / 20.0f;
@@ -108,10 +122,51 @@ static const char *const s_param_names[PARAM_COUNT] = {
 
 static void wire_locked(const char *msg);
 
-static void send_locked(amy_event *e) {
-    LightLock_Lock(&s_lock);
-    amy_add_event(e);
+// --- touching AMY from outside the render ---------------------------------
+// With the pipeline, core 1 is usually rendering, even between the audio
+// thread's calls. So anything that changes the synth (notes, patches,
+// samples) waits for the safe point: amy_enter() returns with the lock held
+// and nothing rendering. The audio thread parks at its safe point while
+// calls are waiting (s_want), so they're never starved; calls nest, so a
+// batch (a patch and its edits) goes in at one safe point. The sequencer's
+// notes come from the audio thread AT the safe point: nothing to wait for.
+static volatile int s_want;
+static void *s_audio_tls;
+static volatile bool s_audio_inside;
+static int s_ui_depth;  // UI thread only
+static bool s_in_flight, s_rendered;
+static uint32_t s_r0_ticks;
+static int s_oscs0, s_oscs1;
+
+static void amy_enter(void) {
+    if (s_audio_tls && getThreadLocalStorage() == s_audio_tls) {
+        if (!s_audio_inside) LightLock_Lock(&s_lock);  // (not expected: the audio thread calls in at its safe point)
+        return;
+    }
+    if (s_ui_depth++ > 0) return;
+    __atomic_add_fetch(&s_want, 1, __ATOMIC_ACQ_REL);
+    for (;;) {
+        LightLock_Lock(&s_lock);
+        if (__atomic_load_n(&s_job, __ATOMIC_ACQUIRE) == JOB_IDLE) return;
+        LightLock_Unlock(&s_lock);
+        svcSleepThread(100000);  // 0.1 ms
+    }
+}
+
+static void amy_leave(void) {
+    if (s_audio_tls && getThreadLocalStorage() == s_audio_tls) {
+        if (!s_audio_inside) LightLock_Unlock(&s_lock);
+        return;
+    }
+    if (--s_ui_depth > 0) return;
+    __atomic_sub_fetch(&s_want, 1, __ATOMIC_ACQ_REL);
     LightLock_Unlock(&s_lock);
+}
+
+static void send_locked(amy_event *e) {
+    amy_enter();
+    amy_add_event(e);
+    amy_leave();
 }
 
 void engine_init(void) {
@@ -172,12 +227,12 @@ void engine_init(void) {
         static int16_t organ[ORGAN_CYCLES * TABLE_CYCLE], vox[VOX_CYCLES * TABLE_CYCLE];
         tables_organ(organ);
         tables_vox(vox);
-        LightLock_Lock(&s_lock);
+        amy_enter();
         int16_t *ram = pcm_load(ORGAN_PRESET, ORGAN_CYCLES * TABLE_CYCLE, 44100, 1, 60.0f, 0, 0);
         if (ram) memcpy(ram, organ, sizeof(organ));
         ram = pcm_load(VOX_PRESET, VOX_CYCLES * TABLE_CYCLE, 44100, 1, 60.0f, 0, 0);
         if (ram) memcpy(ram, vox, sizeof(vox));
-        LightLock_Unlock(&s_lock);
+        amy_leave();
     }
 
     // The master bus (dry), the echo bus and the reverb bus (see mixer.h),
@@ -213,10 +268,11 @@ void engine_exit(void) {
         threadJoin(s_worker, U64_MAX);
         threadFree(s_worker);
         s_worker = NULL;
+        __atomic_store_n(&s_job, JOB_IDLE, __ATOMIC_RELEASE);  // (a share it never took)
     }
-    LightLock_Lock(&s_lock);
+    amy_enter();
     amy_stop();
-    LightLock_Unlock(&s_lock);
+    amy_leave();
 }
 
 // The kit as the engine plays it: each lane's note and level (read by
@@ -226,7 +282,7 @@ static float s_lane_note[DRUM_LANES], s_lane_gain[DRUM_LANES];
 static void drum_hit(int note, float velocity) {
     const int lane = drum_lane_of_note(note);
     if (lane < 0) return;
-    LightLock_Lock(&s_lock);
+    amy_enter();
     if (lane == DRUM_LANE_HAT) {  // the closed hat chokes the open one
         amy_event c = amy_default_event();
         c.synth = (uint8_t)(DRUM_SYNTH0 + DRUM_LANE_OPEN);
@@ -238,38 +294,40 @@ static void drum_hit(int note, float velocity) {
     e.midi_note = s_lane_note[lane];
     e.velocity = velocity * s_lane_gain[lane];
     amy_add_event(&e);
-    LightLock_Unlock(&s_lock);
+    amy_leave();
 }
 
 void engine_set_kit(const DrumKit *k) {
     char m[48];
+    amy_enter();
     for (int lane = 0; lane < DRUM_LANES; lane++) {
         snprintf(m, sizeof(m), "i%dv0p%d", DRUM_SYNTH0 + lane, k->lane[lane].preset);
         wire_locked(m);
     }
-    LightLock_Lock(&s_lock);
+    amy_enter();
     for (int lane = 0; lane < DRUM_LANES; lane++) {
         s_lane_note[lane] = drum_lane_note(k, lane);
         s_lane_gain[lane] = drum_lane_gain(k, lane);
     }
-    LightLock_Unlock(&s_lock);
+    amy_leave();
+    amy_leave();
 }
 
 bool engine_load_part_sample(int part, const int16_t *data, int frames, int rate) {
     if (part < 0 || part >= PARTS || frames <= 0) return false;
-    LightLock_Lock(&s_lock);
+    amy_enter();
     int16_t *ram = pcm_load((uint16_t)(PART_SAMPLE_PRESET + part), (uint32_t)frames, (uint32_t)rate, 1, 60.0f, 0, 0);
     if (ram) memcpy(ram, data, (size_t)frames * sizeof(int16_t));
-    LightLock_Unlock(&s_lock);
+    amy_leave();
     return ram != NULL;
 }
 
 bool engine_load_drum_sample(int lane, const int16_t *data, int frames, int rate) {
     if (lane < 0 || lane >= DRUM_LANES || frames <= 0) return false;
-    LightLock_Lock(&s_lock);
+    amy_enter();
     int16_t *ram = pcm_load((uint16_t)(DRUM_USER_PRESET + lane), (uint32_t)frames, (uint32_t)rate, 1, 60.0f, 0, 0);
     if (ram) memcpy(ram, data, (size_t)frames * sizeof(int16_t));
-    LightLock_Unlock(&s_lock);
+    amy_leave();
     return ram != NULL;
 }
 
@@ -314,9 +372,9 @@ void engine_note_off(int synth, int note) {
 static void wire_locked(const char *msg) {
     char buf[1024];  // amy_add_message wants a mutable string
     snprintf(buf, sizeof(buf), "%s", msg);
-    LightLock_Lock(&s_lock);
+    amy_enter();
     amy_add_message(buf);
-    LightLock_Unlock(&s_lock);
+    amy_leave();
 }
 
 static int s_part_sound[PARTS], s_part_patch[PARTS];
@@ -363,13 +421,23 @@ static void dx7_bright_tick(void) {  // audio thread, AMY lock held
     }
 }
 
+static void engine_load_sound_in(int part, int sound, int patch, const SynthEdit *edit);
+
 static void send_edit(int part, int sound, const SynthEdit *e) {
     char cmds[16][64];
     const int n = sound_edit_wire(sound, e, part_synth(part), &cmds[0][0], 64, 16);
+    amy_enter();
     for (int i = 0; i < n; i++) wire_locked(cmds[i]);
+    amy_leave();
 }
 
 void engine_load_sound(int part, int sound, int patch, const SynthEdit *edit) {
+    amy_enter();  // the patch and everything sent after it: one safe point
+    engine_load_sound_in(part, sound, patch, edit);
+    amy_leave();
+}
+
+static void engine_load_sound_in(int part, int sound, int patch, const SynthEdit *edit) {
     const Sound *s = sound_get(sound);
     SynthEdit none;
     if (!edit) {
@@ -382,9 +450,9 @@ void engine_load_sound(int part, int sound, int patch, const SynthEdit *edit) {
         s_part_sound[part] = sound;
         s_part_patch[part] = patch;
         s_part_key[part] = sound_edit_key(sound, edit);
-        LightLock_Lock(&s_lock);
+        amy_enter();
         s_bright_due[part] = false;  // nothing for the old patch from here on
-        LightLock_Unlock(&s_lock);
+        amy_leave();
     }
     const int synth = part_synth(part);
     char msg[512];
@@ -421,11 +489,11 @@ void engine_load_sound(int part, int sound, int patch, const SynthEdit *edit) {
     // BRIGHT: now that the patch is queued (a render in between would have
     // read the old patch's levels and kept them for the new one).
     if (part >= 0 && part < PARTS) {
-        LightLock_Lock(&s_lock);
+        amy_enter();
         s_dx7_known[part] = false;  // a new patch: its own levels are read again
         s_bright[part] = sound_edit_bright(sound, edit);
         s_bright_due[part] = sound == sound_dx7_index() && s_bright[part] != 1.0f;
-        LightLock_Unlock(&s_lock);
+        amy_leave();
     }
 }
 
@@ -459,13 +527,13 @@ bool engine_load_sample(const int16_t *data, int frames, int rate, const SampleE
         send_locked(&off);
     }
     int first, n = sampler_region(&ed, frames, -1, &first);
-    LightLock_Lock(&s_lock);
+    amy_enter();
     bool ok = load_preset(SAMPLER_PRESET, data + first, n, rate);
     for (int k = 0; ok && k < ed.slices; k++) {
         int sn = sampler_region(&ed, frames, k, &first);
         ok = load_preset(SAMPLER_PRESET + 1 + k, data + first, sn > 0 ? sn : 1, rate);
     }
-    LightLock_Unlock(&s_lock);
+    amy_leave();
     if (ok) s_slices = ed.slices;
     return ok;
 }
@@ -479,12 +547,12 @@ void engine_apply_edit(int part, const SynthEdit *edit) {
         send_edit(part, sound, edit);
         if (sound == sound_dx7_index()) {
             const float b = sound_edit_bright(sound, edit);
-            LightLock_Lock(&s_lock);
+            amy_enter();
             if (b != s_bright[part]) {
                 s_bright[part] = b;
                 s_bright_due[part] = true;
             }
-            LightLock_Unlock(&s_lock);
+            amy_leave();
         }
     }
 }
@@ -497,7 +565,7 @@ void engine_load_wave(int part, const int16_t *pcm, int n) {
     // while drawing (many times a second) the preset already there is
     // written over in place: no free and malloc under the lock.
     const uint16_t preset = (uint16_t)(DRAW_PRESET + part);
-    LightLock_Lock(&s_lock);
+    amy_enter();
     uint32_t frames = 0, rate = 0;
     uint8_t channels = 0;
     int16_t *ram = (int16_t *)pcm_get_memory_preset(preset, &frames, &channels, &rate, NULL);
@@ -507,7 +575,7 @@ void engine_load_wave(int part, const int16_t *pcm, int n) {
         memcpy(ram, pcm, (size_t)n * sizeof(int16_t));
         memcpy(ram + n, pcm, (size_t)n * sizeof(int16_t));
     }
-    LightLock_Unlock(&s_lock);
+    amy_leave();
 }
 
 void engine_pitch_bend(float semitones) {
@@ -560,50 +628,123 @@ const char *engine_param_name(EngineParam param) {
     return (param >= 0 && param < PARAM_COUNT) ? s_param_names[param] : "?";
 }
 
-const int16_t *engine_render_block(void) {
+// The pipeline. Each call hands back the block whose oscillators were
+// rendered during the LAST call, and sets the next one going:
+//
+//   1. wait for core 1 to finish its share of this block (it has had since
+//      the last call), merge it with ours, move AMY's clock on;
+//   2. the safe point: nothing is rendering. Anything that changes the
+//      synth happens here: waiting UI calls (amy_enter), the sequencer's
+//      notes (`safe_point`), then AMY's due deltas;
+//   3. hand core 1 its share of the NEXT block, and while it renders:
+//   4. mix this block down (buses, echo, reverb, the mixer), and
+//   5. render our own share of the next block.
+//
+// So the cores work at the same time on different blocks, and the block's
+// wall time is the longer of the two, not their sum. The sound is the same
+// as rendering in order (tests/dual_probe), one block (4 ms) later.
+const int16_t *engine_render_block(void (*safe_point)(void)) {
+    const uint64_t t_block = svcGetSystemTick();
+    if (!s_audio_tls) s_audio_tls = getThreadLocalStorage();
     LightLock_Lock(&s_lock);
-    // amy_simple_fill_buffer(), with the oscillators shared between cores.
     amy_grab_render_lock();
-    amy_execute_deltas();
-    int oscs0 = 0, oscs1 = 0;
-    const bool worker = s_worker && (s_worker_rest == 0 || --s_worker_rest == 0);
-    const uint16_t split = worker ? amy_split_point_n(s_core1_share, &oscs0, &oscs1) : AMY_OSCS;
-    if (split < AMY_OSCS) {
-        s_split = split;
-        __atomic_store_n(&s_job, JOB_POSTED, __ATOMIC_RELEASE);
-        LightEvent_Signal(&s_go);
-        const uint64_t t0 = svcGetSystemTick();
-        amy_render(0, split, 0);
-        const uint32_t ticks0 = (uint32_t)(svcGetSystemTick() - t0);
-        // Give core 1 a block's time on top of our own share before
-        // deciding it's stuck (it is never waited on forever with the lock
-        // held unless it's actually rendering).
-        if (LightEvent_WaitTimeout(&s_done, (s64)AMY_BLOCK_SIZE * 1000000000LL / AMY_SAMPLE_RATE) == 0) {
-            balance_cores(ticks0, oscs0, s_core1_ticks, oscs1);
-            s_worker_rest_len = WORKER_REST_MIN;
-        } else {
+    vm_amy_pipeline = 1;
+
+    // 1. This block's render, finished and merged.
+    if (s_in_flight) {
+        // Core 1 has had a whole block's time already; a little more, then
+        // if it never even started, its share is rendered here (into its
+        // buffers, which nothing else is touching) and it's left alone for
+        // a while.
+        if (LightEvent_WaitTimeout(&s_done, 500000LL) != 0) {
             int expect = JOB_POSTED;
             if (__atomic_compare_exchange_n(&s_job, &expect, JOB_IDLE, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
-                // It never started: its share is rendered here (into core 1's
-                // buffers, which nothing else is touching), and core 1 is
-                // left alone for a while.
-                amy_render(split, AMY_OSCS, 1);
+                amy_render(s_split, AMY_OSCS, 1);
                 s_worker_rest = s_worker_rest_len;
                 if (s_worker_rest_len < WORKER_REST_MAX) s_worker_rest_len *= 2;
                 s_worker_stalls++;
             } else {
                 LightEvent_Wait(&s_done);  // it's rendering: let it finish
+                s_worker_rest_len = WORKER_REST_MIN;
             }
+        } else {
+            s_worker_rest_len = WORKER_REST_MIN;
         }
+        balance_cores(s_r0_ticks, s_oscs0, s_core1_ticks, s_oscs1);
     } else {
-        amy_render(0, AMY_OSCS, 0);
-        amy_render(AMY_OSCS, AMY_OSCS, 1);  // nothing to render: just clears core 1's buffers
+        amy_render(AMY_OSCS, AMY_OSCS, 1);  // core 1 rendered nothing: clear its buffers
     }
-    const int16_t *block = amy_fill_buffer();
-    amy_release_render_lock();
+    vm_amy_merge_cores();
+    if (s_rendered) vm_amy_advance_time();
+
+    // 2. The safe point.
+    while (__atomic_load_n(&s_want, __ATOMIC_ACQUIRE) > 0) {  // UI calls waiting: let them in
+        LightLock_Unlock(&s_lock);
+        svcSleepThread(50000);
+        LightLock_Lock(&s_lock);
+    }
+    s_audio_inside = true;
+    if (safe_point) safe_point();
     dx7_bright_tick();
+    s_audio_inside = false;
+    amy_execute_deltas();
+
+    // 3. Core 1's share of the next block.
+    int oscs0 = 0, oscs1 = 0;
+    const bool worker = s_worker && (s_worker_rest == 0 || --s_worker_rest == 0);
+    const uint16_t split = worker ? amy_split_point_n(s_core1_share, &oscs0, &oscs1) : AMY_OSCS;
+    if (!worker) amy_split_point_n(0.0f, &oscs0, &oscs1);  // (just the count)
+    s_in_flight = split < AMY_OSCS;
+    if (s_in_flight) {
+        s_split = split;
+        __atomic_store_n(&s_job, JOB_POSTED, __ATOMIC_RELEASE);
+        LightEvent_Signal(&s_go);
+    }
+    s_oscs0 = oscs0;
+    s_oscs1 = oscs1;
+
+    // 4. This block, mixed down.
+    const uint64_t tf = svcGetSystemTick();
+    const int16_t *block = amy_fill_buffer();
+    s_fill_ticks = (uint32_t)(svcGetSystemTick() - tf);
+
+    // 5. Our share of the next block.
+    const uint64_t t0 = svcGetSystemTick();
+    amy_render(0, split, 0);
+    s_r0_ticks = (uint32_t)(svcGetSystemTick() - t0);
+    s_rendered = true;
+
+    amy_release_render_lock();
     LightLock_Unlock(&s_lock);
+    s_engine_ticks = (uint32_t)(svcGetSystemTick() - t_block);
+    s_perf.render0 += ((float)s_r0_ticks - s_perf.render0) * PERF_K;
+    s_perf.core1 += ((float)(s_in_flight ? s_core1_ticks : 0) - s_perf.core1) * PERF_K;
+    s_perf.fill += ((float)s_fill_ticks - s_perf.fill) * PERF_K;
+    s_perf.oscs += ((float)(oscs0 + oscs1) - s_perf.oscs) * PERF_K;
     return block;
+}
+
+void engine_batch_begin(void) { amy_enter(); }
+void engine_batch_end(void) { amy_leave(); }
+
+void engine_block_done(uint32_t total_ticks) {
+    // Everything core 0 did this block that wasn't rendering oscillators.
+    const uint32_t post = total_ticks > s_engine_ticks ? total_ticks - s_engine_ticks : 0;
+    const float fixed = (float)(s_fill_ticks + post);
+    s_fixed0 = s_fixed0 > 0.0f ? s_fixed0 + (fixed - s_fixed0) * (1.0f / 256.0f) : fixed;
+    s_perf.post += ((float)post - s_perf.post) * PERF_K;
+    s_perf.total += ((float)total_ticks - s_perf.total) * PERF_K;
+    if ((float)total_ticks > s_perf.total_max) s_perf.total_max = (float)total_ticks;
+}
+
+EnginePerf engine_perf(void) {
+    EnginePerf p = s_perf;
+    const float block = (float)AMY_BLOCK_SIZE / AMY_SAMPLE_RATE * SYSCLOCK_ARM11;  // ticks in a block's time
+    p.render0 /= block, p.core1 /= block, p.fill /= block, p.post /= block, p.total /= block, p.total_max /= block;
+    p.share = s_core1_share;
+    p.stalls = s_worker_stalls;
+    s_perf.total_max = 0.0f;
+    return p;
 }
 
 bool engine_two_cores(void) { return s_worker != NULL; }
