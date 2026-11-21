@@ -33,6 +33,8 @@ AccessControlInfo:
   IoAccessControl:
   IORegisterMapping:
     - 1ff00000-1ff7ffff   # the DSP's memory (sound)
+  MemoryMapping:
+    - 1f000000-1f5fffff:r   # VRAM, read-only: libctru copies the screen out of it when a system applet (the keyboard) opens
   IdealProcessor                : 0
   AffinityMask                  : 1
   Priority                      : 16
