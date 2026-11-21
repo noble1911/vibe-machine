@@ -9,7 +9,16 @@ static int voice_of(uint16_t osc) {
     return osc_to_voice[osc];
 }
 
-static int audible(uint16_t o) { return synth[o] != NULL && synth[o]->status == SYNTH_AUDIBLE; }
+// What an oscillator costs to render, in "plain oscillators": an FM voice's
+// ALGO osc renders its six operators (it measures about as heavy as eight
+// plain ones), a unison cluster renders each of its copies; anything not
+// sounding costs nothing.
+int amy_split_weight(uint16_t o) {
+    if (synth[o] == NULL || synth[o]->status != SYNTH_AUDIBLE) return 0;
+    if (synth[o]->wave == ALGO) return 8;
+    return synth[o]->unison_count > 1 ? synth[o]->unison_count : 1;
+}
+static int audible(uint16_t o) { return amy_split_weight(o); }
 
 uint16_t amy_split_point_n(float core1_share, int *core0_oscs, int *core1_oscs) {
     int total = 0;

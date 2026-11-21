@@ -87,7 +87,7 @@ static const int16_t *block(int split_mode, int *split_seen) {
         if (split_mode == 2) {  // its counts are right too
             int c0 = 0, c1 = 0;
             for (int o = 0; o < AMY_OSCS; o++)
-                if (synth[o] && synth[o]->status == SYNTH_AUDIBLE) *(o < split ? &c0 : &c1) += 1;
+                *(o < split ? &c0 : &c1) += amy_split_weight((uint16_t)o);
             s_counted += split == amy_split_point(share) && c0 == n0 && c1 == n1;
         }
         *split_seen = split;

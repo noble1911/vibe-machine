@@ -105,6 +105,7 @@ typedef struct {
     float total, total_max;
     float oscs;     // oscillators sounding
     float share;    // core 1's share of them
+    float share_used;  // (internal: the smoothed share)
     uint32_t stalls;
 } EnginePerf;
 EnginePerf engine_perf(void);

@@ -53,6 +53,7 @@ static uint32_t s_worker_stalls;
 #define CORE1_SHARE 0.8f
 #define CORE1_SHARE_MIN 0.1f  // (with a small core-1 allowance it can only take a little)
 #define CORE1_SHARE_MAX 1.0f
+#define CORE1_BUDGET 0.7f  // the most of its allowance core 1 is planned to use
 static float s_core1_share = CORE1_SHARE;
 static float s_cost0, s_cost1;  // smoothed ticks per sounding oscillator on each core (0: not yet known)
 static float s_fixed0;          // smoothed ticks of core 0's other work per block (mixdown + PUNCH / FX / tape)
@@ -745,8 +746,19 @@ const int16_t *engine_render_block(void (*safe_point)(void)) {
     // 3. Core 1's share of the next block.
     int oscs0 = 0, oscs1 = 0;
     const bool worker = s_worker && s_core1_limit > 0 && (s_worker_rest == 0 || --s_worker_rest == 0);
-    const uint16_t split = worker ? amy_split_point_n(s_core1_share, &oscs0, &oscs1) : AMY_OSCS;
-    if (!worker) amy_split_point_n(0.0f, &oscs0, &oscs1);  // (just the count)
+    amy_split_point_n(0.0f, &oscs0, &oscs1);  // (the count: how much there is to render)
+    float share = s_core1_share;
+    {   // Never hand core 1 more than fits its allowance (with room to
+        // spare): a thread that overruns it is held up by the system, and
+        // the whole block waits. By this block's own load, at once.
+        const float block_ticks = (float)AMY_BLOCK_SIZE / AMY_SAMPLE_RATE * SYSCLOCK_ARM11;
+        const float budget = CORE1_BUDGET * (float)s_core1_limit / 100.0f * block_ticks;
+        const float cost = s_cost1 > 0.0f ? s_cost1 : block_ticks * 0.04f;  // (until it's measured: a cautious guess)
+        const int n = oscs0 + oscs1;
+        if (n > 0 && share * n * cost > budget) share = budget / (n * cost);
+    }
+    s_perf.share_used += (share - s_perf.share_used) * PERF_K;
+    const uint16_t split = worker && share > 0.02f ? amy_split_point_n(share, &oscs0, &oscs1) : AMY_OSCS;
     s_in_flight = split < AMY_OSCS;
     if (s_in_flight) {
         s_split = split;
@@ -794,7 +806,7 @@ EnginePerf engine_perf(void) {
     EnginePerf p = s_perf;
     const float block = (float)AMY_BLOCK_SIZE / AMY_SAMPLE_RATE * SYSCLOCK_ARM11;  // ticks in a block's time
     p.render0 /= block, p.core1 /= block, p.fill /= block, p.post /= block, p.total /= block, p.total_max /= block;
-    p.share = s_core1_share;
+    p.share = s_perf.share_used;  // (what core 1 was actually given: the balanced share, capped by its budget)
     p.stalls = s_worker_stalls;
     s_perf.total_max = 0.0f;
     return p;

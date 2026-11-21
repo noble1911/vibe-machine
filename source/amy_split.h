@@ -13,6 +13,10 @@
 // split..AMY_OSCS-1). `core1_share` is the fraction of the sounding
 // oscillators to give core 1.
 uint16_t amy_split_point(float core1_share);
+// An oscillator's cost to render, in plain oscillators (0: not sounding).
+// Shares and counts are in these units, so a DX7 voice (one ALGO osc, six
+// operators) or a unison cluster weighs what it costs.
+int amy_split_weight(uint16_t osc);
 // The same, also counting the sounding oscillators each core gets (for
 // balancing the share by how long each core takes).
 uint16_t amy_split_point_n(float core1_share, int *core0_oscs, int *core1_oscs);
