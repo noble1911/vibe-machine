@@ -36,7 +36,7 @@ AccessControlInfo:
   MemoryMapping:
     - 1f000000-1f5fffff:r   # VRAM, read-only: libctru copies the screen out of it when a system applet (the keyboard) opens
   IdealProcessor                : 0
-  AffinityMask                  : 1
+  AffinityMask                  : 3   # cores 0 and 1: the synth renders on both (engine.c)
   Priority                      : 16
   MaxCpu                        : 0x9E
   DisableDebug                  : false

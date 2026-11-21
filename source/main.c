@@ -4258,7 +4258,8 @@ int main(void) {
             if (!pf) {
                 pf = fopen(STORAGE_DIR "/perf.txt", "w");
                 if (pf) setvbuf(pf, NULL, _IOFBF, 256 * 1024);  // big enough that stdio never writes mid-song by itself
-                if (pf) fprintf(pf, "frame page oscs | core0: render mix post | core1 | total worst | cpu peak gaps | share stalls punch\n");
+                if (pf) fprintf(pf, "second core: %s\nframe page oscs | core0: render mix post | core1 | total worst | cpu peak gaps | share stalls punch\n",
+                                engine_two_cores() ? "running" : "NOT AVAILABLE (everything on core 0)");
             }
             if (pf && s_app.frame % 120 == 0 && lines < 3000) {
                 const EnginePerf ep = engine_perf();
