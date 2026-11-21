@@ -264,10 +264,13 @@ static uint32_t s_part_key[PARTS];
 struct FmAlgorithm { uint8_t ops[6]; };  // as in AMY's algorithms.c
 extern const struct FmAlgorithm algorithms[33];
 extern uint16_t *voice_to_base_osc;
-static volatile float s_bright[PARTS] = {1.0f, 1.0f, 1.0f};
-static volatile bool s_bright_due[PARTS];  // apply s_bright after the next render
+// All of these are written and read with the AMY lock held: a part's flags
+// change only after its new patch is queued, so the next render loads the
+// patch before dx7_bright_tick reads its levels.
+static float s_bright[PARTS] = {1.0f, 1.0f, 1.0f};
+static bool s_bright_due[PARTS];  // apply s_bright after the next render
 static float s_dx7_level[PARTS][6];
-static bool s_dx7_known[PARTS];             // s_dx7_level holds this patch's levels
+static bool s_dx7_known[PARTS];   // s_dx7_level holds this patch's levels
 
 static void dx7_bright_tick(void) {  // audio thread, AMY lock held
     for (int part = 0; part < PARTS; part++) {
@@ -314,9 +317,9 @@ void engine_load_sound(int part, int sound, int patch, const SynthEdit *edit) {
         s_part_sound[part] = sound;
         s_part_patch[part] = patch;
         s_part_key[part] = sound_edit_key(sound, edit);
-        s_dx7_known[part] = false;  // a new patch: its own levels are read again
-        s_bright[part] = sound_edit_bright(sound, edit);
-        s_bright_due[part] = sound == sound_dx7_index() && s_bright[part] != 1.0f;
+        LightLock_Lock(&s_lock);
+        s_bright_due[part] = false;  // nothing for the old patch from here on
+        LightLock_Unlock(&s_lock);
     }
     const int synth = part_synth(part);
     char msg[512];
@@ -346,6 +349,15 @@ void engine_load_sound(int part, int sound, int patch, const SynthEdit *edit) {
     b.synth = (uint8_t)synth;
     b.bus = (uint16_t)part;
     send_locked(&b);
+    // BRIGHT: now that the patch is queued (a render in between would have
+    // read the old patch's levels and kept them for the new one).
+    if (part >= 0 && part < PARTS) {
+        LightLock_Lock(&s_lock);
+        s_dx7_known[part] = false;  // a new patch: its own levels are read again
+        s_bright[part] = sound_edit_bright(sound, edit);
+        s_bright_due[part] = sound == sound_dx7_index() && s_bright[part] != 1.0f;
+        LightLock_Unlock(&s_lock);
+    }
 }
 
 void engine_set_strip(int strip, const struct MixStrip *s, bool audible) {
@@ -398,10 +410,12 @@ void engine_apply_edit(int part, const SynthEdit *edit) {
         send_edit(part, sound, edit);
         if (sound == sound_dx7_index()) {
             const float b = sound_edit_bright(sound, edit);
+            LightLock_Lock(&s_lock);
             if (b != s_bright[part]) {
                 s_bright[part] = b;
                 s_bright_due[part] = true;
             }
+            LightLock_Unlock(&s_lock);
         }
     }
 }
