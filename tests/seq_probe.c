@@ -27,9 +27,18 @@ static void record(int synth, int note, float vel) {
     if (vel <= 0.0f && s_noffs < 4096) s_offs[s_noffs++] = (Hit){s_clock, synth, note, vel};
 }
 
+// What seq_clock() said after each block (for the PUNCH effects).
+static long s_punch_at[64];
+static int s_punch_step[64], s_npunch, s_fires;
+static uint16_t s_punch_mask[64];
+
 static void run(double secs) {
     for (long f = 0; f < (long)(secs * RATE); f += BLOCK) {
         seq_advance(BLOCK, RATE);
+        const SeqClock c = seq_clock();
+        if (c.fired) s_fires++;
+        if (c.fired && c.punch && s_npunch < 64)
+            s_punch_at[s_npunch] = s_clock, s_punch_step[s_npunch] = c.step, s_punch_mask[s_npunch++] = c.punch;
         s_clock += BLOCK;
     }
 }
@@ -67,6 +76,7 @@ int main(void) {
     int n = 0;
     for (int i = 1; i < s_nhits; i++, n++) sum += s_hits[i].t - s_hits[i - 1].t;
     printf("  straight: %d hits, mean gap %.1f frames (ideal 5512.5)\n", s_nhits, sum / n);
+    check(s_fires == s_nhits, "the audio thread's clock sees every step fire");
     check(fabs(sum / n - 5512.5) < 64, "straight 16ths are evenly spaced at the tempo");
     check(s_hits[0].vel == SEQ_VEL_DRUM_ACCENT && s_hits[1].vel == SEQ_VEL_DRUM, "accented steps hit harder than plain ones");
 
@@ -603,6 +613,36 @@ int main(void) {
         check(kick == 2, "a hit lands on the step that was heard, not the clock's");
         check(got.count == 1 && got.notes[0].step == 5 && got.notes[0].len == 3,
               "a held note starts and ends where it was heard");
+    }
+
+    {   // PUNCH-ins: the step that fires hands its mask to the audio thread
+        // in the same block that its notes start.
+        seq_reset();  // (no song mode or arrangement left over)
+        seq_set_bpm(120);
+        SeqPattern p = only_lane(1);
+        p.punch[3] = 0x0042;
+        p.punch[12] = 0x8000;
+        seq_put_slot(0, &p);
+        seq_select_slot(0);
+        s_nhits = 0;
+        s_npunch = 0;
+        seq_toggle_play();
+        run(2.6);  // a bar and a bit
+        seq_toggle_play();
+        bool same_block = s_npunch >= 2;
+        for (int i = 0; i < s_npunch && i < 2; i++) {
+            const int st = s_punch_step[i];
+            same_block &= st < s_nhits && s_hits[st].t == s_punch_at[i];
+        }
+        check(s_npunch >= 3 && s_punch_step[0] == 3 && s_punch_mask[0] == 0x0042 && s_punch_step[1] == 12 &&
+                  s_punch_mask[1] == 0x8000 && s_punch_step[2] == 3 && same_block,
+              "sequenced PUNCH-ins reach the audio thread on their step");
+        SeqPattern back;
+        seq_set_punch(7, 0x0101);
+        seq_set_bars(2);
+        seq_snapshot(&back);
+        check(back.punch[7] == 0x0101 && back.punch[23] == 0x0101 && back.punch[19] == 0x0042,
+              "PUNCH-ins copy into a pattern's new bars");
     }
 
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);

@@ -9,11 +9,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 17 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+#define VERSION 18 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
                    // 9: tape sources; 10: sample edit; 11: arrangement, tape mutes;
                    // 12: FX automation; 13: patterns of 1-4 bars, 128 notes; 14: key, arp;
                    // 15: mixer ECHO / VERB sends; 16: note flags (slide), synth EDIT, DRAW waves;
-                   // 17: CHOP cut points
+                   // 17: CHOP cut points; 18: PUNCH-ins per step
 #define MAX_PAYLOAD 12288
 
 typedef struct {
@@ -194,6 +194,12 @@ static void encode(Writer *w, const SaveState *st) {
                               (uint8_t)st->kit.lane[k].tune, st->kit.lane[k].level};
         put(w, b, 4);
     }
+    for (int i = 0; i < SEQ_SLOTS; i++)  // version 18
+        for (int st_ = 0; st_ < SEQ_STEPS_MAX; st_++) {
+            const uint16_t m = st->slots[i].punch[st_];
+            const uint8_t b[2] = {(uint8_t)(m & 0xFF), (uint8_t)(m >> 8)};
+            put(w, b, 2);
+        }
 }
 
 static void get_edit(Reader *r, SynthEdit *e) {
@@ -369,6 +375,13 @@ static void decode(Reader *r, SaveState *st, int version) {
         sampler_edit_even(&st->sample_edit);
     }
     sampler_edit_clamp(&st->sample_edit);
+    if (version >= 18)  // PUNCH-ins (older songs have none: get_pattern cleared them)
+        for (int i = 0; i < SEQ_SLOTS; i++)
+            for (int s = 0; s < SEQ_STEPS_MAX; s++) {
+                uint8_t b[2];
+                get(r, b, 2);
+                st->slots[i].punch[s] = (uint16_t)(b[0] | b[1] << 8);
+            }
 }
 
 // --- writing files safely -----------------------------------------------

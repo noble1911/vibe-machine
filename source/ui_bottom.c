@@ -1426,7 +1426,211 @@ static void draw_fx_auto(const AppState *app) {
         ui_text(FX_PAD_X + FX_PAD_W - 6, FX_PAD_Y + 4, 0.34f, rgba(t->pal[0], 0xFF), C2D_AlignRight, "REC MOVES");
 }
 
+// ------------------------------------------------------------- PUNCH ----
+
+// Each pad's mascot: a little googly-eyed creature for what it does. `lit`
+// = engaged (it moves); `t` drives the motion.
+static void draw_punch_icon(int k, float cx, float cy, float s, uint32_t col, bool lit, float t, const AppState *app) {
+    const Theme *th = ui_theme();
+    const u32 c = rgba(col, 0xFF), ink = rgba(th->ink, 0xFF), card = rgba(th->card, 0xFF);
+    const bool blink = ((s_frame + k * 23) % 170) < 5;
+    const float bob = lit ? sinf(t * 0.35f) : 0.0f;
+    switch (k) {
+        case PUNCH_LOOP4:
+        case PUNCH_LOOP8:
+        case PUNCH_LOOP16:
+        case PUNCH_LOOP32: {  // a ring with 1, 2, 4 or 8 beads running round it
+            const int beads = 1 << (k - PUNCH_LOOP4);
+            const float spin = lit ? t * 0.12f * (float)beads : -1.5708f;
+            sh_ring(cx + 1, cy + 1, s, 2.5f, ink);
+            sh_ring(cx, cy, s, 2.5f, c);
+            for (int b = 0; b < beads; b++) {
+                const float a = spin + 6.2831853f * b / beads;
+                sh_circle(cx + cosf(a) * s, cy + sinf(a) * s, beads > 4 ? 1.6f : 2.2f, ink);
+            }
+            sh_eyes(cx, cy, s * 0.32f, lit ? cosf(spin) : 0.0f, lit ? -sinf(spin) : 0.0f, blink, ink);
+            break;
+        }
+        case PUNCH_TRIPLET:  // three triangles hopping in turn
+            for (int i = 0; i < 3; i++) {
+                const float hop = lit && ((int)(t / 4.0f) % 3) == i ? -3.0f : 0.0f;
+                const float r = i == 1 ? s * 0.62f : s * 0.45f;
+                sh_tri(cx + (i - 1) * s * 0.9f + 1, cy + hop + 1, r, -1.5708f, ink);
+                sh_tri(cx + (i - 1) * s * 0.9f, cy + hop, r, -1.5708f, c);
+            }
+            sh_eyes(cx, cy + 1 + (lit && ((int)(t / 4.0f) % 3) == 1 ? -3.0f : 0.0f), s * 0.18f, 0, 0, blink, ink);
+            break;
+        case PUNCH_SHUFFLE: {  // two cards swapping places
+            const float sw = lit ? sinf(t * 0.25f) : 0.6f;
+            for (int i = 0; i < 2; i++) {
+                const float dx = (i ? sw : -sw) * s * 0.45f, dy = i ? -2.0f : 2.0f;
+                sh_card(cx + dx - s * 0.45f, cy + dy - s * 0.6f, s * 0.9f, s * 1.2f, i ? c : card, ink, 1.5f);
+            }
+            sh_eyes(cx + sw * s * 0.45f, cy - 3, s * 0.16f, -sw, 0, blink, ink);
+            break;
+        }
+        case PUNCH_REVERSE: {  // a rewind arrow, running backwards
+            const float run = lit ? -fmodf(t * 0.6f, 4.0f) : 0.0f;
+            sh_tri(cx - s * 0.1f + run + 1, cy + 1, s * 0.8f, 3.14159f, ink);
+            sh_tri(cx - s * 0.1f + run, cy, s * 0.8f, 3.14159f, c);
+            sh_tri(cx + s * 0.55f + run, cy, s * 0.55f, 3.14159f, c);
+            sh_eyes(cx - s * 0.05f + run, cy, s * 0.17f, -1, 0, blink, ink);
+            break;
+        }
+        case PUNCH_SCRATCH: {  // a record under a tone arm, rocking
+            const float rock = lit ? app->punch.scratch * 0.7f : 0.0f;
+            sh_circle(cx + 1, cy + 1, s, ink);
+            sh_circle(cx, cy, s, ink);
+            sh_ring(cx, cy, s * 0.7f, 0.8f, rgba(th->card, 0x50));
+            sh_circle(cx, cy, s * 0.48f, c);
+            sh_bar(cx + cosf(rock - 0.8f) * s * 0.9f, cy + sinf(rock - 0.8f) * s * 0.9f, s * 0.9f, 2.0f, rock + 0.8f,
+                   rgba(th->card, 0xFF));
+            sh_eyes(cx, cy, s * 0.17f, rock, 0, blink, ink);
+            break;
+        }
+        case PUNCH_OCT_UP:
+        case PUNCH_OCT_DOWN: {  // a triangle pointing (and bobbing) up or down
+            const bool up = k == PUNCH_OCT_UP;
+            const float y = cy + (up ? -1.0f : 1.0f) * fabsf(bob) * 3.0f;
+            sh_tri(cx + 1, y + 1, s, up ? -1.5708f : 1.5708f, ink);
+            sh_tri(cx, y, s, up ? -1.5708f : 1.5708f, c);
+            sh_eyes(cx, y + (up ? 2.0f : -2.0f), s * 0.2f, 0, up ? 1.0f : -1.0f, blink, ink);
+            break;
+        }
+        case PUNCH_RISER: {  // a staircase growing as it climbs
+            const float grow = lit ? 0.6f + 0.4f * app->punch.riser : 0.6f;
+            for (int i = 0; i < 3; i++) {
+                const float h = s * (0.6f + 0.55f * i) * grow * 1.3f, x = cx - s + i * s * 0.75f;
+                sh_rect(x + 1, cy + s - h + 1, s * 0.6f, h, ink);
+                sh_rect(x, cy + s - h, s * 0.6f, h, c);
+            }
+            sh_eyes(cx + s * 0.8f, cy + s - s * 1.65f * grow * 1.3f - 3, s * 0.16f, 0.5f, 1, blink, ink);
+            break;
+        }
+        case PUNCH_LOFI:  // a sleepy squiggle and its dust
+            sh_squiggle(cx + 1, cy + 3, s * 2.0f, s * 0.35f, 0, 3.0f, lit ? t * 0.08f : 0.0f, ink);
+            sh_squiggle(cx, cy + 2, s * 2.0f, s * 0.35f, 0, 3.0f, lit ? t * 0.08f : 0.0f, c);
+            if (lit) sh_speckles(cx - s, cy - s, 2 * s, 2 * s, 5, s_frame / 3u, ink);
+            sh_eyes(cx, cy - 3, s * 0.18f, 0, -0.6f, blink || ((s_frame / 40) & 1), ink);
+            break;
+        case PUNCH_GATE: {  // a picket fence, its gaps opening with the gate
+            const float open = lit ? app->punch.gate : 1.0f;
+            for (int i = 0; i < 4; i++) {
+                const bool on = (PUNCH_GATE_PATTERN >> (i * 4)) & 1u;
+                const float h = s * 1.6f * (on ? open : 0.35f + 0.25f * open), x = cx - s + i * s * 0.6f;
+                sh_rect(x + 1, cy + s * 0.8f - h + 1, s * 0.38f, h, ink);
+                sh_rect(x, cy + s * 0.8f - h, s * 0.38f, h, c);
+            }
+            sh_eyes(cx, cy - s * 0.2f, s * 0.18f, 0, 0, blink, ink);
+            break;
+        }
+        case PUNCH_KILL_LOW:
+        case PUNCH_KILL_HIGH: {  // a fat blob (lows) or a bolt (highs), slashed through
+            const bool low = k == PUNCH_KILL_LOW;
+            if (low) {
+                sh_blob(cx + 1, cy + 3, s * 0.85f, 77u, ink);
+                sh_blob(cx, cy + 2, s * 0.85f, 77u, c);
+            } else {
+                sh_bolt(cx + 1, cy + 1, s * 1.9f, 0.2f, ink);
+                sh_bolt(cx, cy, s * 1.9f, 0.2f, c);
+            }
+            sh_eyes(cx, cy + (low ? 1.0f : -1.0f), s * 0.18f, 0, low ? -1.0f : 1.0f, blink, ink);
+            sh_bar(cx, cy, s * 2.3f, lit ? 3.5f : 2.5f, -0.7f + (lit ? bob * 0.1f : 0.0f), ink);
+            break;
+        }
+        default: {  // DUB: ripples spreading from a blob
+            const float e = app->punch.echo;
+            for (int i = 2; i >= 0; i--) {
+                const float r = s * (0.55f + 0.3f * i) + (lit || e > 0.01f ? fmodf(t * 0.25f, s * 0.3f) : 0.0f);
+                sh_ring(cx, cy, r, 1.5f, rgba(col, (uint8_t)(0xFF - i * 0x50)));
+            }
+            sh_circle(cx + 1, cy + 1, s * 0.45f, ink);
+            sh_circle(cx, cy, s * 0.45f, c);
+            sh_eyes(cx, cy, s * 0.16f, 0, 0, blink, ink);
+            break;
+        }
+    }
+}
+
+static void draw_punch_page(const AppState *app) {
+    const Theme *t = ui_theme();
+    const uint16_t on = app->punch.active, want = app->punch.want;
+    const SeqPattern *p = &app->pattern;
+    const int off = app->bar_page * SEQ_STEPS;
+    for (int k = 0; k < PUNCH_COUNT; k++) {
+        const bool lit = on & PUNCH_BIT(k), waiting = (want & PUNCH_BIT(k)) && !lit;
+        const bool latched = app->punch_latched & PUNCH_BIT(k);
+        const uint32_t col = colourful(t, k * 3 + k / 4);
+        const float o = lit ? 2.0f : 0.0f;  // engaged: pressed down onto its shadow
+        const float x = PUNCH_X0 + (k % PUNCH_COLS) * PUNCH_PITCH_X + o, y = PUNCH_Y0 + (k / PUNCH_COLS) * PUNCH_PITCH_Y + o;
+        const uint32_t face = lit ? col : t->card;
+        // Waiting for its 16th: the border flashes.
+        const uint32_t edge = waiting && ((s_frame >> 2) & 1) ? col : t->ink;
+        sh_card(x, y, PUNCH_PAD_W, PUNCH_PAD_H, rgba(face, 0xFF), rgba(edge, 0xFF), lit ? 0.0f : 2.0f);
+        if (lit) sh_rect(x + 2, y + 2, PUNCH_PAD_W - 4, 3, rgba(0xFFFFFF, (uint8_t)(0x40 + ui_bump() * 0x80)));
+        draw_punch_icon(k, x + 14, y + PUNCH_PAD_H / 2.0f, 8.0f, lit ? t->card : col, lit, (float)s_frame, app);
+        const uint32_t tc = ink_on(t, face);
+        const char *label = punch_label((PunchKind)k);  // (the long ones a size down, to fit)
+        ui_text(x + 26, y + 4, strlen(label) > 6 ? 0.36f : 0.4f, rgba(tc, 0xFF), 0, "%s", label);
+        // How many steps of the bar on screen it's sequenced on, as pips.
+        int steps = 0;
+        for (int c = 0; c < SEQ_STEPS; c++) steps += (p->punch[off + c] & PUNCH_BIT(k)) != 0;
+        for (int i = 0; i < steps && i < 6; i++) sh_rect(x + 28 + i * 5, y + PUNCH_PAD_H - 7, 3, 3, rgba(tc, 0xC0));
+        if (latched) {  // left on by HOLD: a pin
+            sh_circle(x + PUNCH_PAD_W - 7, y + PUNCH_PAD_H - 7, 3.5f, rgba(t->ink, 0xFF));
+            sh_circle(x + PUNCH_PAD_W - 7, y + PUNCH_PAD_H - 7, 2.0f, rgba(t->pal[0], 0xFF));
+        }
+        if (app->punch_sel == k)  // the strip below shows this pad: a dog-ear
+            sh_quad(x + PUNCH_PAD_W - 11, y + 2, x + PUNCH_PAD_W - 2, y + 2, x + PUNCH_PAD_W - 2, y + 11, x + PUNCH_PAD_W - 2,
+                    y + 11, rgba(t->ink, 0xFF));
+    }
+
+    // The bar's 16 steps: the selected pad's in its colour (tap to toggle),
+    // the others' as small marks.
+    const int sel = app->punch_sel;
+    const uint32_t scol = colourful(t, sel * 3 + sel / 4);
+    for (int c = 0; c < SEQ_STEPS; c++) {
+        const int st = off + c;
+        const float x = PUNCH_STRIP_X0 + c * PUNCH_STRIP_PITCH;
+        const uint16_t m = p->punch[st];
+        const bool mine = m & PUNCH_BIT(sel), now = app->seq.playing && app->seq.step == st;
+        sh_card(x + 0.5f, PUNCH_STRIP_Y, PUNCH_STRIP_PITCH - 2.0f, PUNCH_STRIP_H, rgba(mine ? scol : t->card, 0xFF),
+                rgba(t->ink, 0xFF), now ? 0.0f : 1.5f);
+        int marks = 0;
+        for (int k = 0; k < PUNCH_COUNT && marks < 3; k++)
+            if ((m & PUNCH_BIT(k)) && k != sel)
+                sh_rect(x + 3 + marks++ * 4.5f, PUNCH_STRIP_Y + 4, 3, 3, rgba(colourful(t, k * 3 + k / 4), 0xFF));
+        if ((c & 3) == 0) sh_rect(x + 0.5f, PUNCH_STRIP_Y + PUNCH_STRIP_H, PUNCH_STRIP_PITCH - 2.0f, 1.5f, rgba(t->ink, 0xFF));
+        if (now) sh_tri(x + PUNCH_STRIP_PITCH / 2 - 1, PUNCH_STRIP_Y - 3, 3.0f, 1.5708f, rgba(t->ink, 0xFF));
+    }
+    if (app->seq.recording && app->seq.playing)
+        ui_text(PUNCH_STRIP_X0 + 2, PUNCH_STRIP_Y - 1, 0.32f, rgba(t->pal[0], 0xFF), 0, "REC");
+}
+
+// The tab row: PLAY / PUNCH, and PUNCH's HOLD.
+static void draw_fx_modes(const AppState *app) {
+    const Theme *t = ui_theme();
+    static const char *const names[2] = {"PLAY", "PUNCH"};
+    for (int i = 0; i < 2; i++) {
+        const bool sel = app->fx_punch == (i == 1);
+        const uint32_t face = sel ? colourful(t, i + 3) : t->card;
+        sticker(FX_MODE_X0 + i * FX_MODE_PITCH, TAB_Y, FX_MODE_W, TAB_H, face, !sel, names[i]);
+    }
+    // PUNCH-ins running while you're on PLAY: a dot on its sticker.
+    if (!app->fx_punch && app->punch.active)
+        sh_circle(FX_MODE_X0 + FX_MODE_PITCH + FX_MODE_W - 4, TAB_Y + 4, 3.0f + ((s_frame >> 3) & 1), rgba(t->pal[0], 0xFF));
+    if (app->fx_punch) {
+        const uint32_t face = app->punch_hold ? t->pal[0] : t->card;
+        sticker(PUNCH_HOLD_X, TAB_Y, PUNCH_HOLD_W, TAB_H, face, app->punch_hold, app->punch_hold ? "HOLD: ON" : "HOLD");
+    }
+}
+
 static void draw_fx_page(const AppState *app) {
+    draw_fx_modes(app);
+    if (app->fx_punch) {
+        draw_punch_page(app);
+        return;
+    }
     draw_fx_stickers(app);
     draw_fx_pad(app);
     draw_fx_auto(app);

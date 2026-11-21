@@ -21,13 +21,15 @@ int main(int argc, char **argv) {
                st.parts[k].macro[0], st.parts[k].macro[1]);
     for (int i = 0; i < SEQ_SLOTS; i++) {
         const SeqPattern *p = &st.slots[i];
-        int hits = 0, fx = 0;
+        int hits = 0, fx = 0, punch = 0;
         for (int s = 0; s < SEQ_STEPS_MAX; s++) {
             for (int l = 0; l < 8; l++) hits += (p->drums[s] >> l) & 1;
             fx += p->fx[s] != 0;
+            punch += p->punch[s] != 0;
         }
-        if (!hits && !p->count && !fx) continue;
-        printf("slot %c: %d bar(s), %d drum hits, %d notes, %d FX steps\n", 'A' + i, seq_bars(p), hits, p->count, fx);
+        if (!hits && !p->count && !fx && !punch) continue;
+        printf("slot %c: %d bar(s), %d drum hits, %d notes, %d FX steps, %d PUNCH steps\n", 'A' + i, seq_bars(p), hits,
+               p->count, fx, punch);
         for (int l = 0; l < 4; l++) {
             printf("   lane %d ", l);
             for (int s = 0; s < seq_len(p); s++) putchar((p->drums[s] >> l) & 1 ? 'x' : '.');
@@ -41,6 +43,8 @@ int main(int argc, char **argv) {
             for (int s = 0; s < seq_len(p); s++) putchar(p->fx[s] ? '0' + p->fx[s] : '.');
             putchar('\n');
         }
+        for (int s = 0; s < seq_len(p) && punch; s++)
+            if (p->punch[s]) printf("   punch step %2d: 0x%04x\n", s + 1, p->punch[s]);
     }
     for (int k = 0; k < MIX_STRIPS; k++)
         printf("strip %d: level %.2f drive %.2f crush %.2f tone %.2f pan %.2f echo %.2f verb %.2f\n", k + 1, st.mix[k].level,

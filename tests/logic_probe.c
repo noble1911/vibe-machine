@@ -76,6 +76,8 @@ int main(void) {
     a.slots[2].fx[5] = 3;  // a stutter on step 6 of slot C
     a.slots[2].fx_x[5] = 200;
     a.slots[2].fx_y[5] = 40;
+    a.slots[2].punch[5] = 0x8001;  // and PUNCH-ins: LOOP 1/4 + DUB on that step,
+    a.slots[6].punch[63] = 0x1040;  // REVERSE + GATE on slot G's very last step
     for (int i = 0; i < PARAM_COUNT; i++) a.params[i] = 0.1f * (i + 1);
     a.octave = -2;
     a.bpm = 137;
@@ -99,6 +101,31 @@ int main(void) {
     SaveState b;
     memset(&b, 0, sizeof(b));
     check(storage_load(path, &b) && memcmp(&a, &b, sizeof(a)) == 0, "load restores every field exactly");
+
+    {   // A version-17 song (before PUNCH: no punch-ins at the end) still loads.
+        FILE *v18 = fopen(path, "rb");
+        static uint8_t file[16384];
+        const size_t got = fread(file, 1, sizeof(file), v18);
+        fclose(v18);
+        uint16_t head[2];
+        memcpy(head, file + 4, 4);
+        const size_t punch_bytes = SEQ_SLOTS * SEQ_STEPS_MAX * 2, pay = head[1] - punch_bytes;
+        head[0] = 17;
+        head[1] = (uint16_t)pay;
+        memcpy(file + 4, head, 4);
+        uint32_t h = 2166136261u;
+        for (size_t i = 0; i < pay; i++) h = (h ^ file[8 + i]) * 16777619u;
+        memcpy(file + 8 + pay, &h, 4);
+        FILE *v17 = fopen("build/v17.vms", "wb");
+        fwrite(file, 1, 8 + pay + 4, v17);
+        fclose(v17);
+        SaveState old, want = a;
+        for (int i = 0; i < SEQ_SLOTS; i++) memset(want.slots[i].punch, 0, sizeof(want.slots[i].punch));
+        memset(&old, 0, sizeof(old));
+        check(got == 8 + (size_t)head[1] + punch_bytes + 4 && storage_load("build/v17.vms", &old) &&
+                  memcmp(&old, &want, sizeof(old)) == 0,
+              "a version-17 song loads, with no PUNCH-ins");
+    }
 
     FILE *f = fopen(path, "r+b");
     fseek(f, 20, SEEK_SET);
@@ -149,6 +176,7 @@ int main(void) {
                 big.slots[i].drums[st] = 0xFF;
                 big.slots[i].fx[st] = 1 + st % 4;
                 big.slots[i].fx_x[st] = big.slots[i].fx_y[st] = (uint8_t)(st * 16);
+                big.slots[i].punch[st] = 0xFFFF;
             }
         }
         big.arr.count = SEQ_ARR_ROWS;

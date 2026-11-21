@@ -52,7 +52,18 @@ static float s_time_acc;  // whole motion steps owed at the current speed
 static int s_toast;
 static bool s_started;
 
-static float shift(float eye, float depth) { return eye * depth * MAX_SHIFT; }
+static float s_wobble;  // SCRATCH: the whole scene pulled sideways with the record
+
+static float shift(float eye, float depth) { return eye * depth * MAX_SHIFT + s_wobble; }
+
+// PUNCH's LOOPs replay the scene too: its state when the loop was caught,
+// put back on every repeat.
+#define PUNCH_LOOPS                                                                                              \
+    (PUNCH_BIT(PUNCH_LOOP4) | PUNCH_BIT(PUNCH_LOOP8) | PUNCH_BIT(PUNCH_LOOP16) | PUNCH_BIT(PUNCH_LOOP32) |        \
+     PUNCH_BIT(PUNCH_TRIPLET))
+static uint16_t s_loop_bits;
+static uint32_t s_loop_reps;
+static float s_loop_flash;
 
 // --------------------------------------------------------------- state ----
 
@@ -120,17 +131,50 @@ void ui_top_update(const AppState *app, const AudioStats *stats) {
     if (s_toast > 0) s_toast--;
 
     // The scene obeys the time effects: STUTTER freezes it, TAPE slows it
-    // down with the tape. Motion runs in whole steps owed to the clock.
+    // down with the tape, PUNCH's OCTAVEs double or halve it and REVERSE
+    // runs it backwards. Motion runs in whole steps owed to the clock.
+    const uint16_t pa = app->punch.active;
     float speed = app->fx.on[FX_STUTTER] ? 0.0f : app->fx.tape_speed;
+    if (pa & PUNCH_BIT(PUNCH_OCT_UP)) speed *= 2.0f;
+    if (pa & PUNCH_BIT(PUNCH_OCT_DOWN)) speed *= 0.5f;
+    const float dir = (pa & PUNCH_BIT(PUNCH_REVERSE)) ? -1.0f : 1.0f;
     s_anim += speed;
     s_time_acc += speed;
     while (s_time_acc >= 1.0f) {
         s_time_acc -= 1.0f;
-        for (int i = 0; i < BIG_TRIS; i++) s_big[i].angle += s_big[i].spin;
-        for (int i = 0; i < TOP_MOTIFS; i++) motif_step(&s_motifs[i], TOP_W, TOP_H);
+        for (int i = 0; i < BIG_TRIS; i++) s_big[i].angle += s_big[i].spin * dir;
+        for (int i = 0; i < TOP_MOTIFS; i++) {
+            Motif *m = &s_motifs[i];
+            m->vx *= dir, m->vy *= dir, m->spin *= dir;
+            motif_step(m, TOP_W, TOP_H);
+            m->vx *= dir, m->vy *= dir, m->spin *= dir;
+        }
         for (int i = 0; i < MAX_BURST; i++)
             if (s_burst[i].life > 0) motif_step(&s_burst[i], TOP_W, TOP_H);
     }
+    // A LOOP caught the scene as it was: every repeat puts it back.
+    static BigTri big0[BIG_TRIS];
+    static Motif mot0[TOP_MOTIFS], burst0[MAX_BURST];
+    const uint16_t loops = pa & PUNCH_LOOPS;
+    if (loops && loops != s_loop_bits) {
+        memcpy(big0, s_big, sizeof(big0));
+        memcpy(mot0, s_motifs, sizeof(mot0));
+        memcpy(burst0, s_burst, sizeof(burst0));
+        s_loop_reps = app->punch.repeats;
+    } else if (loops && app->punch.repeats != s_loop_reps) {
+        s_loop_reps = app->punch.repeats;
+        if (s_loop_reps > 1) {
+            memcpy(s_big, big0, sizeof(big0));
+            memcpy(s_motifs, mot0, sizeof(mot0));
+            memcpy(s_burst, burst0, sizeof(burst0));
+            s_loop_flash = 1.0f;
+        }
+    }
+    s_loop_bits = loops;
+    s_loop_flash *= 0.8f;
+    // SCRATCH: the scene goes back and forth with the record.
+    const float want_wob = (pa & PUNCH_BIT(PUNCH_SCRATCH)) ? (app->punch.scratch - 1.0f) * 12.0f : 0.0f;
+    s_wobble += (want_wob - s_wobble) * 0.5f;
 
     // A lazy ambient drift keeps the screen alive in silence.
     if (speed > 0.5f && s_frame % 50 == 0) spawn_burst(rng_f(&s_rng) * TOP_W, 162.0f, 0.4f, 6.0f, 11.0f);
@@ -505,6 +549,82 @@ static void draw_fx_overlay(const AppState *app) {
         sh_rect(0, 0, TOP_W, TOP_H, rgba(t->ink, (uint8_t)((1.0f - fx->tape_speed) * 0xA0)));
 }
 
+// PUNCH's reaction (over the scene, under the HUD). Each effect does
+// something of its own; the names of what's on float in front.
+#define DEPTH_PUNCH_LABEL -0.35f
+static void draw_punch_overlay(const AppState *app, float eye) {
+    const Theme *t = ui_theme();
+    const PunchState *ps = &app->punch;
+    const uint16_t pa = ps->active;
+    if (!pa && ps->echo <= 0.0f) return;
+    const float y0 = 44.0f, h = 118.0f;  // the scene between the HUD's rows
+    if (pa & PUNCH_BIT(PUNCH_GATE))  // GATE: the lights go out with it
+        sh_rect(0, 0, TOP_W, TOP_H, rgba(t->ink, (uint8_t)((1.0f - ps->gate) * 0xC8)));
+    if (pa & PUNCH_BIT(PUNCH_KILL_LOW)) sh_rect(0, y0 + h / 2, TOP_W, h / 2, rgba(t->ink, 0x90));
+    if (pa & PUNCH_BIT(PUNCH_KILL_HIGH)) sh_rect(0, y0, TOP_W, h / 2, rgba(t->ink, 0x90));
+    if (pa & PUNCH_BIT(PUNCH_LOFI)) {  // an old, warm, dusty picture
+        sh_rect(0, 0, TOP_W, TOP_H, rgba(0xB07830, 0x48));
+        sh_scanlines(0, (float)(s_frame % 3), TOP_W, TOP_H, 3, 1, rgba(t->ink, 0x30));
+        sh_speckles(0, 0, TOP_W, TOP_H, 40, s_frame * 2654435761u + 3u, rgba(0xFFF4D8, 0xC0));
+    }
+    if (pa & PUNCH_BIT(PUNCH_RISER)) {  // a rising tide of light
+        const float r = ps->riser, top = y0 + h * (1.0f - r);
+        C2D_DrawRectangle(0, top, 0.5f, TOP_W, y0 + h - top, rgba(t->pal[1], 0x00), rgba(t->pal[1], 0x00),
+                          rgba(t->pal[1], (uint8_t)(0x40 + r * 0x80)), rgba(t->pal[1], (uint8_t)(0x40 + r * 0x80)));
+        for (int i = 0; i < 6; i++) {
+            const float x = fmodf(i * 71.0f + s_frame * 3.0f, TOP_W), y = y0 + h - fmodf(s_frame * (4.0f + i) + i * 37, h);
+            sh_rect(x + shift(eye, DEPTH_BURST), y, 3, 14, rgba(0xFFFFFF, 0xA0));
+        }
+    }
+    if (pa & PUNCH_BIT(PUNCH_REVERSE)) {  // chevrons running the wrong way
+        for (int i = 0; i < 4; i++) {
+            const float x = TOP_W - fmodf(s_frame * 5.0f + i * 110.0f, TOP_W + 60) + 30;
+            sh_tri(x + shift(eye, DEPTH_BURST), y0 + h / 2, 22, 3.14159f, rgba(t->pal[(i + 2) % THEME_PALETTE], 0x70));
+        }
+    }
+    if (pa & PUNCH_BIT(PUNCH_SHUFFLE) && ps->slice >= 0) {  // where in the old bar the sound comes from
+        const float cw = (TOP_W - 40) / 16.0f, cy = y0 + 4;
+        for (int c = 0; c < 16; c++) {
+            const bool src = c == ps->slice, here = c == ps->step16;
+            sh_card(20 + c * cw, cy, cw - 3, 14, rgba(src ? t->pal[c % THEME_PALETTE] : t->card, src ? 0xFF : 0x90),
+                    rgba(t->ink, 0xFF), src ? 2.0f : 0.0f);
+            if (here) sh_tri(20 + c * cw + cw / 2 - 1.5f, cy + 20, 5, -1.5708f, rgba(t->ink, 0xFF));
+        }
+    }
+    if (s_loop_bits) {  // every repeat: a flash and a ring
+        sh_rect(0, 0, TOP_W, TOP_H, rgba(0xFFFFFF, (uint8_t)(s_loop_flash * 0x60)));
+        sh_ring(TOP_W / 2.0f + shift(eye, DEPTH_BURST), y0 + h / 2, 30 + (1.0f - s_loop_flash) * 80, 5,
+                rgba(t->pal[(s_loop_reps + 1) % THEME_PALETTE], (uint8_t)(0x30 + s_loop_flash * 0xC0)));
+    }
+    if (ps->echo > 0.0f) {  // DUB: ripples, ringing on after you let go
+        for (int i = 0; i < 3; i++) {
+            const float r = fmodf(s_frame * 1.6f + i * 45.0f, 135.0f);
+            sh_ring(TOP_W / 2.0f + shift(eye, DEPTH_MID), y0 + h / 2, 10 + r, 3,
+                    rgba(t->pal[(i + 4) % THEME_PALETTE], (uint8_t)(ps->echo * (1.0f - r / 135.0f) * 0xE0)));
+        }
+    }
+    if (!pa) return;
+    // The names of what's on, in a sticker floating in front.
+    char text[48] = "";
+    int shown = 0;
+    for (int k = 0; k < PUNCH_COUNT; k++)
+        if (pa & PUNCH_BIT(k)) {
+            if (shown == 3) {
+                strcat(text, " +");
+                break;
+            }
+            if (shown) strcat(text, " + ");
+            strcat(text, punch_name((PunchKind)k));
+            shown++;
+        }
+    const float w = 18.0f + strlen(text) * 7.4f, x = TOP_W / 2.0f - w / 2 + shift(eye, DEPTH_PUNCH_LABEL);
+    const float bounce = s_loop_flash * -3.0f, y = (pa & PUNCH_BIT(PUNCH_SHUFFLE)) ? y0 + 30 : y0 + 6;
+    const uint32_t face = t->pal[(int)(__builtin_ctz(pa)) % THEME_PALETTE];
+    sh_card(x, y + bounce, w, 22, rgba(face, 0xFF), rgba(t->ink, 0xFF), 3);
+    ui_text(TOP_W / 2.0f + shift(eye, DEPTH_PUNCH_LABEL), y + bounce + 3, 0.5f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter,
+            "%s", text);
+}
+
 // Story build: what's happening, in a big sticker along the bottom.
 static void draw_caption(const AppState *app) {
     if (!app->caption) return;
@@ -545,6 +665,7 @@ void ui_draw_top(const AppState *app, const AudioStats *stats, const int16_t *sc
     draw_scope(scope, eye);
     draw_bursts(eye);
     draw_fx_overlay(app);
+    draw_punch_overlay(app, eye);
     draw_hud(app, stats);
     draw_caption(app);
     draw_notice(app);
