@@ -3789,8 +3789,9 @@ int main(void) {
             static FILE *pf;
             if (!pf) pf = fopen(STORAGE_DIR "/perf.txt", "w");
             if (pf && s_app.frame % 60 == 0) {
-                fprintf(pf, "%u page %d load %.3f peak %.3f late %u\n", (unsigned)s_app.frame, (int)s_app.page,
-                        (double)stats.load, (double)stats.load_peak, (unsigned)stats.late);
+                fprintf(pf, "%u page %d load %.3f peak %.3f late %u core1 %.2f stalls %u\n", (unsigned)s_app.frame,
+                        (int)s_app.page, (double)stats.load, (double)stats.load_peak, (unsigned)stats.late,
+                        (double)engine_core1_share(), (unsigned)engine_core1_stalls());
                 fflush(pf);
             }
         }

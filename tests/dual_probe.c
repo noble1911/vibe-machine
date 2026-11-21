@@ -21,6 +21,7 @@ static pthread_t s_worker;
 static pthread_mutex_t s_m = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t s_c = PTHREAD_COND_INITIALIZER;
 static int s_job = -1, s_done;  // split point for the worker; done flag
+static int s_counted;          // blocks where amy_split_point_n agreed with amy_split_point
 
 static void *worker(void *arg) {
     (void)arg;
@@ -39,11 +40,21 @@ static void *worker(void *arg) {
     }
 }
 
-// One block, the engine.c way.
+// One block, the engine.c way. Mode 1: core 1 gets 60%; mode 2: its share
+// wanders over the whole range engine.c may adapt it to, block by block.
+static int s_block_no;
 static const int16_t *block(int split_mode, int *split_seen) {
     amy_execute_deltas();
     if (split_mode) {
-        uint16_t split = amy_split_point(0.6f);
+        const float share = split_mode == 2 ? 0.4f + 0.05f * (float)((s_block_no++ * 7) % 9) : 0.6f;
+        int n0 = 0, n1 = 0;
+        uint16_t split = amy_split_point_n(share, &n0, &n1);
+        if (split_mode == 2) {  // its counts are right too
+            int c0 = 0, c1 = 0;
+            for (int o = 0; o < AMY_OSCS; o++)
+                if (synth[o] && synth[o]->status == SYNTH_AUDIBLE) *(o < split ? &c0 : &c1) += 1;
+            s_counted += split == amy_split_point(share) && c0 == n0 && c1 == n1;
+        }
         *split_seen = split;
         pthread_mutex_lock(&s_m);
         s_done = 0;
@@ -140,24 +151,31 @@ int main(int argc, char **argv) {
         fwrite(s_out, sizeof(s_out), 1, f);
         fclose(f);
         if (atoi(argv[1])) printf("  split points ranged %d..%d (of %d oscs)\n", a, b, AMY_OSCS);
-        return 0;
+        if (atoi(argv[1]) == 2 && s_counted != BLOCKS) printf("  amy_split_point_n disagreed with amy_split_point\n");
+        return atoi(argv[1]) == 2 && s_counted != BLOCKS ? 1 : 0;
     }
     char cmd[512];
-    snprintf(cmd, sizeof(cmd), "%s 0 build/dual_single.raw && %s 1 build/dual_split.raw", argv[0], argv[0]);
+    snprintf(cmd, sizeof(cmd), "%s 0 build/dual_single.raw && %s 1 build/dual_split.raw && %s 2 build/dual_moving.raw", argv[0],
+             argv[0], argv[0]);
     if (system(cmd) != 0) return 1;
-    static int16_t a[sizeof(s_out) / 2], b[sizeof(s_out) / 2];
-    FILE *fa = fopen("build/dual_single.raw", "rb"), *fb = fopen("build/dual_split.raw", "rb");
-    size_t na = fread(a, 1, sizeof(a), fa), nb = fread(b, 1, sizeof(b), fb);
+    static int16_t a[sizeof(s_out) / 2], b[sizeof(s_out) / 2], m[sizeof(s_out) / 2];
+    FILE *fa = fopen("build/dual_single.raw", "rb"), *fb = fopen("build/dual_split.raw", "rb"),
+         *fm = fopen("build/dual_moving.raw", "rb");
+    size_t na = fread(a, 1, sizeof(a), fa), nb = fread(b, 1, sizeof(b), fb), nm = fread(m, 1, sizeof(m), fm);
     fclose(fa);
     fclose(fb);
-    long diff = 0, loud = 0;
+    fclose(fm);
+    long diff = 0, diff_m = 0, loud = 0;
     for (size_t i = 0; i < sizeof(a) / 2; i++) {
         diff += a[i] != b[i];
+        diff_m += a[i] != m[i];
         loud += abs(a[i]) > 1000;
     }
     const int ok = na == nb && na == sizeof(a) && diff == 0 && loud > 1000;
     printf("%-58s %s  (%ld of %zu samples differ, %ld loud)\n", "two cores render exactly what one core does", ok ? "ok" : "FAIL",
            diff, sizeof(a) / 2, loud);
-    printf(ok ? "\nall dual-core OK\n" : "\ndual-core FAILED\n");
-    return ok ? 0 : 1;
+    const int ok_m = nm == na && diff_m == 0;
+    printf("%-58s %s  (%ld differ)\n", "...however the share moves, block to block", ok_m ? "ok" : "FAIL", diff_m);
+    printf(ok && ok_m ? "\nall dual-core OK\n" : "\ndual-core FAILED\n");
+    return ok && ok_m ? 0 : 1;
 }

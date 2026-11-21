@@ -22,20 +22,62 @@ static void load_drum_banks(void);
 // a time limit): it renders part of every block's oscillators while the
 // audio thread renders the rest, then the audio thread mixes and runs the
 // effects. See amy_split.h.
-#define CORE1_SHARE 0.6f  // core 0 also runs the effects, so core 1 takes more voices
 static Thread s_worker;
 static LightEvent s_go, s_done;
 static volatile uint16_t s_split;
 static volatile bool s_worker_quit;
+
+// Each block's job for core 1: IDLE -> POSTED (the audio thread) -> TAKEN
+// (the worker, before it touches an oscillator) -> IDLE (the worker, done).
+// A worker that hasn't taken its job in time (core 1 stalled) loses it: the
+// audio thread takes it back (POSTED -> IDLE) and renders that share itself,
+// so no oscillator is ever rendered on both cores. One that has taken it is
+// running, and is waited for.
+enum { JOB_IDLE, JOB_POSTED, JOB_TAKEN };
+static int s_job = JOB_IDLE;
+static volatile uint32_t s_core1_ticks;  // how long the worker's last share took
+#define WORKER_REST_MIN 64      // blocks rendered on core 0 alone after a stall (~0.2 s)...
+#define WORKER_REST_MAX 2048    // ...doubling while it keeps stalling (to ~6 s)
+static int s_worker_rest, s_worker_rest_len = WORKER_REST_MIN;
+static uint32_t s_worker_stalls;
+
+// Core 1's share of the oscillators. 60% to start with; then it follows
+// how long each core takes per oscillator (smoothed over ~1 s, and only
+// moved in steps, so the split doesn't wander block to block). Any split
+// renders the same sound, bit for bit (tests/dual_probe).
+#define CORE1_SHARE 0.6f
+#define CORE1_SHARE_MIN 0.4f
+#define CORE1_SHARE_MAX 0.8f
+static float s_core1_share = CORE1_SHARE;
+static float s_cost0, s_cost1;  // smoothed ticks per sounding oscillator on each core (0: not yet known)
 
 static void render_worker(void *arg) {
     (void)arg;
     for (;;) {
         LightEvent_Wait(&s_go);
         if (s_worker_quit) return;
+        int expect = JOB_POSTED;
+        if (!__atomic_compare_exchange_n(&s_job, &expect, JOB_TAKEN, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE))
+            continue;  // taken back while we were held up: nothing to do
+        const uint64_t t0 = svcGetSystemTick();
         amy_render(s_split, AMY_OSCS, 1);
+        s_core1_ticks = (uint32_t)(svcGetSystemTick() - t0);
+        __atomic_store_n(&s_job, JOB_IDLE, __ATOMIC_RELEASE);
         LightEvent_Signal(&s_done);
     }
+}
+
+static void balance_cores(uint32_t ticks0, int oscs0, uint32_t ticks1, int oscs1) {
+    if (oscs0 < 4 || oscs1 < 4) return;  // too few to say anything
+    const float c0 = (float)ticks0 / oscs0, c1 = (float)ticks1 / oscs1;
+    const float k = 1.0f / 256.0f;  // ~0.75 s of blocks
+    s_cost0 = s_cost0 > 0.0f ? s_cost0 + (c0 - s_cost0) * k : c0;
+    s_cost1 = s_cost1 > 0.0f ? s_cost1 + (c1 - s_cost1) * k : c1;
+    // Even: core 1 takes the share that makes both take as long.
+    float want = s_cost0 / (s_cost0 + s_cost1);
+    want = want < CORE1_SHARE_MIN ? CORE1_SHARE_MIN : want > CORE1_SHARE_MAX ? CORE1_SHARE_MAX : want;
+    if (want > s_core1_share + 0.05f || want < s_core1_share - 0.05f)  // a dead band: no hunting
+        s_core1_share = (float)(int)(want * 20.0f + 0.5f) / 20.0f;
 }
 
 // MIC: which parts play it, and how many slices it's chopped into. Read by
@@ -489,12 +531,36 @@ const int16_t *engine_render_block(void) {
     // amy_simple_fill_buffer(), with the oscillators shared between cores.
     amy_grab_render_lock();
     amy_execute_deltas();
-    const uint16_t split = s_worker ? amy_split_point(CORE1_SHARE) : AMY_OSCS;
+    int oscs0 = 0, oscs1 = 0;
+    const bool worker = s_worker && (s_worker_rest == 0 || --s_worker_rest == 0);
+    const uint16_t split = worker ? amy_split_point_n(s_core1_share, &oscs0, &oscs1) : AMY_OSCS;
     if (split < AMY_OSCS) {
         s_split = split;
+        __atomic_store_n(&s_job, JOB_POSTED, __ATOMIC_RELEASE);
         LightEvent_Signal(&s_go);
+        const uint64_t t0 = svcGetSystemTick();
         amy_render(0, split, 0);
-        LightEvent_Wait(&s_done);
+        const uint32_t ticks0 = (uint32_t)(svcGetSystemTick() - t0);
+        // Give core 1 a block's time on top of our own share before
+        // deciding it's stuck (it is never waited on forever with the lock
+        // held unless it's actually rendering).
+        if (LightEvent_WaitTimeout(&s_done, (s64)AMY_BLOCK_SIZE * 1000000000LL / AMY_SAMPLE_RATE) == 0) {
+            balance_cores(ticks0, oscs0, s_core1_ticks, oscs1);
+            s_worker_rest_len = WORKER_REST_MIN;
+        } else {
+            int expect = JOB_POSTED;
+            if (__atomic_compare_exchange_n(&s_job, &expect, JOB_IDLE, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+                // It never started: its share is rendered here (into core 1's
+                // buffers, which nothing else is touching), and core 1 is
+                // left alone for a while.
+                amy_render(split, AMY_OSCS, 1);
+                s_worker_rest = s_worker_rest_len;
+                if (s_worker_rest_len < WORKER_REST_MAX) s_worker_rest_len *= 2;
+                s_worker_stalls++;
+            } else {
+                LightEvent_Wait(&s_done);  // it's rendering: let it finish
+            }
+        }
     } else {
         amy_render(0, AMY_OSCS, 0);
         amy_render(AMY_OSCS, AMY_OSCS, 1);  // nothing to render: just clears core 1's buffers
@@ -507,6 +573,10 @@ const int16_t *engine_render_block(void) {
 }
 
 bool engine_two_cores(void) { return s_worker != NULL; }
+
+uint32_t engine_core1_stalls(void) { return s_worker_stalls; }
+
+float engine_core1_share(void) { return s_core1_share; }
 
 int engine_block_frames(void) { return AMY_BLOCK_SIZE; }
 

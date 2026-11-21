@@ -71,5 +71,7 @@ const char *engine_param_name(EngineParam param);
 // L/R int16) and returns a pointer to it. Valid until the next call.
 const int16_t *engine_render_block(void);
 bool engine_two_cores(void);  // the second core is helping render
+uint32_t engine_core1_stalls(void);  // times core 1 didn't start its share in time (core 0 did it)
+float engine_core1_share(void);      // the share of the oscillators core 1 is given now
 int engine_block_frames(void);
 int engine_sample_rate(void);
