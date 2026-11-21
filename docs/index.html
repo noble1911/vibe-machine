@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vibe Machine: a pocket synth &amp; groovebox for the 3DS</title>
+<meta name="description" content="Vibe Machine is a loud, 90s-Memphis synth, drum machine, sampler and groovebox for the original Nintendo 3DS (homebrew). Free and open source.">
+<meta property="og:title" content="Vibe Machine">
+<meta property="og:description" content="A loud, 90s-Memphis pocket synth & groovebox for the 3DS (homebrew).">
+<meta property="og:image" content="images/cartridge.jpg">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="wrap">
+    <a class="brand" href="./">VIBE MACHINE</a>
+    <nav>
+      <a href="#watch">Watch</a>
+      <a href="#features">Features</a>
+      <a href="#get-it">Get it</a>
+      <a href="manual.html">Manual</a>
+      <a href="https://github.com/noble1911/vibe-machine">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="wrap">
+    <div>
+      <h1 class="wordmark" aria-label="Vibe Machine">
+        <span class="word"><b>V</b><b>I</b><b>B</b><b>E</b></span>
+        <span class="word"><b>M</b><b>A</b><b>C</b><b>H</b><b>I</b><b>N</b><b>E</b></span>
+      </h1>
+      <p class="tag">A loud, 90s-Memphis pocket synth &amp; groovebox for your 3DS.</p>
+      <p class="sub">Synths with googly-eyed mascots, seven drum kits, a sampler that chops your voice into beats,
+        a piano roll, a mixer, sixteen punch-in effects and a 4-track tape. All on an <em>original</em>
+        3DS, in stereoscopic 3D, dancing to what you play.</p>
+      <div class="buttons">
+        <a class="btn pink" href="https://github.com/noble1911/vibe-machine/releases/latest">Download (.3dsx)</a>
+        <a class="btn teal" href="#watch">Watch the tour</a>
+        <a class="btn white" href="manual.html">Read the manual</a>
+      </div>
+    </div>
+    <div class="art">
+      <img src="images/cartridge.jpg" alt="A Vibe Machine game card and its box, covered in Memphis squiggles and a googly-eyed triangle">
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="stats">
+      <div class="card stat"><b>21</b>sounds, 2 classic banks</div>
+      <div class="card stat"><b>7</b>drum kits &amp; your own</div>
+      <div class="card stat"><b>16</b>punch-in effects</div>
+      <div class="card stat"><b>8</b>patterns, a whole song</div>
+      <div class="card stat"><b>4</b>tape tracks</div>
+      <div class="card stat"><b>1</b>original 3DS</div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="watch">
+  <div class="wrap">
+    <h2 class="sticker">Watch it play</h2>
+    <div class="videos">
+      <div class="card video">
+        <video controls preload="none" poster="images/tour-poster.jpg">
+          <source src="media/feature-tour.mp4" type="video/mp4">
+        </video>
+        <h3>The feature tour</h3>
+        <p>Every feature, one at a time: the keys, the sequencer, all the sounds, EDIT, the drum kits, the sampler, PUNCH, the mixer, the tape, a mixdown. About 5 minutes, with sound.</p>
+      </div>
+      <div class="card video" style="background: var(--purple)">
+        <video controls preload="none" poster="images/song-poster.jpg">
+          <source src="media/zero-to-song.mp4" type="video/mp4">
+        </video>
+        <h3>From nothing to a song</h3>
+        <p>Drums, bass, chords, a lead, a mix, a variation, an arrangement, saved and mixed down to a WAV, in 2&frac12; minutes.</p>
+      </div>
+    </div>
+    <p style="margin-top:22px">Both videos are the app playing itself: a scripted build taps through the real touchscreen code and records its own screens and sound.</p>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <h2 class="sticker">What's inside</h2>
+    <div class="features">
+      <div class="card feature"><img src="images/synth-creature.png" alt="The SYNTH page">
+        <div class="txt"><h3>Synths with mascots</h3><p>Nineteen of its own: plucked strings, acid bass, FM bells, a supersaw, an 808 boom, a drawbar organ, a vowel choir, chiptune and more, plus 128 Juno-6 and 128 DX7 patches. Drag the mascot around the pad to play its two macros.</p></div></div>
+      <div class="card feature"><img src="images/synth-edit.png" alt="The EDIT view">
+        <div class="txt"><h3>EDIT anything</h3><p>Draw a sound's envelope, play its filter and LFO on XY pads, make it mono with glide, stack unison, brighten a DX7, MUTATE it, store A and B and MORPH between them. Keep what you make as presets.</p></div></div>
+      <div class="card feature"><img src="images/synth-draw.png" alt="Drawing a wave">
+        <div class="txt"><h3>Draw your own wave</h3><p>Drag the stylus across the pad and play the shape you drew on the keys. It changes while the note is still sounding.</p></div></div>
+      <div class="card feature"><img src="images/kit.png" alt="The drum kit">
+        <div class="txt"><h3>Seven drum kits</h3><p>TR-808, TR-909, Linn 9000, MR-12, Tokyo Synthetics, Power and Percussion. Or build your own from any of 155 samples, or your own recordings, tuned and levelled.</p></div></div>
+      <div class="card feature"><img src="images/sampler-chop.png" alt="The sampler, chopped">
+        <div class="txt"><h3>Sample, chop, play</h3><p>Record your voice or grab a bar from the tape. CHOP cuts it at the hits, each key plays a slice, and one tap puts the slices on the drum pads.</p></div></div>
+      <div class="card feature"><img src="images/seq.png" alt="The sequencer">
+        <div class="txt"><h3>Sequencer &amp; piano roll</h3><p>Sixteen steps, eight drum lanes, accents and swing, a piano roll for melodies and chords, patterns of 1&ndash;4 bars, an arpeggiator and a song sheet to arrange it all.</p></div></div>
+      <div class="card feature"><img src="images/punch.png" alt="PUNCH effects">
+        <div class="txt"><h3>Sixteen punch-ins</h3><p>Hold a pad and the beat loops, reverses, shuffles, gates, drops an octave or throws into a dub echo, always on the next 16th. Sequence them on steps.</p></div></div>
+      <div class="card feature"><img src="images/fx-crush.png" alt="The XY effects">
+        <div class="txt"><h3>Play the effects</h3><p>CRUSH, SWEEP, STUTTER and TAPE STOP on an XY pad, recorded into your patterns. The top screen pixelates, freezes and slows down with them.</p></div></div>
+      <div class="card feature"><img src="images/mix.png" alt="The mixer">
+        <div class="txt"><h3>A real mixer</h3><p>A strip for each part and the drums: fader, meter, drive, crush, tone, pan, echo and reverb sends, mute and solo. MIXDOWN records the whole song to a WAV.</p></div></div>
+      <div class="card feature"><img src="images/tape.png" alt="The tape">
+        <div class="txt"><h3>4-track tape</h3><p>Record the jam or one part at a time, scratch it like a record, play it backwards, vary its speed.</p></div></div>
+      <div class="card feature"><img src="images/song-sheet.png" alt="The song sheet">
+        <div class="txt"><h3>Whole songs</h3><p>Arrange patterns into intros, drops and breakdowns, save named songs with their tapes and samples, and pick up where you left off.</p></div></div>
+      <div class="card feature"><img src="images/sound.png" alt="The SOUND page">
+        <div class="txt"><h3>Any key, nine themes</h3><p>Major, minor, modes, pentatonics, blues: every key stays in scale. Nine colour themes, and real stereoscopic 3D on the top screen.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section class="band" id="get-it">
+  <div class="wrap">
+    <h2 class="sticker">Get it</h2>
+    <div class="steps">
+      <div class="card step"><h3>Download</h3><p>Grab <code>vibe-machine.3dsx</code> from the <a href="https://github.com/noble1911/vibe-machine/releases/latest" style="color:var(--purple)">latest release</a>. It's free and open source (MIT).</p></div>
+      <div class="card step"><h3>Copy it over</h3><p>On a 3DS with custom firmware (Luma3DS), put it in <code>sdmc:/3ds/</code>. Run the <b>DSP1</b> homebrew once so the 3DS can make sound.</p></div>
+      <div class="card step"><h3>Play</h3><p>Start it from the Homebrew Launcher, press <b>START</b> and the starter beat plays. Then open the <a href="manual.html" style="color:var(--purple)">manual</a>.</p></div>
+      <div class="card step"><h3>No 3DS handy?</h3><p>It runs in the <b>Azahar</b> emulator too: File &rarr; Load File. The <a href="https://github.com/noble1911/vibe-machine#quick-start" style="color:var(--purple)">README</a> has the one-time setup.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><b>Vibe Machine</b> is free, open-source homebrew (MIT): <a href="https://github.com/noble1911/vibe-machine">source on GitHub</a>.
+      Its sound comes from <a href="https://github.com/shorepine/amy">AMY</a> by Brian Whitman and contributors.</p>
+    <p>An independent project, not affiliated with or endorsed by Nintendo or any synthesizer maker. Nintendo 3DS is a
+      trademark of Nintendo. Juno, DX7 and drum machine names refer to the patches and kits AMY recreates.</p>
+  </div>
+</footer>
+
+</body>
+</html>

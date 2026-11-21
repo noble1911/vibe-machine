@@ -2,6 +2,8 @@
 
 **A loud, 90s-Memphis pocket synth and groovebox for the Nintendo 3DS** (homebrew).
 
+**Website and manual: [noble1911.github.io/vibe-machine](https://noble1911.github.io/vibe-machine/)**
+
 Three instrument parts plus drums, nineteen original sounds (a wave you
 draw with the stylus, an 808 boom, a drawbar organ, a vowel choir, chiptune,
 strings, mallets, e-piano, a per-part sampler and more) plus the Juno-6 and DX7 banks, an EDIT
