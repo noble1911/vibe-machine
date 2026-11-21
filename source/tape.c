@@ -148,13 +148,16 @@ float tape_peak(int track, int block) {
     return s_peaks[track][block] / 255.0f;
 }
 
+// Per sample, per track: no floor() and no modulo (the ARM11 has no divide
+// instruction). The head is kept within the tape, so one compare wraps it.
 static float read_track(int t, double pos) {
-    int32_t i0 = (int32_t)floor(pos);
-    float frac = (float)(pos - i0);
-    i0 %= TAPE_FRAMES;
-    if (i0 < 0) i0 += TAPE_FRAMES;
-    int32_t i1 = (i0 + 1) % TAPE_FRAMES;
-    return (s_track[t][i0] * (1.0f - frac) + s_track[t][i1] * frac) / 32768.0f;
+    int32_t i0 = (int32_t)pos;
+    if (pos < i0) i0--;  // (int) truncates towards zero: floor for negatives
+    const float frac = (float)(pos - i0);
+    if (i0 >= TAPE_FRAMES) i0 -= TAPE_FRAMES;
+    else if (i0 < 0) i0 += TAPE_FRAMES;
+    const int32_t i1 = i0 + 1 < TAPE_FRAMES ? i0 + 1 : 0;
+    return (s_track[t][i0] * (1.0f - frac) + s_track[t][i1] * frac) * (1.0f / 32768.0f);
 }
 
 // Linear up to 0.8, then a smooth knee into 1.0, so four full tracks plus
@@ -250,15 +253,15 @@ void tape_record_block(const int16_t *io, const float *const *strips, int frames
         // Every output frame that lands on the same tape frame is averaged
         // into it (whatever the output rate: 44.1 kHz is 2 a frame, 32.7 kHz
         // 1 or 2), and written once the head moves on.
-        const int32_t w0 = s_wpos[n] % TAPE_FRAMES;
+        const int32_t w0 = s_wpos[n] < TAPE_FRAMES ? s_wpos[n] : s_wpos[n] - TAPE_FRAMES;  // (the head stays on the tape)
         if (s_rec_n > 0 && w0 != s_rec_w) {
             int32_t w = s_rec_w;
             float v = s_rec_acc / s_rec_n;
             s_track[rt][w] = (int16_t)(soft(v) * 32767.0f);
-            int b = w / TAPE_PEAK_BLOCK;
+            const uint32_t uw = (uint32_t)w, b = uw / TAPE_PEAK_BLOCK;  // (a power of two: a shift)
             // Square-root scale, so quiet takes still read on screen.
             uint8_t pk = (uint8_t)fminf(255.0f, sqrtf(fabsf(v)) * 255.0f);
-            if (w % TAPE_PEAK_BLOCK == 0) s_peaks[rt][b] = pk;  // first write of a block resets it
+            if (uw % TAPE_PEAK_BLOCK == 0) s_peaks[rt][b] = pk;  // first write of a block resets it
             else if (pk > s_peaks[rt][b]) s_peaks[rt][b] = pk;
             s_used[rt] = true;
             s_dirty[rt] = true;

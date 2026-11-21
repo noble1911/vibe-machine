@@ -62,10 +62,11 @@ static void capture_block(const int16_t *block, int frames) {
         s_cap_dropped += (uint32_t)frames;
         return;
     }
+    uint32_t k = w % CAP_FRAMES;  // one divide a block, not one a frame
     for (int i = 0; i < frames; i++) {
-        const uint32_t k = (w + (uint32_t)i) % CAP_FRAMES;
         s_cap[2 * k] = block[2 * i];
         s_cap[2 * k + 1] = block[2 * i + 1];
+        if (++k == CAP_FRAMES) k = 0;
     }
     __atomic_store_n(&s_cap_w, w + (uint32_t)frames, __ATOMIC_RELEASE);
 }
@@ -75,10 +76,11 @@ int audio_out_capture_read(int16_t *out, int max_frames) {
     const uint32_t r = __atomic_load_n(&s_cap_r, __ATOMIC_RELAXED), w = __atomic_load_n(&s_cap_w, __ATOMIC_ACQUIRE);
     uint32_t n = w - r;
     if (n > (uint32_t)max_frames) n = (uint32_t)max_frames;
+    uint32_t k = r % CAP_FRAMES;
     for (uint32_t i = 0; i < n; i++) {
-        const uint32_t k = (r + i) % CAP_FRAMES;
         out[2 * i] = s_cap[2 * k];
         out[2 * i + 1] = s_cap[2 * k + 1];
+        if (++k == CAP_FRAMES) k = 0;
     }
     __atomic_store_n(&s_cap_r, r + n, __ATOMIC_RELEASE);
     return (int)n;
