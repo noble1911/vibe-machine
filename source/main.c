@@ -728,7 +728,7 @@ static void apply_kit(void) {
     engine_set_kit(&s_app.kit);
 }
 
-static bool save_lanes(const char *dir);
+static bool save_lane(const char *dir, int lane);
 
 // Put `frames` of sample on `lane` as its own sound (trimmed to 2 s).
 static bool lane_take(int lane, const int16_t *data, int frames) {
@@ -741,26 +741,28 @@ static bool lane_take(int lane, const int16_t *data, int frames) {
     apply_kit();
     s_kit_gen++;
 #ifndef VM_DEMO
-    save_lanes(STORAGE_DIR);  // the autosave keeps it too
+    save_lane(STORAGE_DIR, lane);  // the autosave keeps it too (just this lane: the others haven't changed)
 #endif
     return true;
 }
 
-static void lane_wav_path(char *out, size_t len, const char *dir, int lane) {
-    snprintf(out, len, "%s/drum%d.wav", dir, lane + 1);
+static bool lane_wav_path(char *out, size_t len, const char *dir, int lane) {
+    return snprintf(out, len, "%s/drum%d.wav", dir, lane + 1) < (int)len;
 }
 
-// Each lane's own sample to / from a folder (the song's, or the autosave's).
+// A lane's own sample to a folder (the song's, or the autosave's), or its
+// file gone if it hasn't one.
+static bool save_lane(const char *dir, int l) {
+    char path[160];
+    if (!lane_wav_path(path, sizeof(path), dir, l)) return false;
+    if (lane_own(l) && s_lane_frames[l] > 0) return wav_write(path, s_lane_buf[l], s_lane_frames[l], SAMPLER_RATE);
+    remove(path);
+    return true;
+}
+
 static bool save_lanes(const char *dir) {
     bool ok = true;
-    for (int l = 0; l < DRUM_LANES; l++) {
-        char path[160];
-        lane_wav_path(path, sizeof(path), dir, l);
-        if (lane_own(l) && s_lane_frames[l] > 0)
-            ok &= wav_write(path, s_lane_buf[l], s_lane_frames[l], SAMPLER_RATE);
-        else
-            remove(path);
-    }
+    for (int l = 0; l < DRUM_LANES; l++) ok &= save_lane(dir, l);
     return ok;
 }
 
@@ -769,8 +771,7 @@ static void load_lanes(const char *dir) {
         s_lane_frames[l] = 0;
         if (!lane_own(l)) continue;
         char path[160];
-        lane_wav_path(path, sizeof(path), dir, l);
-        int rate = 0, n = wav_read(path, s_lane_buf[l], DRUM_OWN_MAX, &rate);
+        int rate = 0, n = lane_wav_path(path, sizeof(path), dir, l) ? wav_read(path, s_lane_buf[l], DRUM_OWN_MAX, &rate) : 0;
         if (n > 0 && rate == SAMPLER_RATE && engine_load_drum_sample(l, s_lane_buf[l], n, SAMPLER_RATE))
             s_lane_frames[l] = n;
         else  // gone: back to the stock kit's sample
