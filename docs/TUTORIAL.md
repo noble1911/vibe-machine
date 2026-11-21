@@ -74,7 +74,7 @@ this tutorial that explains it in depth.
 **Going further:** record your voice or grab a bar from the tape into the
 [sampler](#8-the-sampler-mic) and **CHOP** it into slices; layer
 performances on the [tape](#11-the-tape-page-recording-tracks); play the FX
-live during the mixdown. Hold ✕ on SEQ to **undo** a clear or a dice roll.
+live during the mixdown. Hold ✕ on SEQ to **undo** your last pattern edits.
 
 ---
 
@@ -210,7 +210,7 @@ The grid is one bar of 16 steps. From the top:
 | ▶ / ■ | Play / stop (same as START) |
 | ● | Arm live recording (blinks when armed) |
 | − 112 + | Tempo, 40–240 BPM. Hold − or + to scroll |
-| ✕ | **Tap**: clear the current pattern (in the piano roll, only the current part's notes). **Hold**: **undo** the last clear, dice roll or slot copy (hold again to redo) |
+| ✕ | **Tap**: clear the current pattern (in the piano roll, only the current part's notes). **Hold**: **undo** the last pattern edit: a painted stroke, a piano-roll note, a live take, a bar-length change, a clear, a dice roll or a slot copy. Hold again to go further back (up to 8 edits); hold with **L** to redo |
 | Dice | Roll a fresh groove into the current pattern |
 
 ### Recording live

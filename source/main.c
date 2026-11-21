@@ -847,7 +847,9 @@ static void capture(SaveState *st) {
     st->mic_changed = s_mic_gen != s_song_mic_gen;
 }
 
+static void undo_forget(void);
 static void restore(const SaveState *st) {
+    undo_forget();  // another song's patterns
     s_app.kit = st->kit;
     apply_kit();
     s_theme = ((st->theme % ui_theme_count()) + ui_theme_count()) % ui_theme_count();
@@ -1290,6 +1292,7 @@ static bool load_song(const char *name) {
 
 static void new_song(void) {
     stop_transports();
+    undo_forget();
     seq_reset();
     seq_set_bpm(112);
     for (int t = 0; t < TAPE_TRACKS; t++) tape_clear(t);
@@ -1857,6 +1860,112 @@ static void audition_tick(void) {
     }
 }
 
+// ----------------------------------------------------------------- undo ----
+// The last UNDO_LEVELS edits to the patterns, each kept as the slot it
+// changed, as it was before. Every edit saves a level first: a stroke
+// painted on the grid, a note added / moved / stretched / removed / made
+// louder or a slide on the roll, a live take (a level per slot it records
+// into), BAR, ✕, the dice, copying into a slot. A stroke or take that
+// changed nothing gives its level back. Hold ✕ to undo, again and again;
+// hold L too to redo.
+#define UNDO_LEVELS 8
+typedef struct {
+    int slot;
+    SeqPattern p;
+} UndoLevel;
+static UndoLevel s_undo[UNDO_LEVELS], s_redo[UNDO_LEVELS];  // [n - 1] is the newest
+static int s_undo_n, s_redo_n;
+static int s_touch_level = -1;  // the level the touch in progress saved, or -1
+
+static bool same_pattern(const SeqPattern *a, const SeqPattern *b) {
+    if (seq_len(a) != seq_len(b) || a->count != b->count || a->accents != b->accents) return false;
+    if (memcmp(a->drums, b->drums, sizeof(a->drums)) || memcmp(a->fx, b->fx, sizeof(a->fx)) ||
+        memcmp(a->fx_x, b->fx_x, sizeof(a->fx_x)) || memcmp(a->fx_y, b->fx_y, sizeof(a->fx_y)))
+        return false;
+    for (int i = 0; i < a->count; i++) {
+        const SeqRollNote *x = &a->notes[i], *y = &b->notes[i];
+        if (x->step != y->step || x->pitch != y->pitch || x->len != y->len || x->vel != y->vel || x->part != y->part ||
+            x->flags != y->flags)
+            return false;
+    }
+    return true;
+}
+
+static void push_level(UndoLevel *stack, int *n, int slot) {
+    if (*n == UNDO_LEVELS) {  // full: the oldest goes
+        memmove(&stack[0], &stack[1], sizeof(UndoLevel) * (UNDO_LEVELS - 1));
+        (*n)--;
+    }
+    stack[*n].slot = slot;
+    seq_get_slot(slot, &stack[*n].p);
+    (*n)++;
+}
+
+// Before an edit to `slot`: returns the level saved (for undo_settle).
+static int undo_save(int slot) {
+    push_level(s_undo, &s_undo_n, slot);
+    return s_undo_n - 1;
+}
+
+static void undo_forget(void) {
+    s_undo_n = s_redo_n = 0;
+    s_touch_level = -1;
+}
+
+// An edit made (rather than undone): what was undone can't be redone now.
+static void undo_commit(void) { s_redo_n = 0; }
+
+// Once a stroke or take is over: if it changed nothing, its level goes.
+static void undo_settle(int level) {
+    if (level < 0 || level != s_undo_n - 1) return;  // (gone, or not the newest any more)
+    SeqPattern now;
+    seq_get_slot(s_undo[level].slot, &now);
+    if (same_pattern(&now, &s_undo[level].p))
+        s_undo_n--;
+    else
+        undo_commit();
+}
+
+// A touch that's about to edit the current slot.
+static void undo_touch(void) {
+    if (s_touch_level < 0) s_touch_level = undo_save(seq_status().slot);
+}
+
+static void undo_step(bool redo) {
+    UndoLevel *from = redo ? s_redo : s_undo, *to = redo ? s_undo : s_redo;
+    int *nf = redo ? &s_redo_n : &s_undo_n, *nt = redo ? &s_undo_n : &s_redo_n;
+    if (*nf == 0) {
+        notice(redo ? "NOTHING TO REDO" : "NOTHING TO UNDO");
+        return;
+    }
+    const UndoLevel *u = &from[--*nf];
+    push_level(to, nt, u->slot);  // as it is now, to go back to
+    seq_put_slot(u->slot, &u->p);
+    char msg[sizeof(s_app.notice)];
+    if (redo)
+        snprintf(msg, sizeof(msg), "REDONE: PATTERN %c", 'A' + u->slot);
+    else
+        snprintf(msg, sizeof(msg), "UNDONE: PATTERN %c (L+HOLD: REDO)", 'A' + u->slot);
+    notice(msg);
+}
+
+// Live takes: from when the sequencer is playing with ● on to when it
+// stops, a level for each slot recorded into. (Once a frame, before input.)
+static void undo_watch_take(void) {
+    static bool was;
+    static int slot = -1, level = -1;
+    const bool rec = s_app.seq.playing && s_app.seq.recording;
+    if (rec && (!was || s_app.seq.slot != slot)) {
+        if (was) undo_settle(level);
+        slot = s_app.seq.slot;
+        level = undo_save(slot);
+    } else if (!rec && was) {
+        undo_settle(level);
+        level = -1;
+    }
+    was = rec;
+}
+
 typedef enum { ROLL_MOVE, ROLL_STRETCH } RollDrag;
 static RollDrag s_roll_mode;
 static SeqRollNote s_roll_orig;  // the note as it was when the drag began
@@ -1904,6 +2013,7 @@ static void roll_begin(int x, int y) {
     }
     step = page_step(step);
     const int pitch = roll_pitch(row);
+    undo_touch();  // whatever this touch does to the note, it can be undone
     int idx = seq_roll_find(s_app.part, step, pitch);
     if (idx >= 0 && s_app.mode == PLAY_DRUM) {  // R + tap a note: SLIDE on / off
         SeqPattern pat;
@@ -2001,32 +2111,11 @@ static void paint_cell(int column, int row) {
     s_paint_step = column;
 }
 
-// One level of undo for the big edits (✕, the dice, copying into a slot):
-// the slot as it was before.
-static SeqPattern s_undo;
-static int s_undo_slot = -1;
-
-static void undo_save(int slot) {
-    seq_get_slot(slot, &s_undo);
-    s_undo_slot = slot;
-}
-
-static void undo(void) {
-    if (s_undo_slot < 0) {
-        notice("NOTHING TO UNDO");
-        return;
-    }
-    SeqPattern now;
-    seq_get_slot(s_undo_slot, &now);
-    seq_put_slot(s_undo_slot, &s_undo);
-    s_undo = now;  // hold again to redo
-    notice("UNDONE (HOLD X AGAIN TO REDO)");
-}
-
 // ✕: in the piano roll, only the current part's notes; on the grid, the
 // whole pattern.
 static void clear_pattern(void) {
-    undo_save(s_app.seq.slot);
+    undo_save(seq_status().slot);
+    undo_commit();
     if (s_app.roll_view) {
         SeqPattern p = s_app.pattern;
         p.count = 0;
@@ -2059,7 +2148,8 @@ static void press_button(SeqButton b) {
         case SEQ_BTN_BPM_UP: seq_set_bpm(s_app.seq.bpm + 1); break;
         case SEQ_BTN_CLEAR: break;  // on release (a hold is undo)
         case SEQ_BTN_DICE: {
-            undo_save(s_app.seq.slot);
+            undo_save(seq_status().slot);
+            undo_commit();
             SeqPattern p;
             dice_groove(&p, (uint32_t)svcGetSystemTick() ^ (s_app.frame * 2654435761u), s_app.octave);
             repeat_bar(&p, seq_len(&s_app.pattern));  // a longer pattern gets it in every bar
@@ -2594,6 +2684,7 @@ static void touch_begin(int x, int y) {
         // full ones, for the rest of the drag along this row.
         s_paint_row = row;
         s_paint_on = !cell_on(step, row);
+        undo_touch();  // the whole stroke is one undo
         paint_cell(step, row);
         s_touch = TOUCH_CELLS;
         return;
@@ -2654,6 +2745,8 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         source_release(SOURCE_TOUCH);
         s_app.active_slider = -1;
         s_touch = TOUCH_NONE;
+        undo_settle(s_touch_level);  // a stroke that changed nothing isn't an undo level
+        s_touch_level = -1;
         return;
     }
     if (!(held & KEY_TOUCH)) return;
@@ -2737,6 +2830,8 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         case TOUCH_BAR_BTN:
             if (s_app.bar_hold >= 0 && ++s_app.bar_hold >= BAR_LEN_FRAMES) {
                 const int bars = seq_bars(&s_app.pattern), next = bars == 1 ? 2 : bars == 2 ? 4 : 1;
+                undo_save(seq_status().slot);
+                undo_commit();
                 seq_set_bars(next);
                 char msg[sizeof(s_app.notice)];
                 snprintf(msg, sizeof(msg), "PATTERN %c: %d BAR%s", 'A' + s_app.seq.slot, next, next > 1 ? "S" : "");
@@ -2775,6 +2870,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         case TOUCH_SLOT:
             if (s_slot_frames < SLOT_COPY_FRAMES && ++s_slot_frames == SLOT_COPY_FRAMES) {
                 undo_save(s_app.slot_hold);
+                undo_commit();
                 seq_copy_to_slot(s_app.slot_hold);  // a variation, ready to edit
                 ui_key_struck(s_app.slot_hold, PLAY_CHORD);
             }
@@ -2795,7 +2891,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             s_button_frames++;
             if (s_button == SEQ_BTN_CLEAR) {  // hold ✕: undo
                 s_app.clear_hold_t = s_button_frames / (float)UNDO_HOLD_FRAMES;
-                if (s_button_frames == UNDO_HOLD_FRAMES) undo();
+                if (s_button_frames == UNDO_HOLD_FRAMES) undo_step((s_keys_held & KEY_L) != 0);
             }
             if ((s_button == SEQ_BTN_BPM_DOWN || s_button == SEQ_BTN_BPM_UP) && s_button_frames > REPEAT_DELAY &&
                 s_button_frames % REPEAT_EVERY == 0)
@@ -3693,6 +3789,7 @@ int main(void) {
         if ((held & KEY_START) && !(down & KEY_START) && s_app.frame - s_start_down >= QUIT_HOLD_FRAMES) break;
 
         s_app.seq = seq_status();
+        undo_watch_take();  // (before this frame's playing can record anything)
         seq_snapshot(&s_app.pattern);
         seq_get_arrangement(&s_app.arr);
         {   // the bar on screen: within the pattern; following the playhead while recording live
