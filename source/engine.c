@@ -172,6 +172,7 @@ static void send_locked(amy_event *e) {
 // A thread that does nothing, to ask the kernel whether one is allowed at
 // this priority on this core (libctru's threadCreate doesn't say why not).
 static char s_core_report[400];
+static bool s_worker_core1;
 static u8 s_probe_stack[4096] __attribute__((aligned(8)));
 static void probe_entry(void *arg) {
     (void)arg;
@@ -240,6 +241,7 @@ void engine_init(void) {
             }
         }
     if (found) s_worker = threadCreate(render_worker, NULL, 64 * 1024, pick_prio, pick_core, false);
+    s_worker_core1 = s_worker && pick_core == 1;
     if (rn < (int)sizeof(s_core_report))
         snprintf(s_core_report + rn, sizeof(s_core_report) - (size_t)rn, " | worker: %s (core %d prio %02X)",
                  s_worker ? "started" : "none", pick_core, pick_prio);
@@ -793,7 +795,7 @@ EnginePerf engine_perf(void) {
     return p;
 }
 
-bool engine_two_cores(void) { return s_worker != NULL; }
+bool engine_two_cores(void) { return s_worker_core1; }  // (a worker that had to settle for core 0 doesn't count)
 
 uint32_t engine_core1_stalls(void) { return s_worker_stalls; }
 

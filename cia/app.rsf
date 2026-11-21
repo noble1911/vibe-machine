@@ -38,7 +38,7 @@ AccessControlInfo:
   IdealProcessor                : 0
   AffinityMask                  : 3   # cores 0 and 1: the synth renders on both (engine.c)
   Priority                      : 16
-  MaxCpu                        : 0x9E
+  MaxCpu                        : 0      # 0: the app sets its own core-1 time (APT_SetAppCpuTimeLimit); a fixed value here refuses that, and with it every core-1 thread
   DisableDebug                  : false
   EnableForceDebug              : false
   CanWriteSharedPage            : true
