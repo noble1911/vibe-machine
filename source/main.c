@@ -952,7 +952,12 @@ static void capture(SaveState *st) {
     st->octave = s_app.octave;
     st->bpm = seq.bpm;
     for (int i = 0; i < SEQ_SLOTS; i++) seq_get_slot(i, &st->slots[i]);
-    st->slot = seq.slot;
+    // The slot you're on, not the one SONG mode happens to be playing: a
+    // song walking through its patterns isn't a change (it used to autosave
+    // at every pattern change, stalling the sound on the SD card).
+    static int home_slot;
+    if (!(seq.song && seq.playing)) home_slot = seq.slot;
+    st->slot = home_slot;
     st->song = seq.song;
     st->swing = seq.swing;
     memcpy(st->fx_x, s_app.fx_x, sizeof(st->fx_x));
@@ -1029,7 +1034,12 @@ static void autosave(bool force) {
         s_changed_at = s_app.frame;
     }
     bool dirty = memcmp(&now, &s_saved, sizeof(now)) != 0;
-    if (dirty && (force || s_app.frame - s_changed_at >= SAVE_SETTLE_FRAMES)) {
+    // Never while the music runs: an SD write holds up this thread and
+    // core 1 (the system's file service lives there, and so does half the
+    // synth), which is heard as gaps. Stopping writes it straight away.
+    const bool running = !force && (s_app.seq.playing || s_app.tape.playing || s_app.tape.recording || s_app.mixdown);
+    if (running) s_changed_at = s_app.frame - SAVE_SETTLE_FRAMES;  // (due the moment it stops)
+    if (dirty && !running && (force || s_app.frame - s_changed_at >= SAVE_SETTLE_FRAMES)) {
         if (storage_save(STORAGE_PATH, &now)) s_saved = now;
     }
 }
@@ -4247,6 +4257,7 @@ int main(void) {
             static uint32_t late_was;
             if (!pf) {
                 pf = fopen(STORAGE_DIR "/perf.txt", "w");
+                if (pf) setvbuf(pf, NULL, _IOFBF, 256 * 1024);  // big enough that stdio never writes mid-song by itself
                 if (pf) fprintf(pf, "frame page oscs | core0: render mix post | core1 | total worst | cpu peak gaps | share stalls punch\n");
             }
             if (pf && s_app.frame % 120 == 0 && lines < 3000) {
@@ -4261,7 +4272,7 @@ int main(void) {
                     lines++;
                     late_was = stats.late;
                 }
-                if (s_app.frame % 600 == 0) fflush(pf);
+                if (!s_app.seq.playing && !s_app.tape.playing && s_app.frame % 300 == 0) fflush(pf);  // (the SD card: only when stopped)
             }
         }
 #endif
