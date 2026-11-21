@@ -51,6 +51,10 @@ typedef struct {
 // A sliding note holds on into the next one (legato): on a MONO sound with
 // GLIDE the pitch slides across instead of the note restriking (acid).
 #define SEQ_NOTE_SLIDE 1
+// An off-beat 1/32: the note starts half a step late (the arpeggiator at
+// 1/32 records the notes between the steps like this). A one-step one
+// sounds for a 32nd, and cuts the part's own short notes from that step.
+#define SEQ_NOTE_HALF 2
 
 typedef struct {
     uint8_t len;                   // steps: 16, 32 or 64 (0 counts as 16)

@@ -90,6 +90,15 @@ static double s_arp_off;    // samples until the sounding note stops
 static uint32_t s_arp_rng = 0x9E3779B9u;
 static bool s_arp_mid_done;  // 1/32 while playing: the mid-step tick has fired
 
+// The current step's SEQ_NOTE_HALF notes, waiting for the middle of the step.
+#define MAX_HALF 16
+typedef struct {
+    uint8_t pitch, part, len;
+    float vel;
+} Half;
+static Half s_half[MAX_HALF];
+static int s_nhalf;
+
 static bool slot_used(int slot) {
     const SeqPattern *p = &s_pats[slot];
     if (p->count) return true;
@@ -204,9 +213,9 @@ static int arp_next(void) {
 }
 
 // One arpeggiator step. `step` is the pattern step it lands on (recorded
-// there while recording), or -1 off the grid (free-running, or a 1/32 in
-// between).
-static int arp_tick(int step, Event *ev, int n) {
+// there while recording), or -1 off the grid (free-running). `half`: a 1/32
+// in the middle of that step, recorded as a SEQ_NOTE_HALF note.
+static int arp_tick(int step, bool half, Event *ev, int n) {
     n = arp_off_event(ev, n);
     const int pitch = arp_next();
     if (pitch < 0 || pitch > 127) return n;
@@ -218,7 +227,7 @@ static int arp_tick(int step, Event *ev, int n) {
     s_arp_off = arp_interval() * 0.6;  // a little gap between notes
     if (step >= 0 && s_playing && s_recording && !((s_muted >> s_arp_part) & 1u)) {
         SeqPattern *p = &s_pats[s_cur];
-        add_locked(p, s_arp_part, step, pitch, s_arp.rate == ARP_8TH ? 2 : 1, (int)(vel * 255), 0);
+        add_locked(p, s_arp_part, step, pitch, s_arp.rate == ARP_8TH ? 2 : 1, (int)(vel * 255), half ? SEQ_NOTE_HALF : 0);
     }
     return n;
 }
@@ -282,12 +291,17 @@ static int fire_step(int step, Event *ev, int n) {
         if ((hits & (1u << lane)) && room_for_on(n, 1))  // (drums are one-shots: no off)
             ev[n++] = (Event){SYNTH_DRUMS, drum_note(lane), accent ? SEQ_VEL_DRUM_ACCENT : SEQ_VEL_DRUM};
 
+    s_nhalf = 0;
     for (int i = 0; i < p->count; i++) {
         const SeqRollNote *rn = &p->notes[i];
         if (rn->step != step || take_skip(step, rn->pitch, rn->part)) continue;
         if ((muted >> rn->part) & 1u) continue;
         float vel = rn->vel / 255.0f;
         if (accent && vel < SEQ_VEL_SYNTH_ACCENT) vel = SEQ_VEL_SYNTH_ACCENT;
+        if (rn->flags & SEQ_NOTE_HALF) {  // not yet: in the middle of the step
+            if (s_nhalf < MAX_HALF) s_half[s_nhalf++] = (Half){rn->pitch, rn->part, rn->len, vel};
+            continue;
+        }
         // A slide holds on past the start of the next step, so the next note
         // arrives while this one still sounds (legato).
         const double gate = (rn->flags & SEQ_NOTE_SLIDE) ? 1.15 : SEQ_GATE;
@@ -295,6 +309,21 @@ static int fire_step(int step, Event *ev, int n) {
     }
     s_step = step;
     s_fired++;
+    return n;
+}
+
+// The middle of the step: its off-beat 1/32s (SEQ_NOTE_HALF) start, each
+// cutting its part's notes that were due to end within this step.
+static int fire_halves(Event *ev, int n) {
+    for (int h = 0; h < s_nhalf; h++) {
+        const Half *hn = &s_half[h];
+        for (int i = 0; i < s_nactive;)
+            if (s_active[i].part == hn->part && s_active[i].off <= s_ticks + 1.0) n = release_active(i, ev, n);
+            else i++;
+        const double gate = hn->len <= 1 ? 0.3 : SEQ_GATE;  // a 32nd, as the arpeggiator plays it
+        n = start_note(hn->part, hn->pitch, hn->vel, s_ticks + 0.5 + (hn->len - 1) + gate, ev, n);
+    }
+    s_nhalf = 0;
     return n;
 }
 
@@ -344,13 +373,14 @@ void seq_advance(int frames, int rate) {
             if (arranging()) arr_enter(0);  // a song plays from its first row
             n = fire_step(0, ev, n);
             s_arp_mid_done = false;
-            if (arp_active()) n = arp_tick(0, ev, n);
+            if (arp_active()) n = arp_tick(0, false, ev, n);
         } else {
             s_pos += frames;
             double len;
             while (s_pos >= (len = step_len_after(s_step))) {
                 s_pos -= len;
                 s_ticks++;
+                if (s_nhalf) n = fire_halves(ev, n);  // (a block longer than half a step: late, not lost)
                 n = release_due(s_ticks, ev, n);  // notes ending on this boundary go first
                 int next = (s_step + 1) % seq_len(&s_pats[s_cur]);
                 if (next == 0) bar_end();
@@ -358,26 +388,30 @@ void seq_advance(int frames, int rate) {
                     s_end_pending = false;
                     s_playing = false;
                     s_ends++;
+                    s_nhalf = 0;
                     n = release_all(ev, n);
                     break;
                 }
                 n = fire_step(next, ev, n);
                 s_arp_mid_done = false;
                 // The arpeggiator, locked to the steps: every 2nd for 1/8.
-                if (arp_active() && (s_arp.rate != ARP_8TH || (s_ticks & 1) == 0)) n = arp_tick(next, ev, n);
+                if (arp_active() && (s_arp.rate != ARP_8TH || (s_ticks & 1) == 0)) n = arp_tick(next, false, ev, n);
             }
-            if (arp_active() && s_arp.rate == ARP_32ND && !s_arp_mid_done && s_pos >= step_len_after(s_step) / 2.0) {
-                s_arp_mid_done = true;  // 1/32: one more between the steps
-                n = arp_tick(-1, ev, n);
+            const bool mid = s_playing && s_pos >= step_len_after(s_step) / 2.0;
+            if (mid && s_nhalf) n = fire_halves(ev, n);
+            if (mid && arp_active() && s_arp.rate == ARP_32ND && !s_arp_mid_done) {
+                s_arp_mid_done = true;  // 1/32: one more between the steps (recorded half a step late)
+                n = arp_tick(s_step, true, ev, n);
             }
             n = release_due(now_steps(), ev, n);
         }
     } else {
+        s_nhalf = 0;
         n = release_all(ev, n);  // stopped: let go of anything still held
         if (arp_active()) {  // free-running at the tempo
             s_arp_clock -= frames;
             if (s_arp_clock <= 0) {
-                n = arp_tick(-1, ev, n);
+                n = arp_tick(-1, false, ev, n);
                 s_arp_clock += arp_interval();
                 if (s_arp_clock < 0) s_arp_clock = arp_interval();
             }
@@ -583,9 +617,11 @@ static int add_locked(SeqPattern *p, int part, int step, int pitch, int len, int
     if (pitch > 127) pitch = 127;
     len = len < 1 ? 1 : len > SEQ_STEPS_MAX ? SEQ_STEPS_MAX : len;
     vel = vel < 1 ? 1 : vel > 255 ? 255 : vel;
-    // One note per (part, step, pitch): adding again replaces it.
+    // One note per (part, step, pitch) -- and on- or off-beat (SEQ_NOTE_HALF):
+    // adding again replaces it.
     for (int i = 0; i < p->count; i++)
-        if (p->notes[i].step == step && p->notes[i].pitch == pitch && p->notes[i].part == part) {
+        if (p->notes[i].step == step && p->notes[i].pitch == pitch && p->notes[i].part == part &&
+            ((p->notes[i].flags ^ flags) & SEQ_NOTE_HALF) == 0) {
             p->notes[i].len = (uint8_t)len;
             p->notes[i].vel = (uint8_t)vel;
             p->notes[i].flags = (uint8_t)flags;

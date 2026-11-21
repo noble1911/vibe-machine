@@ -469,8 +469,50 @@ int main(void) {
             }
         printf("  recorded %d arp notes\n", on_part3);
         check(on_part3 >= 6 && steps_ok, "recording, the arpeggio goes into the pattern, a step per note");
+
+        // 1/32: every note it plays is recorded -- the ones between the steps
+        // as off-beat notes (SEQ_NOTE_HALF) -- and plays back at the same times.
+        seq_put_slot(0, &empty);
+        arp = (SeqArp){true, ARP_UP, ARP_32ND, 1};
+        seq_set_arp(&arp);
+        seq_set_recording(true);
+        s_nhits = 0;
+        s_clock = 0;
+        seq_toggle_play();
+        run(0.01);
+        seq_arp_hold(2, chord, 3);
+        run(0.97);  // 8 steps: 16 notes
+        seq_arp_hold(2, NULL, 0);
+        seq_set_recording(false);
+        seq_toggle_play();
+        run(0.1);
+        long live[64];
+        int nlive = 0;
+        for (int i = 0; i < s_nhits && nlive < 64; i++)
+            if (s_hits[i].synth == part_synth(2)) live[nlive++] = s_hits[i].t;
+        seq_get_slot(0, &rec);
+        int on_grid = 0, halves = 0;
+        for (int i = 0; i < rec.count; i++)
+            if (rec.notes[i].part == 2) (rec.notes[i].flags & SEQ_NOTE_HALF) ? halves++ : on_grid++;
+        // Play it back (arp off): the same notes at the same times.
         arp.on = false;
         seq_set_arp(&arp);
+        s_nhits = 0;
+        s_clock = 0;
+        seq_toggle_play();
+        run(0.98);
+        seq_toggle_play();
+        run(0.1);
+        int nback = 0, same = 0;
+        for (int i = 0; i < s_nhits; i++)
+            if (s_hits[i].synth == part_synth(2)) {
+                if (nback < nlive && labs(s_hits[i].t - live[nback]) <= BLOCK) same++;
+                nback++;
+            }
+        printf("  1/32: played %d, recorded %d on the steps + %d between, played back %d (%d on time)\n", nlive, on_grid,
+               halves, nback, same);
+        check(nlive >= 15 && on_grid + halves == nlive && halves >= on_grid - 1 && same == nlive,
+              "a 1/32 arpeggio records every note, and plays back the same");
     }
 
     // --- a crowded step ------------------------------------------------------

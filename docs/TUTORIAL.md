@@ -170,7 +170,9 @@ glide from note to note.
   the speed (**1/8, 1/16, 1/32**, locked to the tempo) and the range (**1**
   or **2 OCT**). With the sequencer recording (●), the notes it plays go
   into the pattern, so you can hold a chord for a bar and get an arpeggio
-  written for you. The top screen's mode sticker says **ARP** while it's on.
+  written for you. At 1/32 the notes between the steps go in too, as
+  half-width notes starting halfway through their step on the piano roll.
+  The top screen's mode sticker says **ARP** while it's on.
 - **THEME**: tap to cycle the nine colour themes (more in
   [section 13](#13-themes-and-3d)).
 - **SONGS** (the floppy disk): the song browser
