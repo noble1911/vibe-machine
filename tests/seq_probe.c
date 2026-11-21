@@ -365,6 +365,24 @@ int main(void) {
         seq_get_slot(1, &got);
         check(seq_len(&got) == 16 && got.drums[4] == (1u << 2), "shrinking keeps the first bar");
 
+        // A sliding note stays a slide when the pattern grows, and when a
+        // part's notes are replaced (the dice, clearing in the roll).
+        one.notes[0].flags = SEQ_NOTE_SLIDE;
+        seq_put_slot(1, &one);
+        seq_set_bars(2);
+        seq_get_slot(1, &got);
+        int slides = 0;
+        for (int i = 0; i < got.count; i++) slides += (got.notes[i].flags & SEQ_NOTE_SLIDE) != 0;
+        SeqPattern part2;
+        memset(&part2, 0, sizeof(part2));
+        part2.notes[part2.count++] = (SeqRollNote){3, 62, 1, 200, 0, SEQ_NOTE_SLIDE};
+        seq_set_part_pattern(1, &part2);
+        seq_get_slot(1, &got);
+        int kept = 0;
+        for (int i = 0; i < got.count; i++) kept += (got.notes[i].flags & SEQ_NOTE_SLIDE) != 0;
+        check(slides == 2 && kept == 3, "slides survive growing a pattern and replacing a part's notes");
+        seq_set_bars(1);
+
         // An arrangement row of a 2-bar pattern x2 is 4 bars long.
         SeqArrangement arr;
         memset(&arr, 0, sizeof(arr));
