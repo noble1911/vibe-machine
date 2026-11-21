@@ -77,7 +77,7 @@ at a time, from the keys to the mixdown (also the app playing itself, with
 | hold **L** / hold **R** | Chords / drums on those keys |
 | Circle pad ↑ ↓ | Octave (−3 to +3) |
 | Circle pad ← → | Next / previous patch in a bank, or sound |
-| **SELECT** | Next sound. **Hold SELECT + circle pad ← →**: pitch bend |
+| **SELECT** | Tap: next sound (each part remembers how you left each sound). **Hold SELECT + circle pad ← →**: pitch bend |
 | hold **R** + tap a roll note | Slide into the next note (with MONO + GLIDE) |
 | **START** | Play / stop the sequencer. **Hold** to quit |
 | Touchscreen | Everything else: six tabs (sliders, steps, wave, faders, bolt, cassette) and the keys along the bottom |

@@ -38,6 +38,7 @@ u32 __stacksize__ = 256 * 1024;
 #define REPEAT_DELAY 24       // BPM buttons auto-repeat after this...
 #define REPEAT_EVERY 3        // ...every this many frames
 #define FLASH_FRAMES 6        // keys light up when the sequencer hits them
+#define SELECT_TAP_FRAMES 20  // SELECT let go sooner than this is a tap (next sound); longer never changes it
 
 // Physical buttons for keys 0..7. Each cluster is read left, down, right,
 // up, so the D-pad and the face buttons share one shape.
@@ -331,15 +332,44 @@ static void edit_reset_sound(void) {
     pe->morph = 0.0f;
 }
 
+// What each part last had on each sound (patch, macros, EDIT), so stepping
+// to another sound -- a stray SELECT, the circle pad -- and back finds it
+// as you left it. For this session only: a song keeps each part's current
+// sound, as before; loading one (or a new song) starts this afresh.
+#define SOUND_MEMORY 16
+typedef struct {
+    bool kept;
+    int patch;
+    float macro[SOUND_MACROS];
+    PartEdit pe;
+} SoundMemory;
+static SoundMemory s_sound_mem[PARTS][SOUND_MEMORY];
+
+static void forget_sounds(void) { memset(s_sound_mem, 0, sizeof(s_sound_mem)); }
+
 static void select_sound(int index) {
     int n = sound_count();
     index = ((index % n) + n) % n;
     const Sound *snd = sound_get(index);
     release_all();
+    if (s_app.sound >= 0 && s_app.sound < SOUND_MEMORY) {  // the one it's leaving, as it is
+        SoundMemory *m = &s_sound_mem[s_app.part][s_app.sound];
+        m->kept = true;
+        m->patch = s_app.patch;
+        memcpy(m->macro, s_app.macro, sizeof(m->macro));
+        m->pe = *part_edit();
+    }
     s_app.sound = index;
-    if (snd->kind == SOUND_BANK) s_app.patch = snd->bank_first;
-    for (int m = 0; m < SOUND_MACROS; m++) s_app.macro[m] = snd->macro_default[m];
-    edit_reset_sound();  // a new sound starts as designed
+    const SoundMemory *m = index < SOUND_MEMORY ? &s_sound_mem[s_app.part][index] : NULL;
+    if (m && m->kept) {  // back to a sound this part has had: as it was left
+        s_app.patch = m->patch;
+        memcpy(s_app.macro, m->macro, sizeof(s_app.macro));
+        *part_edit() = m->pe;
+    } else {  // a sound it hasn't had starts as designed
+        if (snd->kind == SOUND_BANK) s_app.patch = snd->bank_first;
+        for (int k = 0; k < SOUND_MACROS; k++) s_app.macro[k] = snd->macro_default[k];
+        edit_reset_sound();
+    }
     reload_sound();
 }
 
@@ -414,6 +444,7 @@ static void default_parts(void) {
         upload_wave(k);
         seq_set_part_mute(k, false);
     }
+    forget_sounds();  // a new song: nothing from the last one comes back
 }
 
 // ---------------------------------------------------------------- MIX ----
@@ -838,6 +869,7 @@ static void restore(const SaveState *st) {
         seq_set_part_mute(k, (st->muted >> k) & 1u);
     }
     switch_part(st->part);
+    forget_sounds();  // another song: nothing from the last one comes back
     seq_set_part_mute(MIX_DRUMS, (st->muted >> MIX_DRUMS) & 1u);
     memcpy(s_app.mix, st->mix, sizeof(s_app.mix));
     s_app.mix_solo = st->solo;
@@ -2785,8 +2817,10 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
     }
 
     // SELECT held: the circle pad bends the pitch (springs back when you
-    // let go). SELECT tapped without bending: next sound.
+    // let go). SELECT tapped -- quickly, without bending -- next sound.
     static bool s_bent;
+    static unsigned s_select_down;
+    if (down & KEY_SELECT) s_select_down = s_app.frame;
     if (held & KEY_SELECT) {
         circlePosition c;
         hidCircleRead(&c);
@@ -2806,7 +2840,7 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
         engine_pitch_bend(0.0f);
     }
     if (up & KEY_SELECT) {
-        if (!s_bent) select_sound(s_app.sound + 1);
+        if (!s_bent && s_app.frame - s_select_down < SELECT_TAP_FRAMES) select_sound(s_app.sound + 1);
         s_bent = false;
     }
     // Circle pad left/right: next patch inside a bank, otherwise next sound;

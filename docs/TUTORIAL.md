@@ -141,8 +141,9 @@ glide from note to note.
 - **Circle pad up / down** changes the octave (−3 to +3).
 - **Pitch bend:** hold **SELECT** and push the **circle pad** left or right
   to bend everything that's playing down or up (two semitones at full
-  tilt). Let go and it springs back. (Tapping SELECT without bending still
-  picks the next sound. The drums don't bend.)
+  tilt). Let go and it springs back. (A quick tap of SELECT, without
+  bending, still picks the next sound; holding it never does. The drums
+  don't bend.)
 
 ## 4. The SOUND page
 
@@ -397,7 +398,10 @@ Tap **EDIT** and the pad shows four tabs. Every control starts where the
 sound itself is (nothing changes until you touch it), and **RESET** puts the
 sound back as designed. EDIT is kept per part, saved with the song, and
 stays when you step through a bank's patches, so you can try the same
-shaping on another patch. Picking a different sound starts EDIT afresh.
+shaping on another patch. A sound you haven't used on this part yet starts
+as designed; one you have comes back as you left it (its patch, macros and
+EDIT, for as long as the app is running), so stepping to another sound by
+accident costs nothing.
 
 - **ENV**: the volume envelope, drawn. Drag the three handles: the first is
   the **attack** (left: instant, right: a slow swell), the second sets the
