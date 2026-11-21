@@ -61,11 +61,16 @@ TapeStatus tape_status(void);
 // Peak level (0..1) of track `track` around the overview block `block`.
 float tape_peak(int track, int block);
 
-// Saving and loading (UI thread, with the tape stopped). A track is dirty
+// Saving and loading (with the tape stopped; a save may run on its own
+// thread, see tape_mark_saved_at). A track is dirty
 // once it has been recorded over or wiped since it was last saved/loaded.
 bool tape_dirty(int track);
 const int16_t *tape_track_data(int track, int *frames);  // frames = recorded length
 void tape_mark_saved(int track);
+// The same, for the version `generation` (tape_track_generation() read
+// before the data was): if it has been recorded on since, it stays dirty.
+// Safe from a thread saving in the background.
+void tape_mark_saved_at(int track, uint32_t generation);
 void tape_set_dirty(int track);  // force a re-save (after loading a song's tapes)
 void tape_load_track(int track, const int16_t *data, int frames);
 // Bumps whenever any track is recorded on, wiped or loaded (for "unsaved").

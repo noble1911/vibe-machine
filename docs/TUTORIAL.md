@@ -657,7 +657,8 @@ then tap its chip to change the source:
 3. Tap **▶**. With **SEQ LINK** on (the default), the sequencer starts at
    the same moment, so your take lines up with the beat.
 4. Play. The other tracks play back while you record, so you can layer.
-5. Tap **■** to stop. The tape is saved when it stops. A take that reaches
+5. Tap **■** to stop. The tape is saved when it stops (in the background:
+   you can carry on playing while it writes). A take that reaches
    the end of the tape (60 seconds) stops there by itself.
 
 If the source was one strip, that strip is **muted live** when the take

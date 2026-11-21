@@ -628,15 +628,66 @@ static void tape_button(int hit) {
 // the tape stops (and on quit), never mid-performance.
 static void tape_path(char *out, size_t len, int track) { snprintf(out, len, STORAGE_DIR "/tape%d.wav", track + 1); }
 
-static void save_tape(void) {
+// Every changed track to its file (on any thread). Each is marked saved at
+// the version read, so one recorded on meanwhile stays changed.
+static void write_tape(void) {
     for (int t = 0; t < TAPE_TRACKS; t++) {
         if (!tape_dirty(t)) continue;
+        const uint32_t gen = tape_track_generation(t);
         char path[64];
         tape_path(path, sizeof(path), t);
         int frames = 0;
         const int16_t *data = tape_track_data(t, &frames);
         bool ok = frames > 0 ? wav_write(path, data, frames, TAPE_RATE) : (remove(path), true);
-        if (ok) tape_mark_saved(t);
+        if (ok) tape_mark_saved_at(t, gen);
+    }
+}
+
+// When the tape stops, its tracks (up to 2.6 MB each: a second or more of
+// SD card) are written by a thread of their own, below the UI's priority,
+// so the screen and the keys carry on meanwhile. Everything else that
+// writes or replaces the tracks waits for it first.
+static Thread s_tape_writer;
+static volatile bool s_tape_writing;
+static bool s_tape_pending;
+
+static void tape_writer(void *arg) {
+    (void)arg;
+    write_tape();
+    s_tape_writing = false;
+}
+
+static void save_tape_wait(void) {
+    if (!s_tape_writer) return;
+    threadJoin(s_tape_writer, U64_MAX);
+    threadFree(s_tape_writer);
+    s_tape_writer = NULL;
+}
+
+// Right now, on this thread (songs, quitting).
+static void save_tape(void) {
+    save_tape_wait();
+    write_tape();
+}
+
+// Soon, in the background (once a frame: starts a writer when one is asked
+// for and the last has finished; what it misses stays changed, for the next).
+static void save_tape_soon(void) { s_tape_pending = true; }
+
+static void tape_writer_tick(void) {
+    if (!s_tape_pending || s_tape_writing) return;
+    s_tape_pending = false;
+    save_tape_wait();
+    bool any = false;
+    for (int t = 0; t < TAPE_TRACKS; t++) any |= tape_dirty(t);
+    if (!any) return;
+    s32 prio = 0x30;
+    svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
+    s_tape_writing = true;
+    s_tape_writer = threadCreate(tape_writer, NULL, 32 * 1024, prio < 0x3F ? prio + 1 : 0x3F, -2, false);
+    if (!s_tape_writer) {  // no thread to be had: here, then
+        s_tape_writing = false;
+        write_tape();
     }
 }
 
@@ -1370,6 +1421,7 @@ static void start_job(Job job, const char *name, const char *msg) {
 
 static void run_job(void) {
     if (s_job == JOB_NONE || --s_job_wait > 0) return;
+    save_tape_wait();  // a tape still being written finishes first
     switch (s_job) {
         case JOB_SAVE: save_song(s_job_name); break;
         case JOB_LOAD: load_song(s_job_name); break;
@@ -3916,8 +3968,9 @@ int main(void) {
         }
         {   // the tape just stopped: a good moment to write its tracks
             static bool was_playing;
-            if (was_playing && !s_app.tape.playing) save_tape();
+            if (was_playing && !s_app.tape.playing) save_tape_soon();
             was_playing = s_app.tape.playing;
+            tape_writer_tick();
         }
 #endif
         follow_sequencer();
@@ -3980,6 +4033,8 @@ int main(void) {
     save_tape();
 #else
     (void)save_tape;
+    (void)save_tape_soon;
+    (void)tape_writer_tick;
     (void)load_tape;
     (void)autosave;  // the attract build never touches the SD card
 #endif

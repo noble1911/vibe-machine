@@ -251,6 +251,34 @@ int main(void) {
         for (int m = 0; m < TAPE_TRACKS; m++) tape_mute(m, false);
     }
 
+    {   // Saving: a track is dirty once recorded on; a save marks the version
+        // it read, so recording more while it was writing keeps it dirty.
+        for (int t = 0; t < TAPE_TRACKS; t++) tape_mark_saved(t);
+        const int clean = !tape_dirty(0) && !tape_dirty(1);
+        tape_select(1);
+        tape_set_source(1, TAPE_SRC_ALL);
+        tape_rewind();
+        tape_record(true);
+        tape_play(true);
+        run(0.2, 1, NULL);
+        const int dirty = tape_dirty(1) && !tape_dirty(0);
+        const uint32_t read_at = tape_track_generation(1);  // a background save reads the track here...
+        run(0.2, 1, NULL);                                 // ...while more is recorded
+        tape_mark_saved_at(1, read_at);
+        const int still = tape_dirty(1);
+        tape_play(false);
+        tape_record(false);
+        run(0.1, 0, NULL);
+        tape_mark_saved_at(1, tape_track_generation(1));
+        const int saved = !tape_dirty(1);
+        tape_set_dirty(1);
+        const int forced = tape_dirty(1);
+        tape_mark_saved(1);
+        tape_clear(1);
+        check(clean && dirty && still && saved && forced && tape_dirty(1),
+              "a save marks what it read: recording on meanwhile keeps it dirty");
+    }
+
     tape_exit();
     printf(fails ? "\n%d tape problem(s)\n" : "\nall tape OK\n", fails);
     return fails ? 1 : 0;
