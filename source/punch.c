@@ -466,6 +466,9 @@ void punch_process(int16_t *io, int frames) {
     const float lofi_hp = expf(-6.2831853f * 180.0f / s_rate);
     const float dub_hp = expf(-6.2831853f * 220.0f / s_rate), dub_lp = 1.0f - expf(-6.2831853f * 2600.0f / s_rate);
     const float gate_k = 1.0f / (0.002f * s_rate);
+    // Per-sample steps, divided once here (divides are slow on the ARM11).
+    const float phi_step = (1.0f - s_ratio) / s_win, wow_step = 0.55f / s_rate, flut_step = 6.5f / s_rate;
+    const uint32_t pop_odds = (uint32_t)(65536.0f * 7.0f / s_rate);
 
     for (int n = 0; n < frames; n++, s_t++) {
         const float in[2] = {q15(io[2 * n]), q15(io[2 * n + 1])};
@@ -503,7 +506,7 @@ void punch_process(int16_t *io, int frames) {
             const float ga = 1.0f - fabsf(2.0f * s_phi - 1.0f);
             const float w[2] = {pb[0] + (pa[0] - pb[0]) * ga, pb[1] + (pa[1] - pb[1]) * ga};
             mix2(a, a, w, s_pmix);
-            s_phi += (1.0f - s_ratio) / s_win;
+            s_phi += phi_step;
             if (s_phi < 0.0f) s_phi += 1.0f;
             if (s_phi >= 1.0f) s_phi -= 1.0f;
         }
@@ -518,8 +521,8 @@ void punch_process(int16_t *io, int frames) {
                 s_lhpx[0] = a[0], s_lhpx[1] = a[1];
             }
             s_lmix = slew_to(s_lmix, want_lofi);
-            s_wow += 0.55f / s_rate;
-            s_flut += 6.5f / s_rate;
+            s_wow += wow_step;
+            s_flut += flut_step;
             if (s_wow >= 1.0f) s_wow -= 1.0f;
             if (s_flut >= 1.0f) s_flut -= 1.0f;
             const float d = s_rate * (0.008f + 0.0035f * fsin(s_wow) + 0.00025f * fsin(s_flut));
@@ -527,7 +530,7 @@ void punch_process(int16_t *io, int frames) {
             const float f = d - (float)di;
             const int16_t *x0 = s_l[(t - di) & L_MASK], *x1 = s_l[(t - di - 1) & L_MASK];
             // Dust: now and then a pop (a few a second), and a little hiss.
-            if ((rng() & 0xFFFF) < (uint32_t)(65536.0f * 7.0f / s_rate)) s_pop = ((rng() & 1) ? 1.0f : -1.0f) * (0.02f + (rng() & 0xFF) / 255.0f * 0.03f);
+            if ((rng() & 0xFFFF) < pop_odds) s_pop = ((rng() & 1) ? 1.0f : -1.0f) * (0.02f + (rng() & 0xFF) / 255.0f * 0.03f);
             const float dust = s_pop + ((float)(rng() & 0xFFFF) / 65536.0f - 0.5f) * 0.004f;
             s_pop *= 0.55f;
             for (int c = 0; c < 2; c++) {

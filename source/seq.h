@@ -136,6 +136,7 @@ typedef struct {
     bool playing, fired;
     int step;
     uint16_t punch;
+    uint8_t fx, fx_x, fx_y;  // the fired step's recorded FX-pad move (fx: FxKind + 1, or 0)
     int bpm;
 } SeqClock;
 SeqClock seq_clock(void);

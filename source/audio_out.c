@@ -137,6 +137,10 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
         seq_advance(frames, engine_sample_rate());
         const SeqClock clk = seq_clock();  // PUNCH engages on the 16ths the sequencer fires
         punch_clock(clk.fired, clk.step, clk.playing, clk.punch, (float)clk.bpm);
+        if (clk.fired)  // the FX pad's recorded moves, on their step, to the sample
+            fx_auto_step(clk.fx, clk.fx_x / 255.0f, clk.fx_y / 255.0f, true);
+        else if (!clk.playing)
+            fx_auto_step(0, 0.0f, 0.0f, false);
         const int16_t *block = engine_render_block();
         memcpy(dst, block, (size_t)frames * 2 * sizeof(int16_t));
         tape_play_block(dst, frames, engine_sample_rate());  // the tape plays along...

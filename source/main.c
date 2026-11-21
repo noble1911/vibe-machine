@@ -1788,38 +1788,20 @@ static void fx_pad_release(void) {
 // is held, the effect and its position go into the steps passing by.
 // Playing: each step's recorded move is applied, and the effect it turned
 // on is let go at the next step without one. Your stylus always wins.
-static int s_auto_fx = -1;  // the FxKind automation turned on, or -1
-static int s_auto_step = -1;
-
-static void auto_release(void) {
-    const int k = s_auto_fx;
-    if (k >= 0 && !s_app.fx_latched[k] && !(s_touch == TOUCH_FX_PAD && s_app.fx_sel == k))
-        fx_set((FxKind)k, false, s_app.fx_x[k], s_app.fx_y[k]);
-    s_auto_fx = -1;
-}
-
+// FX automation: recording happens here (wherever the pad is held while the
+// sequencer records, the effect and its position go into the steps passing
+// by); playing it back happens on the audio thread, on the step, to the
+// sample (fx_auto_step). This tells it which effects you're keeping on, so
+// your stylus (and HOLD) always win.
 static void fx_automation(void) {
     const SeqStatus *st = &s_app.seq;
-    if (!st->playing) {
-        auto_release();
-        s_auto_step = -1;
-        return;
-    }
     const bool held = s_touch == TOUCH_FX_PAD;
-    const int step = st->step, k = s_app.fx_sel;
-    if (st->recording && held) seq_set_fx(step, k + 1, s_app.fx_x[k], s_app.fx_y[k]);
-    if (step == s_auto_step) return;
-    s_auto_step = step;
-    if (held) return;
-    const SeqPattern *p = &s_app.pattern;
-    if (p->fx[step]) {
-        const int kk = p->fx[step] - 1;
-        if (s_auto_fx >= 0 && s_auto_fx != kk) auto_release();
-        fx_set((FxKind)kk, true, p->fx_x[step] / 255.0f, p->fx_y[step] / 255.0f);
-        s_auto_fx = kk;
-    } else {
-        auto_release();
-    }
+    unsigned hand = 0;
+    for (int k = 0; k < FX_COUNT; k++)
+        if (s_app.fx_latched[k] || (held && s_app.fx_sel == k)) hand |= 1u << k;
+    fx_hand(hand);
+    const int k = s_app.fx_sel;
+    if (st->playing && st->recording && held) seq_set_fx(st->step, k + 1, s_app.fx_x[k], s_app.fx_y[k]);
 }
 
 static void fx_sticker(int hit) {

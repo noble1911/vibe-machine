@@ -41,7 +41,8 @@ static uint32_t s_loop_start, s_loop_len, s_loop_pos;
 // TAPE
 static bool s_tape_active;
 static double s_tape_rp;
-static float s_tape_speed = 1.0f, s_tape_phase;
+static float s_tape_speed = 1.0f;
+static float s_wob_c = 1.0f, s_wob_s = 0.0f, s_wob_dc = 1.0f, s_wob_ds = 0.0f;  // TAPE's wobble phasor
 static float s_tape_wet;  // own crossfade: stays wet until back up to speed
 static volatile float s_tape_speed_pub = 1.0f;
 
@@ -52,6 +53,8 @@ static const char *const kAxes[FX_COUNT][2] = {
 void fx_init(int sample_rate) {
     s_rate = (float)sample_rate;
     s_slew = 1.0f / (0.01f * s_rate);
+    s_wob_dc = cosf(2.0f * PI_F * 6.0f / s_rate);
+    s_wob_ds = sinf(2.0f * PI_F * 6.0f / s_rate);
     memset(s_p, 0, sizeof(s_p));
     memset(s_hist, 0, sizeof(s_hist));
     s_w = 0;
@@ -65,6 +68,28 @@ void fx_set(FxKind k, bool on, float x, float y) {
 }
 
 void fx_set_tempo(float bpm) { s_bpm = bpm > 20 ? bpm : 20; }
+
+static volatile unsigned s_hand;  // FX the stylus / HOLD keeps on (UI thread)
+static int s_auto = -1;           // the FX the automation turned on (audio thread)
+
+void fx_hand(unsigned mask) { s_hand = mask; }
+
+static void auto_release(void) {
+    if (s_auto >= 0 && !((s_hand >> s_auto) & 1u)) s_p[s_auto].on = false;
+    s_auto = -1;
+}
+
+void fx_auto_step(int kind1, float x, float y, bool playing) {
+    if (!playing || kind1 <= 0 || kind1 > FX_COUNT) {
+        auto_release();
+        return;
+    }
+    const int k = kind1 - 1;
+    if ((s_hand >> k) & 1u) return;  // you're playing it: your stylus wins
+    if (s_auto >= 0 && s_auto != k) auto_release();
+    fx_set((FxKind)k, true, x, y);
+    s_auto = k;
+}
 
 FxState fx_state(void) {
     FxState st;
@@ -92,15 +117,32 @@ static float slew(Param *p) {
 
 static float clip(float v) { return v > 1.0f ? 1.0f : v < -1.0f ? -1.0f : v; }
 
-static void sweep(float io[2], float mix) {
+// Coefficients that only change with the pad (or the tempo): worked out
+// once per block, not per sample (powf / sinf are slow on the 3DS's ARM11).
+static struct {
+    bool high;
+    float amt, f, q;  // SWEEP
+    int hold;         // CRUSH: samples held
+    float levels;     // CRUSH: quantiser steps
+} s_k;
+
+static void prepare_block(void) {
     const float x = s_p[FX_SWEEP].x, y = s_p[FX_SWEEP].y;
     // Centre of the pad is a dead zone; left is low-pass, right is high-pass.
-    bool high = x > 0.5f;
-    float amt = high ? (x - 0.52f) / 0.48f : (0.48f - x) / 0.48f;
+    s_k.high = x > 0.5f;
+    float amt = s_k.high ? (x - 0.52f) / 0.48f : (0.48f - x) / 0.48f;
     if (amt < 0.0f) amt = 0.0f;
-    float fc = high ? 30.0f * powf(200.0f, amt) : 6000.0f * powf(1.0f / 50.0f, amt);
-    float f = 2.0f * sinf(PI_F * fc / s_rate);
-    float q = 1.0f / (0.7f + y * 5.3f);
+    s_k.amt = amt;
+    const float fc = s_k.high ? 30.0f * powf(200.0f, amt) : 6000.0f * powf(1.0f / 50.0f, amt);
+    s_k.f = 2.0f * sinf(PI_F * fc / s_rate);
+    s_k.q = 1.0f / (0.7f + y * 5.3f);
+    s_k.hold = 1 + (int)(s_p[FX_CRUSH].x * 31.0f);
+    s_k.levels = powf(2.0f, 15.0f - s_p[FX_CRUSH].y * 13.0f);
+}
+
+static void sweep(float io[2], float mix) {
+    const bool high = s_k.high;
+    const float amt = s_k.amt, f = s_k.f, q = s_k.q;
     for (int c = 0; c < 2; c++) {
         float hp = io[c] - s_low[c] - q * s_band[c];
         s_band[c] += f * hp;
@@ -112,8 +154,8 @@ static void sweep(float io[2], float mix) {
 }
 
 static void crush(float io[2], float mix) {
-    const int hold = 1 + (int)(s_p[FX_CRUSH].x * 31.0f);
-    const float levels = powf(2.0f, 15.0f - s_p[FX_CRUSH].y * 13.0f);
+    const int hold = s_k.hold;
+    const float levels = s_k.levels;
     if (++s_hold_count >= hold) {
         s_hold_count = 0;
         for (int c = 0; c < 2; c++) s_hold[c] = roundf(io[c] * levels) / levels;
@@ -158,9 +200,12 @@ static void tape_read(float out[2]) {
     } else {
         s_tape_speed = fminf(1.0f, s_tape_speed + 1.0f / (0.12f * s_rate));  // spin back up
     }
-    s_tape_phase += 6.0f / s_rate;
-    if (s_tape_phase > 1.0f) s_tape_phase -= 1.0f;
-    float wobble = 1.0f + s_p[FX_TAPE].y * 0.25f * sinf(2.0f * PI_F * s_tape_phase);
+    // The 6 Hz wobble: a phasor rotated a little each sample (two
+    // multiplies, not a sinf), put back on the unit circle every block.
+    const float c0 = s_wob_c, s0 = s_wob_s;
+    s_wob_c = c0 * s_wob_dc - s0 * s_wob_ds;
+    s_wob_s = s0 * s_wob_dc + c0 * s_wob_ds;
+    float wobble = 1.0f + s_p[FX_TAPE].y * 0.25f * s_wob_s;
     s_tape_rp += s_tape_speed * wobble;
     double rp = s_tape_rp;
     uint32_t i0 = (uint32_t)rp & HIST_MASK, i1 = (i0 + 1) & HIST_MASK;
@@ -188,6 +233,12 @@ void fx_process(int16_t *io, int frames) {
         }
         s_tape_speed_pub = 1.0f;
         return;
+    }
+    prepare_block();
+    {   // keep the wobble phasor on the unit circle (it drifts a hair per sample)
+        const float r = 1.0f / sqrtf(s_wob_c * s_wob_c + s_wob_s * s_wob_s);
+        s_wob_c *= r;
+        s_wob_s *= r;
     }
     for (int n = 0; n < frames; n++) {
         float s[2] = {io[2 * n] / 32768.0f, io[2 * n + 1] / 32768.0f};

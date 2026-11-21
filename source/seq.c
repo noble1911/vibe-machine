@@ -318,6 +318,9 @@ static int fire_step(int step, Event *ev, int n) {
     s_clock.fired = true;
     s_clock.step = step;
     s_clock.punch = p->punch[step];
+    s_clock.fx = p->fx[step];
+    s_clock.fx_x = p->fx_x[step];
+    s_clock.fx_y = p->fx_y[step];
     return n;
 }
 

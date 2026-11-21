@@ -25,6 +25,14 @@ typedef struct {
 void fx_init(int sample_rate);
 void fx_set(FxKind k, bool on, float x, float y);
 void fx_set_tempo(float bpm);
+
+// FX automation, played on the audio thread at the step it's recorded on.
+// Audio thread: each fired step's move (kind1 = FxKind + 1, or 0 for none);
+// call with playing false once the sequencer stops.
+void fx_auto_step(int kind1, float x, float y, bool playing);
+// UI thread: the effects the stylus or HOLD is keeping on (bit k): the
+// automation leaves those alone -- your stylus always wins.
+void fx_hand(unsigned mask);
 FxState fx_state(void);
 const char *fx_name(FxKind k);
 const char *fx_axis_name(FxKind k, int axis);  // axis 0 = X, 1 = Y

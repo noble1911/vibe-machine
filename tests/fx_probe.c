@@ -506,6 +506,26 @@ int main(void) {
 
     punch_checks();
 
+    {   // FX automation (audio thread): a step turns its effect on, a step
+        // without one lets it go, and an effect your stylus holds is left alone.
+        fx_hand(0);
+        fx_auto_step(FX_SWEEP + 1, 0.2f, 0.7f, true);
+        FxState a = fx_state();
+        fx_auto_step(0, 0, 0, true);
+        FxState b = fx_state();
+        check(a.on[FX_SWEEP] && fabsf(a.x[FX_SWEEP] - 0.2f) < 1e-6f && !b.on[FX_SWEEP],
+              "FX automation: a step turns its effect on, an empty step lets it go");
+        fx_set(FX_CRUSH, true, 0.5f, 0.5f);  // you're holding CRUSH...
+        fx_hand(1u << FX_CRUSH);
+        fx_auto_step(FX_CRUSH + 1, 0.9f, 0.9f, true);  // ...a recorded CRUSH move doesn't take it over
+        FxState c = fx_state();
+        fx_auto_step(0, 0, 0, false);                  // ...nor does stopping let it go
+        FxState d = fx_state();
+        check(c.on[FX_CRUSH] && fabsf(c.x[FX_CRUSH] - 0.5f) < 1e-6f && d.on[FX_CRUSH],
+              "FX automation: your stylus always wins");
+        fx_hand(0);
+        fx_set(FX_CRUSH, false, 0.5f, 0.5f);
+    }
     printf(fails ? "\n%d FX problem(s)\n" : "\nall FX OK\n", fails);
     return fails ? 1 : 0;
 }
