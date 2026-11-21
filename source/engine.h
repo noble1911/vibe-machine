@@ -76,6 +76,7 @@ const char *engine_param_name(EngineParam param);
 // is rendering: the place for the sequencer to play its notes (they sound
 // in the NEXT block handed back: the engine runs one block ahead).
 const int16_t *engine_render_block(void (*safe_point)(void));
+const char *engine_core_report(void);  // what the system said about a thread on core 1 (for the perf log)
 bool engine_two_cores(void);  // the second core is helping render
 uint32_t engine_core1_stalls(void);  // times core 1 didn't start its share in time (core 0 did it)
 float engine_core1_share(void);      // the share of the oscillators core 1 is given now

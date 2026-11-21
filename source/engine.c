@@ -169,6 +169,26 @@ static void send_locked(amy_event *e) {
     amy_leave();
 }
 
+// A thread that does nothing, to ask the kernel whether one is allowed at
+// this priority on this core (libctru's threadCreate doesn't say why not).
+static char s_core_report[400];
+static u8 s_probe_stack[4096] __attribute__((aligned(8)));
+static void probe_entry(void *arg) {
+    (void)arg;
+    svcExitThread();
+}
+static Result probe_thread(int prio, int core) {
+    Handle h = 0;
+    const Result rc = svcCreateThread(&h, probe_entry, 0, (u32 *)(s_probe_stack + sizeof(s_probe_stack)), prio, core);
+    if (R_SUCCEEDED(rc)) {
+        svcWaitSynchronization(h, 200000000LL);
+        svcCloseHandle(h);
+    }
+    return rc;
+}
+
+const char *engine_core_report(void) { return s_core_report; }
+
 void engine_init(void) {
     LightLock_Init(&s_lock);
 
@@ -193,10 +213,36 @@ void engine_init(void) {
     // renders on this core, as before).
     LightEvent_Init(&s_go, RESET_ONESHOT);
     LightEvent_Init(&s_done, RESET_ONESHOT);
-    APT_SetAppCpuTimeLimit(80);
+    const Result apt_rc = APT_SetAppCpuTimeLimit(80);
+    u32 apt_pct = 0;
+    const Result apt_get = APT_GetAppCpuTimeLimit(&apt_pct);
     s32 prio = 0x30;
     svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
-    s_worker = threadCreate(render_worker, NULL, 64 * 1024, prio - 2 < 0x18 ? 0x18 : prio - 2, 1, false);
+    // What the system says to a thread on core 1 (and on "any core"), at a
+    // few priorities: kept for the perf log, so a refusal on some console or
+    // install type can be seen for what it is.
+    const int prios[4] = {prio - 2 < 0x18 ? 0x18 : prio - 2, prio, 0x3F, 0x18};
+    int rn = snprintf(s_core_report, sizeof(s_core_report), "apt set %08lX get %08lX %lu%% main prio %ld |", (unsigned long)apt_rc,
+                     (unsigned long)apt_get, (unsigned long)apt_pct, (long)prio);
+    int pick_core = 0, pick_prio = 0;
+    bool found = false;
+    static const int cores[2] = {1, -1};
+    for (int c = 0; c < 2; c++)
+        for (int k = 0; k < 4; k++) {
+            const Result rc = probe_thread(prios[k], cores[c]);
+            if (rn < (int)sizeof(s_core_report))
+                rn += snprintf(s_core_report + rn, sizeof(s_core_report) - (size_t)rn, " core %d prio %02X: %08lX", cores[c], prios[k],
+                              (unsigned long)rc);
+            if (R_SUCCEEDED(rc) && !found) {
+                found = true;
+                pick_core = cores[c];
+                pick_prio = prios[k];
+            }
+        }
+    if (found) s_worker = threadCreate(render_worker, NULL, 64 * 1024, pick_prio, pick_core, false);
+    if (rn < (int)sizeof(s_core_report))
+        snprintf(s_core_report + rn, sizeof(s_core_report) - (size_t)rn, " | worker: %s (core %d prio %02X)",
+                 s_worker ? "started" : "none", pick_core, pick_prio);
 
     // The drum kits' samples (all but the TR-808, which is built in): a
     // 3.7 MB file in the app's romfs. Without it only the 808 plays.
