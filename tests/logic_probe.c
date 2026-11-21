@@ -334,6 +334,26 @@ int main(void) {
         check(n[0] == 52 && music_degree(52) == -5 && music_degree(63) == -1, "octaves down count degrees down");
         check(sampler_slice_of_pitch(64, 4) == 0 && sampler_slice_of_pitch(67, 4) == 1 && sampler_slice_of_pitch(76, 4) == 1,
               "CHOP slices follow the scale's keys");
+        // A chopped part's notes, moved when the key changes, play the same
+        // slices in every key and scale -- and the keys still walk them.
+        int kept = 0, tried = 0, walks = 1;
+        for (int from = 0; from < 12 * MUSIC_SCALES; from++)
+            for (int to = 0; to < 12 * MUSIC_SCALES; to += 5)
+                for (int pitch = 40; pitch < 90; pitch++) {
+                    music_set_key(from % 12, from / 12);
+                    const int before = sampler_slice_of_pitch(pitch, 8);
+                    music_set_key(to % 12, to / 12);
+                    kept += sampler_slice_of_pitch(sampler_slice_note_moved(pitch, from % 12, from / 12), 8) == before;
+                    tried++;
+                }
+        for (int k = 0; k < 12 * MUSIC_SCALES; k++) {
+            music_set_key(k % 12, k / 12);
+            for (int key = 0; key < MUSIC_KEYS; key++) {
+                music_key_notes(key, PLAY_NOTE, 0, n);
+                walks &= sampler_slice_of_pitch(n[0], 8) == key;
+            }
+        }
+        check(kept == tried && walks, "moved with a key change, a chopped note keeps its slice, in any key");
         music_set_key(0, 0);
     }
 

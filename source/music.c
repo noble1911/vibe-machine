@@ -49,9 +49,14 @@ static int degree_note(int degree, int octave) {
     return MUSIC_ROOT + s_root + 12 * (octave + oct) + sc->steps[d];
 }
 
-int music_degree(int pitch) {
-    const Scale *sc = &kScales[s_scale];
-    int rel = pitch - (MUSIC_ROOT + s_root);
+int music_degree_note(int degree) { return degree_note(degree, 0); }
+
+int music_degree(int pitch) { return music_degree_in(pitch, s_root, s_scale); }
+
+int music_degree_in(int pitch, int root, int scale) {
+    const Scale *sc = &kScales[scale >= 0 && scale < MUSIC_SCALES ? scale : 0];
+    root = ((root % 12) + 12) % 12;
+    int rel = pitch - (MUSIC_ROOT + root);
     int oct = rel >= 0 ? rel / 12 : -((11 - rel) / 12);
     int semi = rel - oct * 12, d = 0;
     for (int i = 0; i < sc->n; i++)

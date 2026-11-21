@@ -163,7 +163,9 @@ glide from note to note.
   (shorter scales carry on into the next octave), chords are built from it
   (the keys show their names: Am, Bdim, F…), the piano roll's scale view
   shows only its notes, and the dice stay in it. Notes you've already
-  written stay as they are.
+  written stay as they are, except a chopped MIC part's: those pick
+  slices, so they move to the same steps of the new scale and a break you
+  programmed keeps playing the same slices.
 - **ARP**: the **arpeggiator**. Tap **ARP** to turn it on; then whatever you
   hold on the keys (a note, or a chord with **L**) is played one note at a
   time. The stickers after it set the order (**UP, DOWN, UP-DN, RAND**),
@@ -466,9 +468,11 @@ microphone, a bar grabbed from the tape, or a WAV from the library. Tap the
 - **Drag any cut** by its little grip under the waveform to move it; it
   stops at its neighbours, and snaps to the nearest zero crossing when you
   let go. Dragging S or E over the cuts pushes them along.
-- Chopped, **each key plays one slice** at its own pitch: C plays slice 1,
-  D slice 2, and so on up the keys. A one-bar drum loop chopped into 8
-  gives you its hits to rearrange on the grid or the piano roll.
+- Chopped, **each key plays one slice** at its own pitch: the first key
+  (C, in C major) plays slice 1, the next slice 2, and so on up the keys,
+  in any key. A one-bar drum loop chopped into 8 gives you its hits to
+  rearrange on the grid or the piano roll; changing the song's key later
+  doesn't rearrange them.
 - **▶KIT** (top left, when chopped) puts the slices onto the **drum lanes**:
   slice 1 on KICK, 2 on SNARE, and so on (see [KIT](#the-drum-kit)).
 - Not chopped, the part plays **pitched across the keys**: C is the

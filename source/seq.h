@@ -173,6 +173,9 @@ void seq_set_fx(int step, int kind1, float x, float y);
 // The part's note covering (step, pitch), i.e. starting at or before step
 // and still sounding there; -1 if none.
 int seq_roll_find(int part, int step, int pitch);
+// Every note of the parts in `parts` (bit n = part n), in every slot, moves
+// to the pitch `map` gives it (notes that land on the same spot become one).
+void seq_map_pitches(uint8_t parts, int (*map)(int pitch, void *ctx), void *ctx);
 // Replace one part's notes in the current slot with those in `p` (whose
 // notes are taken as that part's); drums and accents come from `p` too.
 void seq_set_part_pattern(int part, const SeqPattern *p);

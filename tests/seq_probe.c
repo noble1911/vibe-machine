@@ -40,6 +40,11 @@ static void check(int ok, const char *what) {
     fails += !ok;
 }
 
+static int to_c(int pitch, void *ctx) {  // (for seq_map_pitches)
+    (void)ctx;
+    return pitch - pitch % 12;
+}
+
 static SeqPattern only_lane(int lane) {  // one drum lane on every step
     SeqPattern p;
     memset(&p, 0, sizeof(p));
@@ -539,6 +544,27 @@ int main(void) {
         for (int p = 0; p < 128; p++) unmatched += on[p] > 0;
         printf("  crowded step: %d note-ons, %d left without an off\n", ons, unmatched);
         check(ons == 60 && unmatched == 0, "a step of 60 notes plays them all, and stops them all");
+    }
+
+    // --- moving one part's pitches (a chopped part when the key changes) ----
+    {
+        SeqPattern two;
+        memset(&two, 0, sizeof(two));
+        two.notes[two.count++] = (SeqRollNote){0, 60, 1, 200, 1, 0};
+        two.notes[two.count++] = (SeqRollNote){0, 62, 1, 200, 1, 0};  // lands on 60 too: one note
+        two.notes[two.count++] = (SeqRollNote){4, 62, 1, 200, 0, 0};  // another part: stays
+        seq_put_slot(3, &two);
+        seq_put_slot(7, &two);
+        seq_map_pitches(1u << 1, to_c, NULL);
+        SeqPattern a, b;
+        seq_get_slot(3, &a);
+        seq_get_slot(7, &b);
+        int other = 0, ok = a.count == 2 && b.count == 2;
+        for (int i = 0; i < a.count; i++) {
+            if (a.notes[i].part == 1) ok &= a.notes[i].pitch == 60;
+            if (a.notes[i].part == 0) other += a.notes[i].pitch == 62;
+        }
+        check(ok && other == 1, "one part's notes move in every slot, the others stay");
     }
 
     // --- live recording, allowing for the audio still queued ----------------

@@ -706,6 +706,30 @@ void seq_set_part_pattern(int part, const SeqPattern *src) {
     UNLOCK(&s_lock);
 }
 
+void seq_map_pitches(uint8_t parts, int (*map)(int pitch, void *ctx), void *ctx) {
+    LOCK(&s_lock);
+    for (int k = 0; k < SEQ_SLOTS; k++) {
+        SeqPattern *p = &s_pats[k];
+        for (int i = 0; i < p->count; i++)
+            if ((parts >> p->notes[i].part) & 1u) {
+                const int to = map(p->notes[i].pitch, ctx);
+                p->notes[i].pitch = (uint8_t)(to < 0 ? 0 : to > 127 ? 127 : to);
+            }
+        // Two notes that landed on the same spot are one.
+        for (int i = 0; i < p->count; i++)
+            for (int j = i + 1; j < p->count;) {
+                const SeqRollNote *a = &p->notes[i], *b = &p->notes[j];
+                if (a->part == b->part && a->step == b->step && a->pitch == b->pitch &&
+                    ((a->flags ^ b->flags) & SEQ_NOTE_HALF) == 0)
+                    remove_locked(p, j);
+                else
+                    j++;
+            }
+    }
+    s_nrec = 0;
+    UNLOCK(&s_lock);
+}
+
 void seq_roll_set(int index, int step, int pitch, int len) {
     LOCK(&s_lock);
     SeqPattern *p = &s_pats[s_cur];

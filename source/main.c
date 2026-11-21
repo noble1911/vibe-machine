@@ -247,13 +247,33 @@ static void set_arp(const SeqArp *a) {
     seq_set_arp(&s_app.arp);
 }
 
+static int move_slice_note(int pitch, void *from) {
+    return sampler_slice_note_moved(pitch, ((const int *)from)[0], ((const int *)from)[1]);
+}
+
+// The KEY stickers. Notes already written stay where they are -- except a
+// chopped MIC part's: those name slices (by scale degree), so they move to
+// the same degrees in the new key and a programmed break keeps playing the
+// same slices (while the keys still walk through them in any key).
+static void sync_part_out(void);
+static void change_key(int root, int scale) {
+    int from[2] = {s_app.key_root, s_app.key_scale};
+    set_key(root, scale);
+    if (!s_app.sample_edit.slices) return;
+    sync_part_out();
+    uint8_t parts = 0;
+    for (int k = 0; k < PARTS; k++)
+        if (s_app.parts[k].sound == sound_mic_index()) parts |= (uint8_t)(1u << k);
+    if (parts) seq_map_pitches(parts, move_slice_note, from);
+}
+
 static void sound_row(int hit) {
     SeqArp a = s_app.arp;
     switch (hit) {
-        case SND_HIT_ROOT_DOWN: set_key(s_app.key_root + 11, s_app.key_scale); break;
-        case SND_HIT_ROOT_UP: set_key(s_app.key_root + 1, s_app.key_scale); break;
-        case SND_HIT_SCALE_PREV: set_key(s_app.key_root, (s_app.key_scale + MUSIC_SCALES - 1) % MUSIC_SCALES); break;
-        case SND_HIT_SCALE_NEXT: set_key(s_app.key_root, (s_app.key_scale + 1) % MUSIC_SCALES); break;
+        case SND_HIT_ROOT_DOWN: change_key(s_app.key_root + 11, s_app.key_scale); break;
+        case SND_HIT_ROOT_UP: change_key(s_app.key_root + 1, s_app.key_scale); break;
+        case SND_HIT_SCALE_PREV: change_key(s_app.key_root, (s_app.key_scale + MUSIC_SCALES - 1) % MUSIC_SCALES); break;
+        case SND_HIT_SCALE_NEXT: change_key(s_app.key_root, (s_app.key_scale + 1) % MUSIC_SCALES); break;
         case SND_HIT_ARP_ON: a.on = !a.on; set_arp(&a); break;
         case SND_HIT_ARP_MODE: a.mode = (uint8_t)((a.mode + 1) % ARP_MODES); set_arp(&a); break;
         case SND_HIT_ARP_RATE: a.rate = (uint8_t)((a.rate + 1) % ARP_RATES); set_arp(&a); break;

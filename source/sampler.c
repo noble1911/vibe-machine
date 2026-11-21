@@ -223,6 +223,11 @@ int sampler_slice_of_pitch(int pitch, int slices) {
     return ((d % slices) + slices) % slices;
 }
 
+int sampler_slice_note_moved(int pitch, int from_root, int from_scale) {
+    const int p = music_degree_note(music_degree_in(pitch, from_root, from_scale));
+    return p < 0 ? 0 : p > 127 ? 127 : p;
+}
+
 int sampler_resample(const int16_t *in, int n, int in_rate, int16_t *out, int max_out, int out_rate) {
     if (n <= 0 || in_rate <= 0 || out_rate <= 0) return 0;
     if (in_rate == out_rate) {
