@@ -400,8 +400,8 @@ sound back as designed. EDIT is kept per part, saved with the song, and
 stays when you step through a bank's patches, so you can try the same
 shaping on another patch. A sound you haven't used on this part yet starts
 as designed; one you have comes back as you left it (its patch, macros and
-EDIT, for as long as the app is running), so stepping to another sound by
-accident costs nothing.
+EDIT, until you load a song or start a new one), so stepping to another
+sound by accident costs nothing.
 
 - **ENV**: the volume envelope, drawn. Drag the three handles: the first is
   the **attack** (left: instant, right: a slow swell), the second sets the
