@@ -27,7 +27,7 @@ build/sound_probe: sound_probe.c probe_platform.c ../source/sounds.c ../source/s
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
-build/fx_probe: fx_probe.c ../source/fx.c
+build/fx_probe: fx_probe.c ../source/fx.c ../source/punch.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) -Wall -Wextra $^ $(LIBS) -o $@
 
