@@ -29,7 +29,7 @@ jobs:
       # The devkitPro image has no git; without it actions/checkout falls
       # back to a tarball download that cannot fetch submodules (AMY).
       - name: Install git
-        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3  # python3: the drum kits (tools/make-drums.sh)
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 curl unzip  # python3: the drum kits (tools/make-drums.sh); curl/unzip: the CIA tools
 
       - uses: actions/checkout@v7
         with:
@@ -42,6 +42,22 @@ jobs:
       - name: Build
         run: make -j"$(nproc)"
 
+      # The CIA installer needs makerom (Project_CTR) and bannertool: pinned
+      # releases, checked against their hashes before they run.
+      - name: CIA tools
+        run: |
+          mkdir -p /tmp/ctr && cd /tmp/ctr
+          curl -fsSLO https://github.com/3DSGuy/Project_CTR/releases/download/makerom-v0.19.0/makerom-v0.19.0-ubuntu_x86_64.zip
+          curl -fsSLO https://github.com/Epicpkmn11/bannertool/releases/download/v1.2.2/bannertool.zip
+          echo "287b809dec064e0ad597e3d272c49ecb7eed41693d5ee6fef9d8a8aa24c2497e  makerom-v0.19.0-ubuntu_x86_64.zip" | sha256sum -c -
+          echo "e4259c08fe8944ebadd5f4b96f9a8603e5427338074cfc46323fbbc3410d51ed  bannertool.zip" | sha256sum -c -
+          unzip -q makerom-v0.19.0-ubuntu_x86_64.zip -d makerom
+          unzip -q bannertool.zip -d bannertool
+          chmod +x makerom/makerom bannertool/linux-x86_64/bannertool
+
+      - name: Build the CIA
+        run: make cia MAKEROM=/tmp/ctr/makerom/makerom BANNERTOOL=/tmp/ctr/bannertool/linux-x86_64/bannertool
+
       - name: Collect licences
         run: cp third_party/amy/LICENSE LICENSE-AMY.txt
 
@@ -51,6 +67,7 @@ jobs:
           name: vibe-machine-${{ github.sha }}
           path: |
             vibe-machine.3dsx
+            vibe-machine.cia
             vibe-machine.smdh
             LICENSE
             LICENSE-AMY.txt
@@ -62,6 +79,7 @@ jobs:
         with:
           files: |
             vibe-machine.3dsx
+            vibe-machine.cia
             LICENSE
             LICENSE-AMY.txt
           generate_release_notes: true

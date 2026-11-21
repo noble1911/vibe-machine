@@ -44,6 +44,12 @@ ROMFS		:=	romfs
 APP_TITLE	:=	Vibe Machine
 APP_DESCRIPTION	:=	Pocket synth & tape groovebox
 APP_AUTHOR	:=	noble1911
+ICON		:=	cia/icon.png
+# CIA (make cia): a title ID in the homebrew range, and the tools to build it
+# (makerom, bannertool: see .github/workflows/build.yml for where they come from).
+APP_UNIQUE_ID	:=	0xFB5E1
+MAKEROM		?=	makerom
+BANNERTOOL	?=	bannertool
 
 #---------------------------------------------------------------------------------
 # AMY synthesizer (MIT) -- git submodule, pinned. Only the portable core is
@@ -202,7 +208,7 @@ ifneq ($(ROMFS),)
 	export _3DSXFLAGS += --romfs=$(CURDIR)/$(ROMFS)
 endif
 
-.PHONY: all clean
+.PHONY: all clean cia
 
 #---------------------------------------------------------------------------------
 all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
@@ -224,9 +230,18 @@ $(DEPSDIR):
 endif
 
 #---------------------------------------------------------------------------------
+# The CIA installer: the same app as the .3dsx, as a HOME Menu title, with
+# its banner (box art) and a little jingle.
+cia: all
+	@$(BANNERTOOL) makebanner -i cia/banner.png -a cia/banner.wav -o $(BUILD)/banner.bnr
+	@$(MAKEROM) -f cia -o $(TARGET).cia -elf $(TARGET).elf -rsf cia/app.rsf -icon $(TARGET).smdh \
+		-banner $(BUILD)/banner.bnr -exefslogo -target t \
+		-DAPP_TITLE="$(APP_TITLE)" -DAPP_UNIQUE_ID=$(APP_UNIQUE_ID) -DAPP_ROMFS=$(ROMFS)
+	@echo built $(TARGET).cia
+
 clean:
 	@echo clean ...
-	@rm -fr $(BUILD) $(TARGET).3dsx $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD)
+	@rm -fr $(BUILD) $(TARGET).3dsx $(TARGET).cia $(OUTPUT).smdh $(TARGET).elf $(GFXBUILD)
 
 #---------------------------------------------------------------------------------
 $(GFXBUILD)/%.t3x	$(BUILD)/%.h	:	%.t3s

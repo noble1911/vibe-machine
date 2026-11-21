@@ -65,14 +65,18 @@ at a time, from the keys to the mixdown (also the app playing itself, with
 
 ## Quick start
 
-1. **Get the app:** download `vibe-machine.3dsx` from the latest
-   [Actions build](../../actions) (or a release), or build it (below).
+1. **Get the app** from the [latest release](../../releases/latest):
+   `vibe-machine.3dsx` (for the Homebrew Launcher) or `vibe-machine.cia`
+   (installs onto the HOME Menu). Or build it (below).
 2. **Run it:**
+   - **3DS with custom firmware (Luma3DS):** either copy the `.3dsx` to
+     `sdmc:/3ds/` and start it from the Homebrew Launcher, or install the
+     `.cia` with **FBI** and start it from the HOME Menu like any other
+     app. For sound, run the **DSP1** homebrew once to dump your console's
+     DSP firmware.
    - **Azahar emulator:** run `sh tools/azahar-sd-setup.sh` once (it gives
-     Azahar's DSP emulation the file it expects), then File → Load File.
-   - **3DS with custom firmware (Luma3DS):** copy the `.3dsx` to
-     `sdmc:/3ds/` and start it from the Homebrew Launcher. For sound, run the
-     **DSP1** homebrew once to dump your console's DSP firmware.
+     Azahar's DSP emulation the file it expects), then File → Load File (the
+     `.3dsx`), or File → Install CIA.
 3. **Play:** D-pad and Y B A X are the keys. Press **START** and the
    starter beat plays. Then follow the [tutorial](docs/TUTORIAL.md).
 
@@ -125,6 +129,7 @@ sudo dkp-pacman -S 3ds-dev
 git clone --recursive https://github.com/noble1911/vibe-machine.git
 cd vibe-machine
 make            # -> vibe-machine.3dsx
+make cia        # -> vibe-machine.cia too (needs makerom and bannertool: MAKEROM=, BANNERTOOL=)
 make DEMO=1     # a silent attract mode that tours every page (for screenshots)
 make STORY=1    # plays the zero-to-song story by itself (an end-to-end UI test)
 make STORY=1 TOUR=1  # the feature tour instead
