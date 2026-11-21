@@ -3169,7 +3169,7 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
     // L + R + SELECT: step the share of core 1 the synth asks for (tuning,
     // for now: the best value is being found on real hardware).
     if ((held & (KEY_L | KEY_R)) == (KEY_L | KEY_R) && (down & KEY_SELECT)) {
-        static const int steps[] = {30, 50, 65, 80, 0, 15};
+        static const int steps[] = {50, 65, 80, 0, 15, 30};
         int i = 0;
         while (i < 6 && steps[i] != engine_core1_limit()) i++;
         const int pct = steps[(i + 1) % 6];

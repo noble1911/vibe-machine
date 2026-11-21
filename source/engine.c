@@ -176,7 +176,7 @@ static char s_core_report[400];
 // original 3DS runs its own services (the one that carries sound to the DSP
 // among them): ask for too much and THEY starve, which is heard as gaps
 // even with nothing playing. 0: don't use core 1 at all.
-static volatile int s_core1_limit = 30;
+static volatile int s_core1_limit = 50;  // measured on an original 3DS: 50-65% ran gap-free; 80% starved the system, 30% and less starved the synth
 static bool s_worker_core1;
 static u8 s_probe_stack[4096] __attribute__((aligned(8)));
 static void probe_entry(void *arg) {
