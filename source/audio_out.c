@@ -14,6 +14,7 @@
 #include "engine.h"
 #include "fx.h"
 #include "mixer.h"
+#include "punch.h"
 #include "seq.h"
 #include "tape.h"
 
@@ -130,12 +131,15 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
         // The sequencer clock runs here, on the sample clock: steps that fall
         // due are sent to the engine just before the block that plays them.
         seq_advance(frames, engine_sample_rate());
+        const SeqClock clk = seq_clock();  // PUNCH engages on the 16ths the sequencer fires
+        punch_clock(clk.fired, clk.step, clk.playing, clk.punch, (float)clk.bpm);
         uint64_t t0 = svcGetSystemTick();
         const int16_t *block = engine_render_block();
         uint64_t t1 = svcGetSystemTick();
         memcpy(dst, block, (size_t)frames * 2 * sizeof(int16_t));
         tape_play_block(dst, frames, engine_sample_rate());  // the tape plays along...
-        fx_process(dst, frames);                             // ...the performance FX go over everything...
+        punch_process(dst, frames);                          // ...PUNCH-ins and the performance FX go
+        fx_process(dst, frames);                             // over everything...
         const float *strips[TAPE_SOURCES];  // (each MIX strip on its own, for tracks that record one)
         for (int k = 0; k < TAPE_SOURCES; k++) strips[k] = mixer_strip_block(k);
         tape_record_block(dst, strips, frames);              // ...and the armed track records
@@ -179,6 +183,7 @@ bool audio_out_init(void) {
     s_peak_window_start = svcGetSystemTick();
 
     fx_init(engine_sample_rate());
+    punch_init(engine_sample_rate());
     if (R_FAILED(ndspInit())) return false;
 
     ndspSetOutputMode(NDSP_OUTPUT_STEREO);

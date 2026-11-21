@@ -61,6 +61,8 @@ typedef struct {
     // FX automation: the FX page's pad, recorded per step. fx[s] is 0 for
     // nothing, else FxKind + 1; fx_x / fx_y its position (0..255).
     uint8_t fx[SEQ_STEPS_MAX], fx_x[SEQ_STEPS_MAX], fx_y[SEQ_STEPS_MAX];
+    // PUNCH-ins sequenced per step: bit k = PunchKind k is on for that step.
+    uint16_t punch[SEQ_STEPS_MAX];
 } SeqPattern;
 
 static inline int seq_len(const SeqPattern *p) { return p->len ? p->len : SEQ_STEPS; }
@@ -123,6 +125,17 @@ void seq_init(SeqNoteFn out);
 // notes that fall due.
 void seq_advance(int frames, int rate);
 
+// What the last seq_advance() did, for the PUNCH effects (audio thread
+// only, right after it): whether a step fired (at the start of the block
+// about to render), which, and the punch-ins it has sequenced.
+typedef struct {
+    bool playing, fired;
+    int step;
+    uint16_t punch;
+    int bpm;
+} SeqClock;
+SeqClock seq_clock(void);
+
 // --- UI thread -----------------------------------------------------------
 void seq_toggle_play(void);
 void seq_set_recording(bool on);
@@ -166,6 +179,8 @@ void seq_roll_set_flags(int index, int flags);
 // FX automation on `step` of the current slot: kind1 = FxKind + 1, or 0 to
 // erase; x, y 0..1.
 void seq_set_fx(int step, int kind1, float x, float y);
+// PUNCH-ins on `step` of the current slot (bit k = PunchKind k).
+void seq_set_punch(int step, uint16_t mask);
 // The part's note covering (step, pitch), i.e. starting at or before step
 // and still sounding there; -1 if none.
 int seq_roll_find(int part, int step, int pitch);

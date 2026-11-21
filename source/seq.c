@@ -75,6 +75,7 @@ static double s_pos;     // samples since the current step fired
 static uint32_t s_ticks;  // steps fired since play started (the current step's number)
 static int s_rate = 44100;
 static uint32_t s_fired;
+static SeqClock s_clock;  // audio thread: what the last seq_advance() did
 static Active s_active[MAX_ACTIVE];
 static int s_nactive;
 
@@ -284,6 +285,9 @@ static int fire_step(int step, Event *ev, int n) {
     }
     s_step = step;
     s_fired++;
+    s_clock.fired = true;
+    s_clock.step = step;
+    s_clock.punch = p->punch[step];
     return n;
 }
 
@@ -325,6 +329,7 @@ void seq_advance(int frames, int rate) {
 
     LOCK(&s_lock);
     s_rate = rate;
+    s_clock.fired = false;
     if (s_playing) {
         if (s_start_pending) {
             s_start_pending = false;
@@ -377,12 +382,17 @@ void seq_advance(int frames, int rate) {
         s_arp_off -= frames;
         if (s_arp_off <= 0) n = arp_off_event(ev, n);
     }
+    s_clock.playing = s_playing;
+    s_clock.bpm = s_bpm;
+    if (!s_playing) s_clock.punch = 0;
     UNLOCK(&s_lock);
 
     // Talk to the engine outside our lock.
     if (s_out)
         for (int i = 0; i < n; i++) s_out(ev[i].synth, ev[i].note, ev[i].vel);
 }
+
+SeqClock seq_clock(void) { return s_clock; }
 
 void seq_toggle_play(void) {
     LOCK(&s_lock);
@@ -592,6 +602,7 @@ void seq_set_bars(int bars) {
             p->fx[s] = p->fx[s % old];
             p->fx_x[s] = p->fx_x[s % old];
             p->fx_y[s] = p->fx_y[s % old];
+            p->punch[s] = p->punch[s % old];
             if ((p->accents >> (s % old)) & 1ull) p->accents |= 1ull << s;
             else p->accents &= ~(1ull << s);
         }
@@ -670,6 +681,13 @@ void seq_set_fx(int step, int kind1, float x, float y) {
     p->fx[step] = (uint8_t)(kind1 < 0 ? 0 : kind1);
     p->fx_x[step] = (uint8_t)(x <= 0.0f ? 0 : x >= 1.0f ? 255 : x * 255.0f + 0.5f);
     p->fx_y[step] = (uint8_t)(y <= 0.0f ? 0 : y >= 1.0f ? 255 : y * 255.0f + 0.5f);
+    UNLOCK(&s_lock);
+}
+
+void seq_set_punch(int step, uint16_t mask) {
+    if (step < 0 || step >= SEQ_STEPS_MAX) return;
+    LOCK(&s_lock);
+    s_pats[s_cur].punch[step] = mask;
     UNLOCK(&s_lock);
 }
 
