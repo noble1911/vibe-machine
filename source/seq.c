@@ -20,7 +20,7 @@ typedef pthread_mutex_t SeqLock;
 #define UNLOCK(l) pthread_mutex_unlock(l)
 #endif
 
-#define MAX_EVENTS 64
+#define MAX_EVENTS 256  // events one seq_advance() can send (a step full of notes fits)
 #define MAX_ACTIVE 32  // synth notes the sequencer is holding at once
 #define MAX_SKIPS 16
 #define MAX_REC_HELD 12
@@ -114,6 +114,15 @@ static int drum_note(int lane) {
     return notes[0];
 }
 
+// Note-offs are never dropped (a dropped one is a stuck note): note-ons only
+// go out while there is still room for the off of every note sounding, so
+//   n + s_nactive + (an arp note sounding) <= MAX_EVENTS
+// always holds. An off moves one from the right to the left; an on that
+// will need an off costs two. If a block really is that crowded, the extra
+// note-ons are what's dropped.
+static int owed_offs(void) { return s_nactive + (s_arp_cur >= 0); }
+static bool room_for_on(int n, int cost) { return n + owed_offs() + cost <= MAX_EVENTS; }
+
 static int release_active(int i, Event *ev, int n) {
     if (n < MAX_EVENTS) ev[n++] = (Event){part_synth(s_active[i].part), s_active[i].pitch, 0.0f};
     s_active[i] = s_active[--s_nactive];
@@ -202,7 +211,8 @@ static int arp_tick(int step, Event *ev, int n) {
     const int pitch = arp_next();
     if (pitch < 0 || pitch > 127) return n;
     const float vel = 0.75f;
-    if (n < MAX_EVENTS) ev[n++] = (Event){part_synth(s_arp_part), pitch, vel};
+    if (!room_for_on(n, 2)) return n;
+    ev[n++] = (Event){part_synth(s_arp_part), pitch, vel};
     s_arp_cur = pitch;
     s_arp_cur_part = s_arp_part;
     s_arp_off = arp_interval() * 0.6;  // a little gap between notes
@@ -254,8 +264,9 @@ static int start_note(int part, int pitch, float vel, double off, Event *ev, int
             break;
         }
     if (s_nactive == MAX_ACTIVE) n = release_active(0, ev, n);  // full: drop the oldest
+    if (!room_for_on(n, 2)) return n;  // (its off is owed from now on)
     s_active[s_nactive++] = (Active){(uint8_t)pitch, (uint8_t)part, off};
-    if (n < MAX_EVENTS) ev[n++] = (Event){part_synth(part), pitch, vel};
+    ev[n++] = (Event){part_synth(part), pitch, vel};
     return n;
 }
 
@@ -268,7 +279,7 @@ static int fire_step(int step, Event *ev, int n) {
     const uint8_t muted = s_muted | (arranging() && s_arr_row >= 0 ? s_arr.rows[s_arr_row].mutes : 0);
     if ((muted >> PARTS) & 1u) hits = 0;
     for (int lane = 0; lane < SEQ_LANES; lane++)
-        if ((hits & (1u << lane)) && n < MAX_EVENTS)
+        if ((hits & (1u << lane)) && room_for_on(n, 1))  // (drums are one-shots: no off)
             ev[n++] = (Event){SYNTH_DRUMS, drum_note(lane), accent ? SEQ_VEL_DRUM_ACCENT : SEQ_VEL_DRUM};
 
     for (int i = 0; i < p->count; i++) {

@@ -455,6 +455,32 @@ int main(void) {
         seq_set_arp(&arp);
     }
 
+    // --- a crowded step ------------------------------------------------------
+    {   // 60 notes on one step (more than the 32 it holds at once): every note
+        // that starts also stops; no note-off is ever dropped.
+        SeqPattern busy;
+        memset(&busy, 0, sizeof(busy));
+        busy.len = SEQ_STEPS;
+        for (int i = 0; i < 60; i++) busy.notes[busy.count++] = (SeqRollNote){0, (uint8_t)(30 + i), 1, 200, 0, 0};
+        for (int s = 0; s < SEQ_STEPS; s++) busy.drums[s] = 0xFF;
+        seq_put_slot(0, &busy);
+        seq_select_slot(0);
+        seq_set_bpm(120);
+        s_nhits = s_noffs = 0;
+        seq_toggle_play();
+        run(0.3);
+        seq_toggle_play();
+        run(0.1);
+        int on[128] = {0}, ons = 0, unmatched = 0;
+        for (int i = 0; i < s_nhits; i++)
+            if (s_hits[i].synth == part_synth(0)) on[s_hits[i].note]++, ons++;
+        for (int i = 0; i < s_noffs; i++)
+            if (s_offs[i].synth == part_synth(0)) on[s_offs[i].note]--;
+        for (int p = 0; p < 128; p++) unmatched += on[p] > 0;
+        printf("  crowded step: %d note-ons, %d left without an off\n", ons, unmatched);
+        check(ons == 60 && unmatched == 0, "a step of 60 notes plays them all, and stops them all");
+    }
+
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);
     return fails ? 1 : 0;
 }
