@@ -212,7 +212,9 @@ The grid is one bar of 16 steps. From the top:
 
 ### Recording live
 
-Arm **●**, press **START**, and play: notes land on the nearest step. Hold
+Arm **●**, press **START**, and play: notes land on the nearest step, as
+you heard it (the sound still on its way to the speaker is allowed for, so
+on-time playing stays on time at fast tempos too). Hold
 **R** while recording to record drums, **L** for chords. Hits you play just
 before a step are snapped onto it and not played twice.
 

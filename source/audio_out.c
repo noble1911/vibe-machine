@@ -164,6 +164,17 @@ static void audio_thread(void *arg) {
                 queued++;
             }
         }
+        // What's queued is how far the speaker is behind the sequencer's
+        // clock: live recording takes it off (seq.c). (Read every DSP frame,
+        // so it follows the queue as it drains.)
+        u32 ahead = 0;
+        for (int i = 0; i < NUM_WAVEBUFS; i++) {
+            const u8 st = s_wavebufs[i].status;
+            if (st == NDSP_WBUF_QUEUED || st == NDSP_WBUF_PLAYING) ahead += s_wavebufs[i].nsamples;
+        }
+        u32 played = ndspChnGetSamplePos(CHANNEL);  // of the buffer playing now
+        if (played > (u32)s_frames_per_wavebuf) played = (u32)s_frames_per_wavebuf / 2;
+        seq_set_latency(ahead > played ? (int)(ahead - played) : 0);
         // If nothing was still queued, the DSP had drained completely: an
         // audible gap. Count it so the UI can show it.
         if (queued == 0 && s_stats.blocks > NUM_WAVEBUFS * BLOCKS_PER_WAVEBUF) {

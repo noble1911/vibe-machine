@@ -3556,6 +3556,9 @@ int main(void) {
     drum_kit_stock(&s_app.kit, 0);
     s_app.kit_lane = 0;
     seq_init(seq_out);
+    // Buttons and the touchscreen are read once a frame: on average a press
+    // happened half a frame before we see it. Live recording allows for it.
+    seq_set_input_delay(engine_sample_rate() / 120);
     s_app.slot_hold = -1;
     s_app.part_hold = -1;
     s_app.roll_active = -1;

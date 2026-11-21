@@ -541,6 +541,44 @@ int main(void) {
         check(ons == 60 && unmatched == 0, "a step of 60 notes plays them all, and stops them all");
     }
 
+    // --- live recording, allowing for the audio still queued ----------------
+    {   // The clock runs 3/4 of a step ahead of the speaker: a hit played on
+        // step 2 as heard arrives when the clock is past step 3, and still
+        // lands on step 2; a held note keeps its start and length as heard.
+        const double step = 5512.5;
+        SeqPattern empty;
+        memset(&empty, 0, sizeof(empty));
+        seq_put_slot(6, &empty);
+        seq_select_slot(6);
+        seq_set_song(false);
+        seq_set_swing(0.0f);
+        seq_set_bpm(120);
+        seq_set_recording(true);
+        seq_toggle_play();
+        run(step * 3.1 / RATE);
+        seq_set_latency((int)(0.75 * step));
+        seq_record_drum(0);
+        run(step * 3.0 / RATE);  // clock at 6.1, heard 5.35
+        seq_set_latency((int)(0.75 * step));
+        SeqNote held = {2, 1, {64}};
+        seq_record_synth(0, &held);
+        run(step * 3.0 / RATE);  // clock at 9.1, heard 8.35
+        seq_set_latency((int)(0.75 * step));
+        seq_record_release(0, &held);
+        seq_toggle_play();
+        seq_set_recording(false);
+        SeqPattern got;
+        seq_get_slot(6, &got);
+        int kick = -1;
+        for (int st = 0; st < SEQ_STEPS; st++)
+            if (got.drums[st] & 1u) kick = st;
+        printf("  queued audio 3/4 step: kick on step %d; note on step %d, %d long\n", kick,
+               got.count ? got.notes[0].step : -1, got.count ? got.notes[0].len : -1);
+        check(kick == 2, "a hit lands on the step that was heard, not the clock's");
+        check(got.count == 1 && got.notes[0].step == 5 && got.notes[0].len == 3,
+              "a held note starts and ends where it was heard");
+    }
+
     printf(fails ? "\n%d sequencer problem(s)\n" : "\nall sequencer OK\n", fails);
     return fails ? 1 : 0;
 }

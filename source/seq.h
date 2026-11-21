@@ -178,8 +178,15 @@ int seq_roll_find(int part, int step, int pitch);
 void seq_set_part_pattern(int part, const SeqPattern *p);
 
 // Live recording (only acts while playing and recording): the hit lands on
-// the nearest step. Synth notes are as long as you hold them: call
-// seq_record_release() with the same note when the key comes up.
+// the step nearest to what the player heard when they pressed. Synth notes
+// are as long as you hold them: call seq_record_release() with the same
+// note when the key comes up.
+// The clock runs ahead of the speaker by the audio queued for output: the
+// audio thread says by how much, in frames, as it changes. And a press
+// reaches the sequencer a little after it happened (input is read once a
+// frame): the UI says how long that is on average, in frames.
+void seq_set_latency(int frames);
+void seq_set_input_delay(int frames);
 void seq_record_drum(int lane);
 void seq_record_synth(int part, const SeqNote *note);
 void seq_record_release(int part, const SeqNote *note);

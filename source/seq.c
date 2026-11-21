@@ -74,6 +74,11 @@ static int s_step;
 static double s_pos;     // samples since the current step fired
 static uint32_t s_ticks;  // steps fired since play started (the current step's number)
 static int s_rate = 44100;
+// Frames the speaker is behind this clock: what the audio thread last
+// measured (seq_set_latency), plus what the clock has run on since.
+static int s_out_latency, s_since_latency;
+static bool s_latency_known;
+static int s_in_delay;              // frames: how late a press reaches us (seq_set_input_delay)
 static uint32_t s_fired;
 static Active s_active[MAX_ACTIVE];
 static int s_nactive;
@@ -365,6 +370,7 @@ void seq_advance(int frames, int rate) {
 
     LOCK(&s_lock);
     s_rate = rate;
+    if (s_latency_known) s_since_latency += frames;  // rendering ahead of the last measurement
     if (s_playing) {
         if (s_start_pending) {
             s_start_pending = false;
@@ -767,10 +773,55 @@ int seq_notes_at(const SeqPattern *p, int part, int step, int *pitches, int max)
 
 // --- live recording --------------------------------------------------------
 
-// Nearest step to "now"; *ahead is set when that is the coming step.
-static int nearest_step(bool *ahead) {
-    *ahead = s_pos >= step_len_after(s_step) / 2.0;
-    return *ahead ? (s_step + 1) % seq_len(&s_pats[s_cur]) : s_step;
+// Where the player is in the music, in steps since play started: the clock
+// here runs ahead of the speaker by the output queue, and a press reaches
+// us a little late, so step back by both (across steps of different
+// lengths, for swing). Before the first step: negative.
+static double heard_steps(void) {
+    double lat = (double)s_out_latency + s_since_latency + s_in_delay, pos = s_pos, t = s_ticks;
+    if (lat <= pos) return t + (pos - lat) / step_len_after(s_step);
+    lat -= pos;
+    const int len = seq_len(&s_pats[s_cur]);
+    int step = s_step;
+    for (int i = 0; i < SEQ_STEPS_MAX; i++) {
+        step = step > 0 ? step - 1 : len - 1;
+        t -= 1.0;
+        const double sl = step_len_after(step);
+        if (lat <= sl) return t + (sl - lat) / sl;
+        lat -= sl;
+    }
+    return t;
+}
+
+// The step nearest to what the player hears: *tick is its number (steps
+// since play started) and *ahead is set when the clock hasn't fired it yet
+// (it will, so the hit just played must be skipped once). Returns its index
+// in the pattern.
+static int nearest_step(bool *ahead, uint32_t *tick) {
+    const double h = heard_steps();
+    long k = (long)h;
+    if (h < k) k--;  // floor
+    long t = h - k >= 0.5 ? k + 1 : k;
+    if (t < 0) t = 0;  // before the first step: it's the first step
+    if (t > (long)s_ticks + 1) t = (long)s_ticks + 1;
+    *tick = (uint32_t)t;
+    *ahead = t == (long)s_ticks + 1;
+    const int len = seq_len(&s_pats[s_cur]), d = (int)(t - (long)s_ticks);
+    return ((s_step + d) % len + len) % len;
+}
+
+void seq_set_latency(int frames) {
+    LOCK(&s_lock);
+    s_out_latency = frames > 0 ? frames : 0;
+    s_since_latency = 0;
+    s_latency_known = true;
+    UNLOCK(&s_lock);
+}
+
+void seq_set_input_delay(int frames) {
+    LOCK(&s_lock);
+    s_in_delay = frames > 0 ? frames : 0;
+    UNLOCK(&s_lock);
 }
 
 void seq_record_drum(int lane) {
@@ -778,7 +829,8 @@ void seq_record_drum(int lane) {
     LOCK(&s_lock);
     if (s_playing && s_recording && !s_start_pending) {
         bool ahead;
-        int step = nearest_step(&ahead);
+        uint32_t tick;
+        int step = nearest_step(&ahead, &tick);
         s_pats[s_cur].drums[step] |= (uint8_t)(1u << lane);
         if (ahead) s_skip_drums[step] |= (uint8_t)(1u << lane);
     }
@@ -790,14 +842,15 @@ void seq_record_synth(int part, const SeqNote *note) {
     LOCK(&s_lock);
     if (s_playing && s_recording && !s_start_pending) {
         bool ahead;
-        int step = nearest_step(&ahead);
+        uint32_t tick;
+        int step = nearest_step(&ahead, &tick);
         SeqPattern *p = &s_pats[s_cur];
         for (int i = 0; i < note->count; i++) {
             int idx = add_locked(p, part, step, note->notes[i], 1, (int)(SEQ_VEL_SYNTH * 255), 0);
             if (idx < 0) continue;
             if (ahead && s_nskip < MAX_SKIPS) s_skip_notes[s_nskip++] = (Skip){(uint8_t)step, note->notes[i], (uint8_t)part};
             if (s_nrec < MAX_REC_HELD)  // remember when it started, to set its length on release
-                s_rec_held[s_nrec++] = (RecHeld){idx, note->notes[i], (uint8_t)part, s_ticks + (ahead ? 1.0 : 0.0), (uint8_t)s_cur};
+                s_rec_held[s_nrec++] = (RecHeld){idx, note->notes[i], (uint8_t)part, (double)tick, (uint8_t)s_cur};
         }
     }
     UNLOCK(&s_lock);
@@ -806,7 +859,7 @@ void seq_record_synth(int part, const SeqNote *note) {
 void seq_record_release(int part, const SeqNote *note) {
     if (!note || !note->count) return;
     LOCK(&s_lock);
-    const double now = now_steps();
+    const double now = heard_steps();  // (as the press was: what was heard)
     for (int k = 0; k < note->count; k++)
         for (int i = 0; i < s_nrec; i++) {
             if (s_rec_held[i].pitch != note->notes[k] || s_rec_held[i].part != part) continue;
