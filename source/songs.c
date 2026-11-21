@@ -71,13 +71,11 @@ bool song_load_state(const char *root, const char *name, SaveState *st) {
 bool song_exists(const char *root, const char *name) {
     char path[160];
     song_path(root, name, "song.vms", path, sizeof(path));
-    FILE *f = fopen(path, "rb");
-    if (f) fclose(f);
-    return f != NULL;
+    return storage_exists(path);  // (or the copy a cut-off save left)
 }
 
 bool song_delete(const char *root, const char *name) {
-    static const char *const files[] = {"song.vms", "tape1.wav", "tape2.wav", "tape3.wav", "tape4.wav", "mic.wav",
+    static const char *const files[] = {"song.vms", "song.vms.new", "song.vms.bak", "tape1.wav", "tape2.wav", "tape3.wav", "tape4.wav", "mic.wav",
                                         "drum1.wav", "drum2.wav", "drum3.wav", "drum4.wav", "drum5.wav", "drum6.wav",
                                         "drum7.wav", "drum8.wav"};
     char path[160];

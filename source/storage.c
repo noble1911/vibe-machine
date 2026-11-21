@@ -371,22 +371,83 @@ static void decode(Reader *r, SaveState *st, int version) {
     sampler_edit_clamp(&st->sample_edit);
 }
 
+// --- writing files safely -----------------------------------------------
+
+static void sibling(char *out, size_t len, const char *path, const char *ext) { snprintf(out, len, "%s%s", path, ext); }
+
+bool storage_write_file(const char *path, const void *data, size_t n) {
+    char tmp[STORAGE_PATH_MAX], bak[STORAGE_PATH_MAX];
+    sibling(tmp, sizeof(tmp), path, ".new");
+    sibling(bak, sizeof(bak), path, ".bak");
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return false;
+    const bool wrote = fwrite(data, 1, n, f) == n;
+    if (fclose(f) != 0 || !wrote) {
+        remove(tmp);
+        return false;
+    }
+    // The SD card's rename won't replace a file: the old one steps aside.
+    remove(bak);
+    const bool had = rename(path, bak) == 0;  // (fails when there's no old one: fine)
+    if (rename(tmp, path) != 0) {
+        if (had) rename(bak, path);  // put the old one back; the new one stays in .new
+        return false;
+    }
+    return true;
+}
+
+bool storage_exists(const char *path) {
+    static const char *const ext[3] = {"", ".new", ".bak"};
+    for (int i = 0; i < 3; i++) {
+        char p[STORAGE_PATH_MAX];
+        sibling(p, sizeof(p), path, ext[i]);
+        FILE *f = fopen(p, "rb");
+        if (f) {
+            fclose(f);
+            return true;
+        }
+    }
+    return false;
+}
+
+void storage_remove(const char *path) {
+    char p[STORAGE_PATH_MAX];
+    remove(path);
+    sibling(p, sizeof(p), path, ".new");
+    remove(p);
+    sibling(p, sizeof(p), path, ".bak");
+    remove(p);
+}
+
+bool storage_read_newest(const char *path, bool (*load)(const char *path, void *out), void *out) {
+    if (load(path, out)) return true;
+    char p[STORAGE_PATH_MAX];
+    sibling(p, sizeof(p), path, ".new");  // the save that was being put in place
+    if (load(p, out)) return true;
+    sibling(p, sizeof(p), path, ".bak");  // the one before it
+    return load(p, out);
+}
+
+// -------------------------------------------------------------------------
+
 bool storage_save(const char *path, const SaveState *st) {
     static Writer w;  // big: not on the stack
+    static uint8_t file[4 + 4 + MAX_PAYLOAD + 4];
     w.n = 0;
     w.ok = true;
     encode(&w, st);
     if (!w.ok) return false;
-    FILE *f = fopen(path, "wb");
-    if (!f) return false;
-    uint16_t head[2] = {VERSION, (uint16_t)w.n};
-    uint32_t sum = checksum(w.buf, w.n);
-    bool ok = fwrite("VIBE", 1, 4, f) == 4 && fwrite(head, sizeof(head), 1, f) == 1 && fwrite(w.buf, 1, w.n, f) == w.n &&
-              fwrite(&sum, sizeof(sum), 1, f) == 1;
-    return fclose(f) == 0 && ok;
+    const uint16_t head[2] = {VERSION, (uint16_t)w.n};
+    const uint32_t sum = checksum(w.buf, w.n);
+    memcpy(file, "VIBE", 4);
+    memcpy(file + 4, head, sizeof(head));
+    memcpy(file + 8, w.buf, w.n);
+    memcpy(file + 8 + w.n, &sum, sizeof(sum));
+    return storage_write_file(path, file, 8 + w.n + sizeof(sum));
 }
 
-bool storage_load(const char *path, SaveState *st) {
+static bool load_one(const char *path, void *out) {
+    SaveState *st = out;
     FILE *f = fopen(path, "rb");
     if (!f) return false;
     char magic[4];
@@ -406,3 +467,5 @@ bool storage_load(const char *path, SaveState *st) {
     *st = tmp;
     return true;
 }
+
+bool storage_load(const char *path, SaveState *st) { return storage_read_newest(path, load_one, st); }

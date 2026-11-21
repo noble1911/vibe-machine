@@ -102,6 +102,10 @@ The [tutorial](docs/TUTORIAL.md) explains every page in detail.
   `sdmc:/3ds/vibe-machine/presets/` as small `.vmp` files.
 - The WAVs are ordinary files: copy them off the SD card into any audio
   editor.
+- Song, autosave and preset files are written safely: the new one goes to
+  `<file>.new`, the old one steps aside as `<file>.bak`, and only then does
+  the new one take its place. Losing power mid-save leaves a complete copy,
+  and loading falls back to it.
 
 ## Building
 
@@ -137,7 +141,7 @@ runs eight probes:
 | fx | Bypass is bit-exact; sweep darkens and brightens; crush quantises; stutter repeats at exactly the tempo-synced length; tape stops and recovers |
 | seq | 16ths land on time, to the sample; swing gaps are right; accents hit harder; a queued pattern switches on the bar line; song mode chains the right slots; piano-roll notes hold for their length (over the bar line too), chords sound together, live notes keep the length you held and land where they were heard; a 1/32 arpeggio records every note; slides survive copying; a crowded step never leaves a note hanging; muted parts and drums stay silent |
 | tape | Playback at pitch, an octave up at 2×, reverse, mute, wipe; a track set to one strip records just that strip |
-| logic | Save files, WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling, CHOP cuts (uneven, kept in order, pushed by START, auto-cut at the hits, zero-crossing snap), drum kits, EDIT morph and mutate, drawn waves, presets |
+| logic | Save files (and their safe writing: a cut-off save always leaves one that loads), WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling, CHOP cuts (uneven, kept in order, pushed by START, auto-cut at the hits, zero-crossing snap), drum kits, EDIT morph and mutate, drawn waves, presets |
 | songs | Song names, listing (sorted, hundreds of songs), save, load, overwrite, delete; the sample library's listing |
 | dual | AMY's oscillators split between two threads at a voice boundary render exactly (bit for bit) what one thread does |
 | mix | Each part reaches only its own strip; level, mute and pan are exact; DRIVE squares the wave off and CRUSH steps it while the level stays within a few dB; another strip's effects leave a part bit-for-bit alone; the master echo still reaches every part |

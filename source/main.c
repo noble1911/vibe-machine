@@ -1488,7 +1488,10 @@ static void song_hold_done(int button) {
         if (button == SONG_HIT_DELETE && s_app.song_sel >= 0 && s_app.song_sel < s_app.song_count) {
             char path[160];
             sample_path(lib_root(), s_sample_files[s_app.song_sel].file, path, sizeof(path));
-            remove(path);
+            if (s_app.lib_presets)
+                storage_remove(path);  // and the copies a safe save keeps
+            else
+                remove(path);
             refresh_songs();
         }
         if (button == SONG_HIT_CONFIRM) {
