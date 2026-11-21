@@ -38,7 +38,7 @@ DATA		:=	data
 INCLUDES	:=	include
 GRAPHICS	:=	gfx
 GFXBUILD	:=	$(BUILD)
-#ROMFS		:=	romfs
+ROMFS		:=	romfs
 #GFXBUILD	:=	$(ROMFS)/gfx
 
 APP_TITLE	:=	Vibe Machine
@@ -60,7 +60,8 @@ AMY_CFILES	:=	amy.c algorithms.c api.c amy_midi.c custom.c cv_trigger.c \
 			oscillators.c parse.c patches.c pcm.c sequencer.c transfer.c
 # 32728 Hz: the 3DS DSP's own output rate (rendering 44.1 kHz only for the
 # DSP to resample it down cost a quarter more CPU for nothing you can hear).
-AMY_DEFINES	:=	-DAMY_NO_MINIAUDIO -DAMY_WAVETABLE -DBLOCK_SIZE_BITS=7 -DVM_AMY_DUALCORE -DVM_AMY_SAMPLE_RATE=32728
+AMY_DEFINES	:=	-DAMY_NO_MINIAUDIO -DAMY_WAVETABLE -DBLOCK_SIZE_BITS=7 -DVM_AMY_DUALCORE -DVM_AMY_SAMPLE_RATE=32728 \
+		-DGAMMA9001  # all of AMY's drum kits (their samples: romfs/drums.bin, tools/make-drums.sh)
 
 #---------------------------------------------------------------------------------
 # options for code generation
@@ -206,6 +207,7 @@ endif
 #---------------------------------------------------------------------------------
 all: $(BUILD) $(GFXBUILD) $(DEPSDIR) $(ROMFS_T3XFILES) $(T3XHFILES)
 	@sh tools/amy-dualcore.sh $(AMY_SRC) $(AMY_DIR)
+	@sh tools/make-drums.sh third_party/amy $(ROMFS)/drums.bin
 	@$(MAKE) --no-print-directory -C $(BUILD) -f $(CURDIR)/Makefile
 
 $(BUILD):

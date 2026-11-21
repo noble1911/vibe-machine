@@ -162,8 +162,44 @@ typedef enum {
 #define SYN_TILE_PITCH_Y 19
 #define SYN_TILE_ROWS 6      // 11 sounds + PRESETS, then EDIT across the bottom
 #define SYN_EDIT_Y (SYN_TILE_Y0 + SYN_TILE_ROWS * SYN_TILE_PITCH_Y)
-#define SYN_EDIT_W (SYN_TILE_PITCH_X + SYN_TILE_W)
-typedef enum { SYN_HIT_NONE = -1, SYN_HIT_PRESETS, SYN_HIT_EDIT } SynHit;
+#define SYN_EDIT_W SYN_TILE_W            // EDIT and KIT share the bottom row
+#define SYN_KIT_X (SYN_TILE_X0 + SYN_TILE_PITCH_X)
+typedef enum { SYN_HIT_NONE = -1, SYN_HIT_PRESETS, SYN_HIT_EDIT, SYN_HIT_KIT } SynHit;
+
+// KIT view (in the SYNTH pad): the kit along the top (◀ name ▶), the eight
+// lanes (tap: pick and hear), then the picked lane's sample (◀ name ▶, MIC:
+// the MIC take) and its TUNE and LEVEL.
+#define KIT_HEAD_Y 29
+#define KIT_HEAD_H 16
+#define KIT_ARROW_W 20
+#define KIT_PREV_X 114
+#define KIT_NEXT_X 290
+#define KIT_NAME_X (KIT_PREV_X + KIT_ARROW_W + 3)
+#define KIT_NAME_W (KIT_NEXT_X - 3 - KIT_NAME_X)
+#define KIT_LANE_X0 114
+#define KIT_LANE_Y0 49
+#define KIT_LANE_W 96
+#define KIT_LANE_H 17
+#define KIT_LANE_PITCH_X 100
+#define KIT_LANE_PITCH_Y 19
+#define KIT_SMP_Y 126
+#define KIT_SMP_H 15
+#define KIT_SNAME_X (KIT_PREV_X + KIT_ARROW_W + 3)
+#define KIT_SNEXT_X 246
+#define KIT_SNAME_W (KIT_SNEXT_X - 3 - KIT_SNAME_X)
+#define KIT_MIC_X 270
+#define KIT_MIC_W 40
+#define KIT_SLIDER_Y 144
+#define KIT_SLIDER_H 13
+#define KIT_TUNE_X 114
+#define KIT_LEVEL_X 214
+#define KIT_SLIDER_W 96
+typedef enum {
+    KIT_HIT_NONE = -1, KIT_HIT_PREV, KIT_HIT_NEXT, KIT_HIT_NAME, KIT_HIT_SPREV, KIT_HIT_SNEXT, KIT_HIT_MIC,
+    KIT_HIT_TUNE, KIT_HIT_LEVEL, KIT_HIT_LANE  // + lane
+} KitHit;
+int ui_hit_kit(int x, int y);
+float ui_kit_slider(int x, int x0);  // 0..1 along a KIT slider
 // EDIT view (in place of the pad): four sub-pages and RESET in its header,
 // the page's controls below.
 #define ED_TAB_X0 114
@@ -217,6 +253,8 @@ int ui_hit_draw_shape(int x, int y);  // 0..3, or -1
 // SYNTH page, MIC sound: the sample editor in place of the creature pad.
 // CHOP and LIB stickers beside REC; the take with START / END handles; DECAY
 // and TONE sliders underneath.
+#define SMP_TOKIT_X (SYN_PAD_X + 4)  // where the name is, when chopped
+#define SMP_TOKIT_W 44
 #define SMP_CHOP_X 160
 #define SMP_CHOP_W 42
 #define SMP_LIB_X 206
@@ -236,6 +274,7 @@ typedef enum {
     SMP_HIT_CHOP,
     SMP_HIT_LIB,
     SMP_HIT_WAVE,      // the take (and the grips under it)
+    SMP_HIT_TOKIT,     // chopped: the slices onto the drum lanes
     SMP_HIT_SLIDER,    // + macro
 } SmpHit;
 #define BANK_COLS 16

@@ -454,11 +454,19 @@ microphone, a bar grabbed from the tape, or a WAV from the library. Tap the
 
 - The take's waveform fills the editor. Drag the **S** (start) and **E**
   (end) handles to choose the part that plays; the rest dims.
-- **CHOP** cuts that part into **4** or **8** equal slices (tap again for
-  8, again for off). Chopped, **each key plays one slice** at its own
-  pitch: C plays slice 1, D slice 2, and so on up the keys. A one-bar drum
-  loop chopped into 8 gives you its eighth notes to rearrange on the grid
-  or the piano roll.
+- **CHOP** cuts that part into **4** or **8** slices (tap again for 8,
+  again for off). The cuts go **on the hits**: just before the strongest
+  attacks (drum hits, syllables), each on a zero crossing so it doesn't
+  click. A sound with no clear hits is cut evenly. The notice says which
+  ("CUT AT THE HITS" / "EVEN SLICES").
+- **Drag any cut** by its little grip under the waveform to move it; it
+  stops at its neighbours, and snaps to the nearest zero crossing when you
+  let go. Dragging S or E over the cuts pushes them along.
+- Chopped, **each key plays one slice** at its own pitch: C plays slice 1,
+  D slice 2, and so on up the keys. A one-bar drum loop chopped into 8
+  gives you its hits to rearrange on the grid or the piano roll.
+- **▶KIT** (top left, when chopped) puts the slices onto the **drum lanes**:
+  slice 1 on KICK, 2 on SNARE, and so on (see [KIT](#the-drum-kit)).
 - Not chopped, the part plays **pitched across the keys**: C is the
   original pitch, the others go up the scale. Hold **L** for chords.
 - **Tap the waveform** to hear that slice (or the whole part). Slices
@@ -475,6 +483,33 @@ seconds are used).
 
 The current sample, its handles and CHOP are saved with your song. Until you
 record or load one, MIC plays a cartoon "boing".
+
+### The drum kit
+
+![The KIT view](images/kit.png)
+
+Tap **KIT** (bottom right of the sound tiles) and the pad shows the drums.
+
+- **◀ name ▶** at the top steps through the **seven kits**: TR-808, TR-909,
+  Linn 9000, MR-12, Tokyo Synthetics, Power and Percussion. The beat
+  carries on in the new kit straight away.
+- The **eight lanes** (KICK … CRASH) show what each plays. **Tap a lane**
+  to pick it and hear it; lanes light up as they're hit.
+- **Build your own kit** from the picked lane's row underneath:
+  - **◀ sample ▶** steps through all **155 drum samples**, from every kit
+    (hold to run through them). Any lane can play anything: a 909 kick
+    with Linn hats and a conga for a tom.
+  - **MIC** puts the MIC sound's sample (the part between its S and E
+    handles) on the lane: record a clap, a knock or a beatbox snare, or
+    load a WAV into MIC from the library first.
+  - **TUNE** (±24 semitones) and **LEVEL** (0–200%).
+  - A changed kit says **(YOURS)**; a dot marks the lanes you changed.
+    Stepping to another kit starts again from that kit.
+- The closed **HAT** cuts off a ringing **OPEN** hat, as on a real drum
+  machine.
+
+The kit is saved with your song, including lanes playing your own samples
+(as `drum1.wav`…`drum8.wav` in the song's folder).
 
 ## 9. The MIX page: balancing the parts
 

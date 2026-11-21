@@ -6,3 +6,4 @@ build/
 .DS_Store
 LICENSE-AMY.txt
 tests/build/
+romfs/drums.bin

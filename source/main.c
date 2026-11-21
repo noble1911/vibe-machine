@@ -89,6 +89,8 @@ typedef enum {
     TOUCH_EDIT_PAD,     // the FILT / LFO XY pad
     TOUCH_EDIT_SLIDER,  // a slider on the EDIT view (s_edit_slider)
     TOUCH_DRAW,         // drawing the DRAW sound's wave
+    TOUCH_KIT_SLIDER,   // KIT: TUNE or LEVEL (s_app.kit_grab)
+    TOUCH_KIT_STEP,     // KIT: holding a sample arrow (repeats)
 } TouchMode;
 
 #define BAR_LEN_FRAMES 30  // hold BAR this long to change the pattern's length
@@ -194,6 +196,7 @@ static void source_press(int src, int key) {
     }
     float velocity = s_app.mode == PLAY_DRUM ? 1.0f : 0.8f;
     for (int i = 0; i < h->count; i++) engine_note_on(h->synth, h->notes[i], velocity);
+    if (h->synth == SYNTH_DRUMS && key >= 0 && key < DRUM_LANES) s_app.drum_flash[key] = 8;
     if (s_app.roll_view && s_app.page == PAGE_SEQ && h->synth != SYNTH_DRUMS && h->count > 0)
         roll_show_pitch(h->notes[0]);  // bring what you play into view
     ui_key_struck(key, s_app.mode);
@@ -603,8 +606,76 @@ static void load_tape(void) {
 static float s_take_secs;  // length of the loaded take
 // A copy of the loaded take, so a song can save it; s_take_user is false
 // while it is still the built-in boing.
+static void slices_to_kit(void);
 static int16_t s_take_buf[SAMPLER_MAX_FRAMES];
 static int s_take_frames;
+
+// ----------------------------------------------------------- drum kit ----
+
+// Each lane's own sample (a lane set to DRUM_USER_PRESET + lane): kept here
+// so it can be saved with the song, and in AMY to play.
+#define DRUM_OWN_MAX (SAMPLER_RATE * 2)
+static int16_t s_lane_buf[DRUM_LANES][DRUM_OWN_MAX];
+static int s_lane_frames[DRUM_LANES];
+static uint32_t s_kit_gen, s_song_kit_gen;  // bumps when a lane's own sample changes
+
+static bool lane_own(int lane) { return s_app.kit.lane[lane].preset == DRUM_USER_PRESET + lane; }
+
+static void apply_kit(void) {
+    drum_kit_clamp(&s_app.kit);
+    engine_set_kit(&s_app.kit);
+}
+
+static bool save_lanes(const char *dir);
+
+// Put `frames` of sample on `lane` as its own sound (trimmed to 2 s).
+static bool lane_take(int lane, const int16_t *data, int frames) {
+    if (lane < 0 || lane >= DRUM_LANES || frames <= 0) return false;
+    if (frames > DRUM_OWN_MAX) frames = DRUM_OWN_MAX;
+    memmove(s_lane_buf[lane], data, (size_t)frames * sizeof(int16_t));
+    s_lane_frames[lane] = frames;
+    if (!engine_load_drum_sample(lane, s_lane_buf[lane], frames, SAMPLER_RATE)) return false;
+    drum_lane_use_own(&s_app.kit, lane);
+    apply_kit();
+    s_kit_gen++;
+#ifndef VM_DEMO
+    save_lanes(STORAGE_DIR);  // the autosave keeps it too
+#endif
+    return true;
+}
+
+static void lane_wav_path(char *out, size_t len, const char *dir, int lane) {
+    snprintf(out, len, "%s/drum%d.wav", dir, lane + 1);
+}
+
+// Each lane's own sample to / from a folder (the song's, or the autosave's).
+static bool save_lanes(const char *dir) {
+    bool ok = true;
+    for (int l = 0; l < DRUM_LANES; l++) {
+        char path[160];
+        lane_wav_path(path, sizeof(path), dir, l);
+        if (lane_own(l) && s_lane_frames[l] > 0)
+            ok &= wav_write(path, s_lane_buf[l], s_lane_frames[l], SAMPLER_RATE);
+        else
+            remove(path);
+    }
+    return ok;
+}
+
+static void load_lanes(const char *dir) {
+    for (int l = 0; l < DRUM_LANES; l++) {
+        s_lane_frames[l] = 0;
+        if (!lane_own(l)) continue;
+        char path[160];
+        lane_wav_path(path, sizeof(path), dir, l);
+        int rate = 0, n = wav_read(path, s_lane_buf[l], DRUM_OWN_MAX, &rate);
+        if (n > 0 && rate == SAMPLER_RATE && engine_load_drum_sample(l, s_lane_buf[l], n, SAMPLER_RATE))
+            s_lane_frames[l] = n;
+        else  // gone: back to the stock kit's sample
+            s_app.kit.lane[l] = (DrumLane){0, 0, 100}, drum_kit_clamp(&s_app.kit);
+    }
+    apply_kit();
+}
 static bool s_take_user;
 static uint32_t s_mic_gen;  // bumps with every new take (for "unsaved")
 
@@ -639,6 +710,7 @@ static bool use_take(const int16_t *data, int frames) {
     if (data != s_take_buf) memmove(s_take_buf, data, (size_t)frames * sizeof(int16_t));
     s_app.sample_edit.start = 0.0f;
     s_app.sample_edit.end = 1.0f;
+    if (s_app.sample_edit.slices) sampler_auto_chop(s_take_buf, frames, &s_app.sample_edit);  // re-cut at its hits
     if (!engine_load_sample(s_take_buf, frames, SAMPLER_RATE, &s_app.sample_edit)) return false;
     show_take(s_take_buf, frames);
     s_take_user = true;
@@ -696,6 +768,7 @@ static void capture(SaveState *st) {
         st->parts[k].wave = s_app.parts[k].wave;
     }
     st->has_edit = true;
+    st->kit = s_app.kit;
     st->part = s_app.part;
     st->muted = seq.muted;
     memcpy(st->mix, s_app.mix, sizeof(st->mix));
@@ -724,6 +797,8 @@ static void capture(SaveState *st) {
 }
 
 static void restore(const SaveState *st) {
+    s_app.kit = st->kit;
+    apply_kit();
     s_theme = ((st->theme % ui_theme_count()) + ui_theme_count()) % ui_theme_count();
     ui_set_theme(s_theme);
     for (int i = 0; i < PARAM_COUNT; i++) s_app.params[i] = st->params[i];
@@ -803,6 +878,7 @@ static bool s_force_dirty;
 static void notice(const char *msg) {
     snprintf(s_app.notice, sizeof(s_app.notice), "%s", msg);
     s_app.notice_frames = 150;
+    s_app.notice_age = 0;
 }
 
 // --------------------------------------------------------- MIXDOWN ----
@@ -995,6 +1071,7 @@ static void song_mark_clean(void) {
     for (int t = 0; t < TAPE_TRACKS; t++) s_song_track_gen[t] = tape_track_generation(t);
     s_song_tape_gen = tape_generation();
     s_song_mic_gen = s_mic_gen;
+    s_song_kit_gen = s_kit_gen;
     capture(&s_song_base);
     s_force_dirty = false;
     s_app.song_dirty = false;
@@ -1004,7 +1081,7 @@ static void update_song_dirty(void) {
     SaveState now;
     capture(&now);
     s_app.song_dirty = s_force_dirty || memcmp(&now, &s_song_base, sizeof(now)) != 0 ||
-                       tape_generation() != s_song_tape_gen || s_mic_gen != s_song_mic_gen;
+                       tape_generation() != s_song_tape_gen || s_mic_gen != s_song_mic_gen || s_kit_gen != s_song_kit_gen;
 }
 
 // The autosaved MIC take should always be the current song's.
@@ -1091,6 +1168,7 @@ static bool save_song(const char *name) {
         else
             remove(path);
     }
+    if (ok) ok &= save_lanes(dir);  // the drum lanes' own samples
     // song.vms goes last: if the audio failed, the old song.vms still
     // describes the old song.
     if (ok) ok = song_save_state(SONGS_ROOT, clean, &st);
@@ -1144,6 +1222,12 @@ static bool load_song(const char *name) {
         load_boing();
         if (file_exists(path)) trouble = true;
     }
+    {   // the drum lanes' own samples (restore() set the kit)
+        char dir[160];
+        song_path(SONGS_ROOT, name, NULL, dir, sizeof(dir));
+        load_lanes(dir);
+        save_lanes(STORAGE_DIR);
+    }
     song_mark_clean();
     sync_scratch_mic();
     save_tape();  // the autosaved tapes follow the new song right away
@@ -1158,6 +1242,9 @@ static void new_song(void) {
     seq_set_bpm(112);
     for (int t = 0; t < TAPE_TRACKS; t++) tape_clear(t);
     sampler_edit_default(&s_app.sample_edit);
+    drum_kit_stock(&s_app.kit, 0);
+    apply_kit();
+    save_lanes(STORAGE_DIR);
     set_key(0, 0);
     set_arp(&(SeqArp){false, ARP_UP, ARP_16TH, 1});
     load_boing();
@@ -1603,12 +1690,19 @@ static void audition(int pitch) {
 static void sampler_drag(int x) {
     SampleEdit *e = &s_app.sample_edit;
     const float min_len = 0.02f;
-    if (s_app.smp_grab == 1) {
+    if (s_app.smp_grab >= SMP_GRAB_CUT) {  // a cut moves between its neighbours
+        const int k = s_app.smp_grab - SMP_GRAB_CUT;
+        const float room = 0.006f, lo = sampler_bound(e, k) + room, hi = sampler_bound(e, k + 2) - room;
+        const float v = ui_sampler_pos(x);
+        if (lo < hi) e->cut[k] = v < lo ? lo : v > hi ? hi : v;
+    } else if (s_app.smp_grab == 1) {
         float v = ui_sampler_pos(x);
         e->start = v > e->end - min_len ? e->end - min_len : v;
+        sampler_edit_clamp(e);  // pushes cuts along
     } else if (s_app.smp_grab == 2) {
         float v = ui_sampler_pos(x);
         e->end = v < e->start + min_len ? e->start + min_len : v;
+        sampler_edit_clamp(e);
     } else if (s_app.smp_grab >= 3) {
         set_macro(s_app.smp_grab - 3, ui_sampler_slider(x, s_app.smp_grab - 3));
     }
@@ -1620,22 +1714,41 @@ static bool sampler_begin(int x, int y) {
     const int hit = ui_hit_sampler(x, y);
     if (hit == SMP_HIT_NONE) return false;
     s_touch = TOUCH_IGNORE;
-    if (hit == SMP_HIT_CHOP) {  // off -> 4 -> 8 -> off
+    if (hit == SMP_HIT_CHOP) {  // off -> 4 -> 8 -> off, cut at the hits
         e->slices = e->slices == 0 ? 4 : e->slices == 4 ? 8 : 0;
+        if (e->slices) {
+            const int hits = sampler_auto_chop(s_take_buf, s_take_frames, e);
+            char msg[sizeof(s_app.notice)];
+            if (hits == e->slices - 1)
+                snprintf(msg, sizeof(msg), "CHOP %d: CUT AT THE HITS", e->slices);
+            else if (hits > 0)
+                snprintf(msg, sizeof(msg), "CHOP %d: %d CUTS ON HITS", e->slices, hits);
+            else
+                snprintf(msg, sizeof(msg), "CHOP %d: EVEN SLICES", e->slices);
+            notice(msg);
+        }
         reload_take();
     } else if (hit == SMP_HIT_LIB) {
         open_library(true);
+    } else if (hit == SMP_HIT_TOKIT) {
+        if (e->slices) slices_to_kit();
     } else if (hit == SMP_HIT_WAVE) {
-        const float pos = ui_sampler_pos(x), near = 10.0f / SMP_WAVE_W;
-        const float ds = fabsf(pos - e->start), de = fabsf(pos - e->end);
-        if (y >= SMP_WAVE_Y + SMP_WAVE_H || ds < near || de < near) {  // a handle (or its grip)
-            s_app.smp_grab = ds < de || (ds == de && pos < e->start) ? 1 : 2;
-            sampler_drag(x);
+        const float pos = ui_sampler_pos(x), near = 8.0f / SMP_WAVE_W;
+        // The nearest boundary: START (0), the cuts, END (slices).
+        const int nb = e->slices ? e->slices : 1;
+        int best = 0;
+        float bd = 2.0f;
+        for (int b = 0; b <= nb; b++) {
+            const float d = fabsf(pos - sampler_bound(e, b)) + (b == 0 || b == nb ? 0.0f : 0.0005f);  // ties: START / END
+            if (d < bd) bd = d, best = b;
+        }
+        if (y >= SMP_WAVE_Y + SMP_WAVE_H || bd < near) {  // a handle (or its grip)
+            s_app.smp_grab = best == 0 ? 1 : best == nb ? 2 : SMP_GRAB_CUT + best - 1;
             s_touch = TOUCH_SMP;
         } else {  // tap the take: hear that slice, or the region
             int k = -1;
-            if (e->slices && pos >= e->start && pos < e->end)
-                k = (int)((pos - e->start) / (e->end - e->start) * e->slices);
+            for (int b = 0; e->slices && b < e->slices; b++)
+                if (pos >= sampler_bound(e, b) && pos < sampler_bound(e, b + 1)) k = b;
             int pitch[MUSIC_MAX_NOTES];
             music_key_notes(k >= 0 ? k : 0, PLAY_NOTE, 0, pitch);  // the key that plays slice k
             audition(pitch[0]);
@@ -2024,7 +2137,8 @@ static void edit_voice_touch(int x, int y) {
                 e->unison = (uint8_t)(u < 1 ? 1 : u > UNISON_MAX ? UNISON_MAX : u);
                 apply_edit();
                 char msg[sizeof(s_app.notice)];
-                snprintf(msg, sizeof(msg), "UNISON x%d: %d VOICES LEFT", e->unison, sound_edit_voices(s_app.sound, e));
+                const int v = sound_edit_voices(s_app.sound, e);
+                snprintf(msg, sizeof(msg), "UNISON x%d: %d VOICE%s LEFT", e->unison, v, v == 1 ? "" : "S");
                 notice(msg);
             } else {
                 edit_grab_slider(ED_DETUNE, ED_SLIDER_X, ED_SLIDER_W, x);
@@ -2056,12 +2170,110 @@ static void edit_voice_touch(int x, int y) {
     }
 }
 
+// --- the KIT view ---------------------------------------------------------
+
+static int s_kit_step_dir, s_kit_step_frames;
+
+static void kit_hear(int lane) {
+    int n[MUSIC_MAX_NOTES];
+    music_key_notes(lane, PLAY_DRUM, 0, n);
+    engine_note_on(SYNTH_DRUMS, n[0], 0.85f);
+    if (lane >= 0 && lane < DRUM_LANES) s_app.drum_flash[lane] = 8;
+}
+
+static void kit_slider(int x) {
+    const int l = s_app.kit_lane;
+    if (s_app.kit_grab == 1) {
+        const float v = ui_kit_slider(x, KIT_TUNE_X);
+        const int semis = (int)lrintf(v * 2 * DRUM_TUNE_MAX) - DRUM_TUNE_MAX;
+        if (semis == s_app.kit.lane[l].tune) return;
+        drum_lane_set_tune(&s_app.kit, l, semis);
+    } else {
+        const int pct = (int)lrintf(ui_kit_slider(x, KIT_LEVEL_X) * DRUM_LEVEL_MAX / 5.0f) * 5;  // steps of 5%
+        if (pct == s_app.kit.lane[l].level) return;
+        drum_lane_set_level(&s_app.kit, l, pct);
+    }
+    apply_kit();
+}
+
+static void kit_step(int dir) {
+    drum_lane_step(&s_app.kit, s_app.kit_lane, dir);
+    apply_kit();
+    kit_hear(s_app.kit_lane);
+}
+
+static void kit_touch(int x, int y) {
+    s_touch = TOUCH_IGNORE;
+    const int hit = ui_hit_kit(x, y);
+    if (hit == KIT_HIT_PREV || hit == KIT_HIT_NEXT) {  // another stock kit
+        const int n = drum_kit_count(), k = (s_app.kit.kit + (hit == KIT_HIT_NEXT ? 1 : n - 1)) % n;
+        drum_kit_stock(&s_app.kit, k);
+        apply_kit();
+        kit_hear(0);
+        char msg[sizeof(s_app.notice)];
+        snprintf(msg, sizeof(msg), "KIT %d/%d: %s", k + 1, n, drum_kit_name(k));
+        notice(msg);
+    } else if (hit == KIT_HIT_NAME) {  // hear the kit, lane by lane... just the picked one
+        kit_hear(s_app.kit_lane);
+    } else if (hit >= KIT_HIT_LANE) {
+        s_app.kit_lane = hit - KIT_HIT_LANE;
+        kit_hear(s_app.kit_lane);
+    } else if (hit == KIT_HIT_SPREV || hit == KIT_HIT_SNEXT) {
+        s_kit_step_dir = hit == KIT_HIT_SNEXT ? 1 : -1;
+        s_kit_step_frames = 0;
+        kit_step(s_kit_step_dir);
+        s_touch = TOUCH_KIT_STEP;
+    } else if (hit == KIT_HIT_MIC) {  // the MIC take's START..END onto this lane
+        int first, n = sampler_region(&s_app.sample_edit, s_take_frames, -1, &first);
+        if (s_take_frames <= 0 || n <= 0) {
+            notice("RECORD OR LOAD A MIC SAMPLE FIRST");
+        } else if (lane_take(s_app.kit_lane, s_take_buf + first, n)) {
+            kit_hear(s_app.kit_lane);
+            char msg[sizeof(s_app.notice)];
+            snprintf(msg, sizeof(msg), "MIC SAMPLE ON %s", drum_lane_name(s_app.kit_lane));
+            notice(msg);
+        }
+    } else if (hit == KIT_HIT_TUNE || hit == KIT_HIT_LEVEL) {
+        s_app.kit_grab = hit == KIT_HIT_TUNE ? 1 : 2;
+        kit_slider(x);
+        s_touch = TOUCH_KIT_SLIDER;
+    }
+}
+
+// MIC editor, chopped: the slices onto the drum lanes, one each (KICK gets
+// slice 1...), and the KIT opens to show them.
+static void slices_to_kit(void) {
+    const SampleEdit *e = &s_app.sample_edit;
+    const int n = e->slices < DRUM_LANES ? e->slices : DRUM_LANES;
+    int done = 0;
+    for (int k = 0; k < n; k++) {
+        int first, len = sampler_region(e, s_take_frames, k, &first);
+        done += lane_take(k, s_take_buf + first, len);
+    }
+    char msg[sizeof(s_app.notice)];
+    snprintf(msg, sizeof(msg), "%d SLICES ON THE DRUM LANES", done);
+    notice(msg);
+    s_app.kit_view = true;
+    s_app.edit_view = false;
+}
+
 // A touch on the SYNTH page that's the EDIT / PRESETS tiles or the EDIT view.
 static bool edit_touch(int x, int y) {
     const int extra = ui_hit_synth_extra(x, y);
     if (extra == SYN_HIT_EDIT) {
         s_app.edit_view = !s_app.edit_view;
+        s_app.kit_view = false;
         s_touch = TOUCH_IGNORE;
+        return true;
+    }
+    if (extra == SYN_HIT_KIT) {
+        s_app.kit_view = !s_app.kit_view;
+        s_app.edit_view = false;
+        s_touch = TOUCH_IGNORE;
+        return true;
+    }
+    if (s_app.kit_view && ui_in_synth_pad(x, y)) {
+        kit_touch(x, y);
         return true;
     }
     if (extra == SYN_HIT_PRESETS) {
@@ -2367,13 +2579,23 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         s_app.roll_active = -1;
         s_app.mix_strip = -1;
         s_app.mix_grab = MIX_GRAB_NONE;
-        if (s_touch == TOUCH_SMP && s_app.smp_grab <= 2) reload_take();  // START / END moved
+        if (s_touch == TOUCH_SMP && (s_app.smp_grab <= 2 || s_app.smp_grab >= SMP_GRAB_CUT)) {  // START / END / a cut
+            SampleEdit *e = &s_app.sample_edit;  // lands on a zero crossing, so the slice doesn't click
+            if (s_app.smp_grab == 1) e->start = sampler_snap(s_take_buf, s_take_frames, e->start);
+            if (s_app.smp_grab == 2) e->end = sampler_snap(s_take_buf, s_take_frames, e->end);
+            if (s_app.smp_grab >= SMP_GRAB_CUT) {
+                const int k = s_app.smp_grab - SMP_GRAB_CUT;
+                e->cut[k] = sampler_snap(s_take_buf, s_take_frames, e->cut[k]);
+            }
+            reload_take();
+        }
         s_app.smp_grab = 0;
         s_app.slot_hold_t = 0.0f;
         s_app.song_hold = -1;
         s_app.song_hold_t = 0.0f;
         s_app.pad_touch = false;
         s_app.edit_grab = -1;
+        s_app.kit_grab = 0;
         source_release(SOURCE_TOUCH);
         s_app.active_slider = -1;
         s_touch = TOUCH_NONE;
@@ -2421,6 +2643,10 @@ static void handle_touch(u32 down, u32 held, u32 up) {
         case TOUCH_EDIT_PAD: edit_pad(tp.px, tp.py); break;
         case TOUCH_EDIT_SLIDER: edit_slider_move(tp.px); break;
         case TOUCH_DRAW: draw_touch(tp.px, tp.py); break;
+        case TOUCH_KIT_SLIDER: kit_slider(tp.px); break;
+        case TOUCH_KIT_STEP:  // held: after a moment, step on every few frames
+            if (++s_kit_step_frames > 20 && s_kit_step_frames % 4 == 0) kit_step(s_kit_step_dir);
+            break;
         case TOUCH_BANK: {
             // Slide across the dots to audition patches.
             int cell = ui_hit_bank_cell(tp.px, tp.py);
@@ -2725,6 +2951,11 @@ static void story_scroll_chords(void) { s_app.roll_scroll = music_roll_row(57, f
 
 #define EDITX (SYN_TILE_X0 + SYN_EDIT_W / 2)
 #define EDITY (SYN_EDIT_Y + SYN_TILE_H / 2)
+#define KITHEADY (KIT_HEAD_Y + KIT_HEAD_H / 2)
+#define KITLANEX(l) (KIT_LANE_X0 + ((l) % 2) * KIT_LANE_PITCH_X + KIT_LANE_W / 2)
+#define KITLANEY(l) (KIT_LANE_Y0 + ((l) / 2) * KIT_LANE_PITCH_Y + KIT_LANE_H / 2)
+#define KITSMPY (KIT_SMP_Y + KIT_SMP_H / 2)
+#define KITSLY (KIT_SLIDER_Y + KIT_SLIDER_H / 2)
 #define ETABX(i) (ED_TAB_X0 + (i) * ED_TAB_PITCH + ED_TAB_W / 2)
 #define ETABY (ED_TAB_Y + ED_TAB_H / 2)
 #define EPADX(f) ((int)(ED_BODY_X + 6 + (f) * (ED_BODY_W - 12)))
@@ -2966,34 +3197,53 @@ static const StoryEv kStory[] = {
     DRAG(GRIPX(0.0f), GRIPY, GRIPX(0.15f), GRIPY, 20),
     TAP(CHOPX, CHOPY),
     PRESS(KEY_DLEFT, 10), PRESS(KEY_DDOWN, 10), PRESS(KEY_DRIGHT, 10), PRESS(KEY_DUP, 10),
+    CAP(28, "CHOPPED SLICES -> THE DRUM LANES"),
+    TAP(SMP_TOKIT_X + SMP_TOKIT_W / 2, CHOPY),
+    PRESS(KEY_R | KEY_DLEFT, 12), PRESS(KEY_R | KEY_DDOWN, 12), PRESS(KEY_R | KEY_DRIGHT, 12), PRESS(KEY_R | KEY_DUP, 12),
 
-    CAP(28, "FX: CRUSH"),
+    CAP(29, "KIT: SEVEN DRUM KITS"),
+    TAP(KIT_PREV_X + KIT_ARROW_W / 2, KITHEADY),  // back from the slices: the stock kits
+    WAITSEC(2),
+    TAP(KIT_NEXT_X + KIT_ARROW_W / 2, KITHEADY), WAITSEC(2),
+    TAP(KIT_NEXT_X + KIT_ARROW_W / 2, KITHEADY), WAITSEC(2),
+    TAP(KIT_NEXT_X + KIT_ARROW_W / 2, KITHEADY), WAITSEC(2),
+    CAP(30, "BUILD YOUR OWN: ANY SAMPLE, TUNED"),
+    TAP(KITLANEX(1), KITLANEY(1)),
+    TAP(KIT_SNEXT_X + KIT_ARROW_W / 2, KITSMPY), TAP(KIT_SNEXT_X + KIT_ARROW_W / 2, KITSMPY),
+    TAP(KIT_SNEXT_X + KIT_ARROW_W / 2, KITSMPY),
+    DRAG(KIT_TUNE_X + KIT_SLIDER_W / 2, KITSLY, KIT_TUNE_X + KIT_SLIDER_W * 3 / 4, KITSLY, 20),
+    TAP(KITLANEX(0), KITLANEY(0)),
+    DRAG(KIT_LEVEL_X + KIT_SLIDER_W / 2, KITSLY, KIT_LEVEL_X + KIT_SLIDER_W * 3 / 4, KITSLY, 20),
+    WAITSEC(3),
+    TAP(SYN_KIT_X + SYN_EDIT_W / 2, EDITY),
+
+    CAP(31, "FX: CRUSH"),
     TAP(TABX(PAGE_FX), TABY),
     TAP(FXSX, FXSY(FX_CRUSH)),
     DRAG(FXPX(0.2f), FXPY(0.2f), FXPX(0.9f), FXPY(0.8f), 60),
-    CAP(29, "FX: SWEEP"),
+    CAP(32, "FX: SWEEP"),
     TAP(FXSX, FXSY(FX_SWEEP)),
     DRAG(FXPX(0.1f), FXPY(0.6f), FXPX(0.9f), FXPY(0.6f), 70),
-    CAP(30, "FX: STUTTER"),
+    CAP(33, "FX: STUTTER"),
     TAP(FXSX, FXSY(FX_STUTTER)),
     DRAG(FXPX(0.3f), FXPY(0.3f), FXPX(0.7f), FXPY(0.7f), 60),
-    CAP(31, "FX: TAPE STOP"),
+    CAP(34, "FX: TAPE STOP"),
     TAP(FXSX, FXSY(FX_TAPE)),
     HOLD(FXPX(0.5f), FXPY(0.5f), 60),
     WAIT(30),
 
-    CAP(32, "MIX: DRIVE, CRUSH, TONE, PAN, MUTE, SOLO"),
+    CAP(35, "MIX: DRIVE, CRUSH, TONE, PAN, MUTE, SOLO"),
     TAP(TABX(PAGE_MIX), TABY),
     DRAG(KNOBX(0, MIX_DRIVE), KNOBY(MIX_DRIVE), KNOBX(0, MIX_DRIVE), KNOBY(MIX_DRIVE) - 40, 30),
     DRAG(KNOBX(MIX_DRUMS, MIX_CRUSH), KNOBY(MIX_CRUSH), KNOBX(MIX_DRUMS, MIX_CRUSH), KNOBY(MIX_CRUSH) - 25, 30),
     DRAG(KNOBX(1, MIX_PAN), KNOBY(MIX_PAN), KNOBX(1, MIX_PAN), KNOBY(MIX_PAN) + 16, 25),
     DRAG(FADERX(2), CAPY(0.75f), FADERX(2), CAPY(0.55f), 25),
-    CAP(33, "ECHO AND VERB SENDS ON EVERY PART"),
+    CAP(36, "ECHO AND VERB SENDS ON EVERY PART"),
     DRAG(KNOBX(MIX_DRUMS, MIX_ECHO), KNOBY(MIX_ECHO), KNOBX(MIX_DRUMS, MIX_ECHO), KNOBY(MIX_ECHO) + 40, 30),
     DRAG(KNOBX(MIX_DRUMS, MIX_VERB), KNOBY(MIX_VERB), KNOBX(MIX_DRUMS, MIX_VERB), KNOBY(MIX_VERB) + 40, 30),
     WAIT(60),
 
-    CAP(34, "TAPE: RECORD THE JAM, THEN SCRATCH IT"),
+    CAP(37, "TAPE: RECORD THE JAM, THEN SCRATCH IT"),
     TAP(TABX(PAGE_TAPE), TABY),
     TAP(TAPE_REC_X + TAPE_BTN_W / 2, TBTNY),
     TAP(TAPE_PLAY_X + TAPE_BTN_W / 2, TBTNY),
@@ -3009,7 +3259,7 @@ static const StoryEv kStory[] = {
     WAITSEC(2),
     TAP(TAPE_PLAY_X + TAPE_BTN_W / 2, TBTNY),
 
-    CAP(35, "HOLD SONG: ARRANGE THE PATTERNS"),
+    CAP(38, "HOLD SONG: ARRANGE THE PATTERNS"),
     TAP(TABX(PAGE_SEQ), TABY),
     TAP(ROLLX, SLY),
     HOLD(SONGX, SLY, 40),
@@ -3017,7 +3267,7 @@ static const StoryEv kStory[] = {
     TAP(CELLX(1), CELLY(1)), TAP(SLX(0), SLY), TAP(CELLX(1), CELLY(1)), TAP(CELLX(1), CELLY(1)),
     WAIT(120),
 
-    CAP(36, "SAVE IT, THEN MIX IT DOWN TO A WAV"),
+    CAP(39, "SAVE IT, THEN MIX IT DOWN TO A WAV"),
     TAP(TABX(PAGE_SOUND), TABY),
     TAP(SONGS_BTN_X + SONGS_BTN_W / 2, SONGS_BTN_Y + SONGS_BTN_H / 2),
     TAP(SONGBTNX, SONGBTNY(0)),
@@ -3301,7 +3551,10 @@ int main(void) {
     s_app.page = PAGE_SOUND;
     for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
 
+    romfsInit();  // the drum kits' samples live in the app's romfs
     engine_init();
+    drum_kit_stock(&s_app.kit, 0);
+    s_app.kit_lane = 0;
     seq_init(seq_out);
     s_app.slot_hold = -1;
     s_app.part_hold = -1;
@@ -3325,6 +3578,9 @@ int main(void) {
         SaveState st;
         if (storage_load(STORAGE_PATH, &st)) {
             restore(&st);
+#ifndef VM_DEMO
+            load_lanes(STORAGE_DIR);  // the drum lanes' own samples
+#endif
             s_restored_unsaved = st.unsaved;
             s_restored_tape_changed = st.tape_changed;
             s_restored_mic_changed = st.mic_changed;
@@ -3473,6 +3729,19 @@ int main(void) {
         handle_buttons(down, held, up, repeat);
         handle_touch(down, held, up);
         if (s_app.notice_frames > 0) s_app.notice_frames--;
+        s_app.notice_age++;
+        {   // KIT: lanes light up as they're hit (by the pattern, or the keys)
+            static uint32_t fired;
+            if (s_app.seq.playing && s_app.seq.fired != fired) {
+                fired = s_app.seq.fired;
+                const int step = s_app.seq.step;
+                const uint8_t hits = step >= 0 && step < SEQ_STEPS_MAX ? s_app.pattern.drums[step] : 0;
+                for (int l = 0; l < DRUM_LANES; l++)
+                    if ((hits >> l) & 1u) s_app.drum_flash[l] = 6;
+            }
+            for (int l = 0; l < DRUM_LANES; l++)
+                if (s_app.drum_flash[l] > 0) s_app.drum_flash[l]--;
+        }
 #ifndef VM_DEMO
         if (s_app.frame % 30 == 0) {
             update_song_dirty();  // first, so the autosave's "unsaved" is current
@@ -3509,6 +3778,17 @@ int main(void) {
         mixdown_tick();
 
         AudioStats stats = audio_out_stats();
+#ifdef VM_STORY
+        {   // perf log: once a second, the CPU meter and the gap count
+            static FILE *pf;
+            if (!pf) pf = fopen(STORAGE_DIR "/perf.txt", "w");
+            if (pf && s_app.frame % 60 == 0) {
+                fprintf(pf, "%u page %d load %.3f peak %.3f late %u\n", (unsigned)s_app.frame, (int)s_app.page,
+                        (double)stats.load, (double)stats.load_peak, (unsigned)stats.late);
+                fflush(pf);
+            }
+        }
+#endif
         audio_out_scope(scope);
 
         ui_update(&s_app, &stats);

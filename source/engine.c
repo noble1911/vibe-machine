@@ -8,12 +8,15 @@
 #include "amy_split.h"
 #include "mixer.h"
 #include "sampler.h"
+#include "drums.h"
 #include "sounds.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 static LightLock s_lock;
+static void load_drum_banks(void);
 
 // The second core (the old 3DS's "system core", which an app may use up to
 // a time limit): it renders part of every block's oscillators while the
@@ -73,13 +76,13 @@ void engine_init(void) {
 
     amy_config_t c = amy_default_config();
     // Vibe Machine drives AMY by hand: no AMY-owned audio device, MIDI port,
-    // threads or second core. default_synths gives us the GM drum kit on
-    // synth 10 for free.
+    // threads or second core, and no default synths (the parts and the drum
+    // lanes are all set up here).
     c.audio = AMY_AUDIO_IS_NONE;
     c.midi = AMY_MIDI_IS_NONE;
     c.platform.multicore = 0;
     c.platform.multithread = 0;
-    c.features.default_synths = 1;
+    c.features.default_synths = 0;
     c.features.startup_bleep = 0;
     c.features.audio_in = 0;
     // One bus per MIX strip plus the master; mixer_hook sums the strips into
@@ -97,18 +100,29 @@ void engine_init(void) {
     svcGetThreadPriority(&prio, CUR_THREAD_HANDLE);
     s_worker = threadCreate(render_worker, NULL, 64 * 1024, prio - 2 < 0x18 ? 0x18 : prio - 2, 1, false);
 
-    // The drum kit plays through its own strip, with the same headroom as
-    // the parts (engine_load_sound).
-    amy_event d = amy_default_event();
-    d.synth = SYNTH_DRUMS;
-    d.bus = MIX_DRUMS;
-    send_locked(&d);
-    char lvl[32];
-    snprintf(lvl, sizeof(lvl), "i%diV%.3f", SYNTH_DRUMS, mixer_synth_level(1.0f));
-    wire_locked(lvl);
-    // Pitch bend leaves the drums alone (their bend coefficient is 0).
-    snprintf(lvl, sizeof(lvl), "i%dv0f,,,,,,0", SYNTH_DRUMS);
-    wire_locked(lvl);
+    // The drum kits' samples (all but the TR-808, which is built in): a
+    // 3.7 MB file in the app's romfs. Without it only the 808 plays.
+    load_drum_banks();
+    // The drums: a little sample player per lane (two voices, so a hit can
+    // ring under the next), on the DRUMS strip, with the same headroom as
+    // the parts. A lane per synth, so lanes never steal each other's voices.
+    for (int lane = 0; lane < DRUM_LANES; lane++) {
+        const int syn = DRUM_SYNTH0 + lane;
+        char m[64];
+        snprintf(m, sizeof(m), "i%div2uv0w7", syn);
+        wire_locked(m);
+        amy_event d = amy_default_event();
+        d.synth = (uint8_t)syn;
+        d.bus = MIX_DRUMS;
+        send_locked(&d);
+        snprintf(m, sizeof(m), "i%diV%.3f", syn, mixer_synth_level(1.0f));
+        wire_locked(m);
+        snprintf(m, sizeof(m), "i%dv0f,,,,,,0", syn);  // pitch bend leaves the drums alone
+        wire_locked(m);
+    }
+    DrumKit kit;
+    drum_kit_stock(&kit, 0);
+    engine_set_kit(&kit);
 
     // The master bus (dry), the echo bus and the reverb bus (see mixer.h),
     // all at full volume to start with. Echo character is fixed for now;
@@ -149,7 +163,72 @@ void engine_exit(void) {
     LightLock_Unlock(&s_lock);
 }
 
+// The kit as the engine plays it: each lane's note and level (read by
+// note-ons from both threads; written under the lock).
+static float s_lane_note[DRUM_LANES], s_lane_gain[DRUM_LANES];
+
+static void drum_hit(int note, float velocity) {
+    const int lane = drum_lane_of_note(note);
+    if (lane < 0) return;
+    LightLock_Lock(&s_lock);
+    if (lane == DRUM_LANE_HAT) {  // the closed hat chokes the open one
+        amy_event c = amy_default_event();
+        c.synth = (uint8_t)(DRUM_SYNTH0 + DRUM_LANE_OPEN);
+        c.velocity = 0.0f;  // no note: all of that lane's notes off
+        amy_add_event(&c);
+    }
+    amy_event e = amy_default_event();
+    e.synth = (uint8_t)(DRUM_SYNTH0 + lane);
+    e.midi_note = s_lane_note[lane];
+    e.velocity = velocity * s_lane_gain[lane];
+    amy_add_event(&e);
+    LightLock_Unlock(&s_lock);
+}
+
+void engine_set_kit(const DrumKit *k) {
+    char m[48];
+    for (int lane = 0; lane < DRUM_LANES; lane++) {
+        snprintf(m, sizeof(m), "i%dv0p%d", DRUM_SYNTH0 + lane, k->lane[lane].preset);
+        wire_locked(m);
+    }
+    LightLock_Lock(&s_lock);
+    for (int lane = 0; lane < DRUM_LANES; lane++) {
+        s_lane_note[lane] = drum_lane_note(k, lane);
+        s_lane_gain[lane] = drum_lane_gain(k, lane);
+    }
+    LightLock_Unlock(&s_lock);
+}
+
+bool engine_load_drum_sample(int lane, const int16_t *data, int frames, int rate) {
+    if (lane < 0 || lane >= DRUM_LANES || frames <= 0) return false;
+    LightLock_Lock(&s_lock);
+    int16_t *ram = pcm_load((uint16_t)(DRUM_USER_PRESET + lane), (uint32_t)frames, (uint32_t)rate, 1, 60.0f, 0, 0);
+    if (ram) memcpy(ram, data, (size_t)frames * sizeof(int16_t));
+    LightLock_Unlock(&s_lock);
+    return ram != NULL;
+}
+
+// AMY's Gamma9001 drum banks, read whole from romfs into memory it keeps
+// pointing at for good.
+static void load_drum_banks(void) {
+    FILE *f = fopen("romfs:/drums.bin", "rb");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    const long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    int16_t *data = n > 0 ? malloc((size_t)n) : NULL;
+    if (data && fread(data, 1, (size_t)n, f) == (size_t)n)
+        amy_set_gamma9001_pcm(data);
+    else
+        free(data);
+    fclose(f);
+}
+
 void engine_note_on(int synth, int note, float velocity) {
+    if (synth == SYNTH_DRUMS) {
+        drum_hit(note, velocity);
+        return;
+    }
     amy_event e = amy_default_event();
     e.synth = (uint8_t)synth;
     mic_note(&e, synth, note);
@@ -158,6 +237,7 @@ void engine_note_on(int synth, int note, float velocity) {
 }
 
 void engine_note_off(int synth, int note) {
+    if (synth == SYNTH_DRUMS) return;  // drums are one-shots: they play to their end
     amy_event e = amy_default_event();
     e.synth = (uint8_t)synth;
     mic_note(&e, synth, note);

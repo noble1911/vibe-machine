@@ -29,7 +29,7 @@ jobs:
       # The devkitPro image has no git; without it actions/checkout falls
       # back to a tarball download that cannot fetch submodules (AMY).
       - name: Install git
-        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3  # python3: the drum kits (tools/make-drums.sh)
 
       - uses: actions/checkout@v7
         with:

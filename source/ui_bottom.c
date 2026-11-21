@@ -849,6 +849,74 @@ static void draw_sound_tiles(const AppState *app) {
     const float o = app->edit_view ? 2.0f : 0.0f;
     ui_text(SYN_TILE_X0 + SYN_EDIT_W / 2.0f + o, SYN_EDIT_Y + 1.5f + o, 0.38f, rgba(ink_on(t, ef), 0xFF), C2D_AlignCenter,
             pe->cur.set ? "EDIT *" : "EDIT");
+    const uint32_t kf = app->kit_view ? t->pal[0] : colourful(t, 3);
+    sticker(SYN_KIT_X, SYN_EDIT_Y, SYN_EDIT_W, SYN_TILE_H, kf, app->kit_view, 0);
+    const float ko = app->kit_view ? 2.0f : 0.0f;
+    ui_text(SYN_KIT_X + SYN_EDIT_W / 2.0f + ko, SYN_EDIT_Y + 1.5f + ko, 0.38f, rgba(ink_on(t, kf), 0xFF), C2D_AlignCenter,
+            app->kit.edited ? "KIT *" : "KIT");
+}
+
+// ------------------------------------------------------------- KIT ----
+
+static void kit_arrow(float x, float y, float h, bool left, uint32_t col) {
+    const Theme *t = ui_theme();
+    sticker(x, y, KIT_ARROW_W, h, col, false, 0);
+    sh_tri(x + KIT_ARROW_W / 2.0f, y + h / 2.0f, 4.5f, left ? 3.14159f : 0.0f, rgba(ink_on(t, col), 0xFF));
+}
+
+static void draw_kit_view(const AppState *app) {
+    const Theme *t = ui_theme();
+    const DrumKit *k = &app->kit;
+    // The kit.
+    kit_arrow(KIT_PREV_X, KIT_HEAD_Y, KIT_HEAD_H, true, colourful(t, 1));
+    kit_arrow(KIT_NEXT_X, KIT_HEAD_Y, KIT_HEAD_H, false, colourful(t, 1));
+    const uint32_t nf = colourful(t, 4);
+    sh_card(KIT_NAME_X, KIT_HEAD_Y, KIT_NAME_W, KIT_HEAD_H, rgba(nf, 0xFF), rgba(t->ink, 0xFF), 1.5f);
+    ui_text(KIT_NAME_X + KIT_NAME_W / 2.0f, KIT_HEAD_Y + 1, 0.4f, rgba(ink_on(t, nf), 0xFF), C2D_AlignCenter, "%s%s",
+            drum_kit_name(k->kit), k->edited ? " (YOURS)" : "");
+    // The lanes: the picked one stands out; a lane being hit flashes.
+    for (int l = 0; l < DRUM_LANES; l++) {
+        const float x = KIT_LANE_X0 + (l % 2) * KIT_LANE_PITCH_X, y = KIT_LANE_Y0 + (l / 2) * KIT_LANE_PITCH_Y;
+        const bool on = app->kit_lane == l, hit = app->drum_flash[l] > 0;
+        const uint32_t face = hit ? t->pal[0] : on ? part_rgb(t, l % PARTS) : t->card;
+        sh_card(x, y, KIT_LANE_W, KIT_LANE_H, rgba(face, 0xFF), rgba(t->ink, 0xFF), on ? 2.5f : 1.0f);
+        const u32 c = rgba(ink_on(t, face), 0xFF);
+        ui_text(x + 4, y + 1, 0.32f, c, 0, "%s", drum_lane_name(l));
+        ui_text(x + KIT_LANE_W - 4, y + 1, 0.3f, rgba(ink_on(t, face), 0xB0), C2D_AlignRight, "%.11s",
+                drum_lane_sample_name(k, l));
+        if ((k->edited >> l) & 1u) sh_rect(x + 2, y + KIT_LANE_H - 3, 4, 2, c);  // changed from the stock kit
+    }
+    // The picked lane: its sample, MIC, TUNE and LEVEL.
+    const int l = app->kit_lane;
+    kit_arrow(KIT_PREV_X, KIT_SMP_Y, KIT_SMP_H, true, colourful(t, 2));
+    kit_arrow(KIT_SNEXT_X, KIT_SMP_Y, KIT_SMP_H, false, colourful(t, 2));
+    sh_card(KIT_SNAME_X, KIT_SMP_Y, KIT_SNAME_W, KIT_SMP_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 1.0f);
+    const u32 ic = rgba(ink_on(t, t->card), 0xFF);
+    ui_text(KIT_SNAME_X + 3, KIT_SMP_Y + 0.5f, 0.3f, ic, 0, "%s", drum_lane_sample_name(k, l));
+    ui_text(KIT_SNAME_X + KIT_SNAME_W - 3, KIT_SMP_Y + 0.5f, 0.26f, rgba(ink_on(t, t->card), 0x90), C2D_AlignRight, "%.10s",
+            drum_lane_bank_name(k, l));
+    sticker(KIT_MIC_X, KIT_SMP_Y, KIT_MIC_W, KIT_SMP_H, colourful(t, 0), false, 0);
+    ui_text(KIT_MIC_X + KIT_MIC_W / 2.0f, KIT_SMP_Y + 0.5f, 0.32f, rgba(ink_on(t, colourful(t, 0)), 0xFF), C2D_AlignCenter,
+            "MIC");
+    for (int s = 0; s < 2; s++) {
+        const float x = s ? KIT_LEVEL_X : KIT_TUNE_X;
+        const float v = s ? k->lane[l].level / (float)DRUM_LEVEL_MAX : (k->lane[l].tune + DRUM_TUNE_MAX) / (2.0f * DRUM_TUNE_MAX);
+        const uint32_t col = colourful(t, 1 + s);
+        sh_card(x, KIT_SLIDER_Y, KIT_SLIDER_W, KIT_SLIDER_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF),
+                app->kit_grab == 1 + s ? 0 : 1.5f);
+        if (s) {
+            sh_rect(x + 1.5f, KIT_SLIDER_Y + 1.5f, (KIT_SLIDER_W - 3) * v, KIT_SLIDER_H - 3, rgba(col, 0xFF));
+        } else {  // TUNE fills from the middle
+            const float mid = x + KIT_SLIDER_W / 2.0f, end = x + 1.5f + (KIT_SLIDER_W - 3) * v;
+            sh_rect(mid < end ? mid : end, KIT_SLIDER_Y + 1.5f, fabsf(end - mid), KIT_SLIDER_H - 3, rgba(col, 0xFF));
+            sh_rect(mid - 0.5f, KIT_SLIDER_Y + 1, 1, KIT_SLIDER_H - 2, rgba(t->ink, 0x80));
+        }
+        ui_text(x + 4, KIT_SLIDER_Y - 0.5f, 0.3f, ic, 0, s ? "LEVEL" : "TUNE");
+        if (s)
+            ui_text(x + KIT_SLIDER_W - 4, KIT_SLIDER_Y - 0.5f, 0.3f, ic, C2D_AlignRight, "%d%%", k->lane[l].level);
+        else
+            ui_text(x + KIT_SLIDER_W - 4, KIT_SLIDER_Y - 0.5f, 0.3f, ic, C2D_AlignRight, "%+d", k->lane[l].tune);
+    }
 }
 
 static void draw_bank_grid(const AppState *app, const Sound *s) {
@@ -888,7 +956,13 @@ static void draw_sampler(const AppState *app, const Sound *s) {
     const u32 ink = rgba(t->ink, 0xFF);
     const uint32_t lab = ink_on(t, t->card);
     const SampleEdit *e = &app->sample_edit;
-    ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(lab, 0xFF), 0, "%s", s->name);
+    if (e->slices) {  // chopped: the slices can go onto the drum lanes
+        sticker(SMP_TOKIT_X, SYN_DICE_Y, SMP_TOKIT_W, 16, colourful(t, 3), false, 0);
+        sh_tri(SMP_TOKIT_X + 8, SYN_DICE_Y + 8, 4, 0.0f, rgba(ink_on(t, colourful(t, 3)), 0xFF));
+        ui_text(SMP_TOKIT_X + 27, SYN_DICE_Y, 0.36f, rgba(ink_on(t, colourful(t, 3)), 0xFF), C2D_AlignCenter, "KIT");
+    } else {
+        ui_text(SYN_PAD_X + 6, SYN_PAD_Y + 2, 0.4f, rgba(lab, 0xFF), 0, "%s", s->name);
+    }
 
     // CHOP, LIB, REC.
     const uint32_t cf = e->slices ? colourful(t, 2) : t->card;
@@ -912,7 +986,7 @@ static void draw_sampler(const AppState *app, const Sound *s) {
     const unsigned lit = live_slices(app);
     const int n = e->slices ? e->slices : 1;
     for (int k = 0; k < n; k++) {  // each slice gets a tint; lit while it plays
-        const float a = sx + (ex - sx) * k / n, b = sx + (ex - sx) * (k + 1) / n;
+        const float a = x0 + sampler_bound(e, k) * w, b = x0 + sampler_bound(e, k + 1) * w;
         const bool on = ((lit >> k) & 1u) || (app->smp_flash_frames > 0 && (app->smp_flash == k || app->smp_flash < 0));
         sh_rect(a, y0, b - a, h, rgba(e->slices ? t->pal[k % THEME_PALETTE] : t->pal[2], on ? 0x90 : (k & 1) ? 0x30 : 0x48));
         if (e->slices && k > 0) sh_rect(a - 0.5f, y0, 1, h, rgba(t->ink, 0xA0));
@@ -923,6 +997,15 @@ static void draw_sampler(const AppState *app, const Sound *s) {
         const float a = app->take_overview[i] * (h / 2.0f - 3.0f), bx = x0 + i * bw;
         const bool in = bx + bw > sx && bx < ex;
         sh_rect(bx, mid - a, bw * 0.75f, 2 * a + 1, rgba(t->ink, in ? 0xE0 : 0x40));
+    }
+    // CHOP's cuts: a grip each under the take (drag to move a cut).
+    for (int k = 0; k + 1 < e->slices; k++) {
+        const float cx = x0 + e->cut[k] * w;
+        const bool grabbed = app->smp_grab == SMP_GRAB_CUT + k;
+        const uint32_t c = t->pal[(k + 1) % THEME_PALETTE];
+        if (grabbed) sh_rect(cx - 1, y0 - 2, 2, h + 4, rgba(t->ink, 0xFF));
+        const float gw = grabbed ? 11 : 8;
+        sh_card(cx - gw / 2, y0 + h + 2, gw, SMP_GRIP_H, rgba(c, 0xFF), ink, grabbed ? 0 : 1.5f);
     }
     // Handles: a line through the take and a grip underneath.
     for (int hnd = 0; hnd < 2; hnd++) {
@@ -1178,6 +1261,10 @@ static void draw_synth_page(const AppState *app) {
     sh_card(SYN_PAD_X, SYN_PAD_Y, SYN_PAD_W, SYN_PAD_H, rgba(t->card, 0xFF), rgba(t->ink, 0xFF), 3);
     if (app->edit_view) {
         draw_edit_view(app);
+        return;
+    }
+    if (app->kit_view) {
+        draw_kit_view(app);
         return;
     }
     if (s->kind == SOUND_BANK)
@@ -1527,11 +1614,6 @@ void ui_draw_bottom(const AppState *app) {
         sh_bar(cx + 13, cy + 13, 30, 6, 0.785f, rgba(t->ink, 0xE0));
         sh_bar(cx + 12, cy + 12, 28, 3.5f, 0.785f, rgba(0xFFFFFF, 0xFF));
         sh_tri(cx + 2.5f, cy + 2.5f, 4, 3.927f, rgba(t->ink, 0xFF));
-    }
-    if (app->notice_frames > 0 && !app->busy) {  // something went wrong (or needs saying)
-        // Wide enough for the longest (39-character) notice.
-        sh_card(8, 84, BOTTOM_W - 16, 40, rgba(t->pal[0], 0xFF), rgba(t->ink, 0xFF), 4);
-        ui_text(BOTTOM_W / 2.0f, 96, 0.42f, rgba(ink_on(t, t->pal[0]), 0xFF), C2D_AlignCenter, "%s", app->notice);
     }
     if (app->busy) {  // a slow job is about to run: say so
         sh_card(70, 80, 180, 50, rgba(t->pal[1], 0xFF), rgba(t->ink, 0xFF), 4);

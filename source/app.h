@@ -6,6 +6,7 @@
 #include "engine.h"
 #include "fx.h"
 #include "drawwave.h"
+#include "drums.h"
 #include "mixer.h"
 #include "synthedit.h"
 #include "sampler.h"
@@ -53,6 +54,11 @@ typedef struct {
     bool edit_view;             // SYNTH: the pad shows the EDIT layer
     int edit_page;              // EditPage
     int edit_grab;              // what's being dragged in it (page-specific), or -1
+    bool kit_view;              // SYNTH: the pad shows the drum KIT
+    int kit_lane;               // the lane picked in it
+    int kit_grab;               // KIT: 0, or 1 TUNE / 2 LEVEL being dragged
+    DrumKit kit;                // the drum kit
+    uint8_t drum_flash[8];      // KIT: frames each lane stays lit after a hit
     float bend;                 // pitch bend now (-1..1), from SELECT + circle pad
     int bar_page;               // the bar of the pattern the grid / roll / FX strip show (0..3)
     int bar_hold;               // frames BAR has been held (hold: change the length), or -1
@@ -97,7 +103,9 @@ typedef struct {
     float mic_secs;             // length of the take so far / of the loaded take
     float take_overview[SAMPLER_OVERVIEW];  // waveform of the loaded take
     SampleEdit sample_edit;     // the MIC sound's START / END / CHOP
-    int smp_grab;               // MIC editor: 0, 1 START / 2 END being dragged, 3 + m a slider
+    int smp_grab;               // MIC editor: 0, 1 START / 2 END being dragged, 3 + m a slider,
+                                // SMP_GRAB_CUT + k CHOP's cut k
+#define SMP_GRAB_CUT 10
     int smp_flash, smp_flash_frames;  // a slice (or -1: the region) just auditioned
     bool lib_samples;           // the SONGS page is showing the sample library (or, with lib_presets, sounds)
     bool lib_presets;           // ... the saved sounds (PRESETS)
@@ -120,6 +128,7 @@ typedef struct {
     char confirm_name[SONG_NAME_MAX + 1];  // SAVE AS would replace this song: hold to confirm
     char notice[40];            // a short message ("SAVE FAILED"), shown while notice_frames > 0
     int notice_frames;
+    int notice_age;             // frames since it appeared (for the pop-up)
 
     bool pad_touch;             // stylus is on the SYNTH or FX pad
     float pad_x, pad_y;         // where (0..1, y up)

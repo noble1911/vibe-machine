@@ -4,6 +4,7 @@
 #pragma once
 
 #include "drawwave.h"
+#include "drums.h"
 #include "synthedit.h"
 
 #include <stdbool.h>
@@ -38,6 +39,7 @@ typedef struct {
         DrawWave wave;  // the DRAW sound's wave
     } parts[PARTS];
     bool has_edit;   // pe / wave were in the file (version 16); else use defaults (not saved)
+    DrumKit kit;     // the drum kit (version 17; older songs: the TR-808)
     int part;        // part being played / edited
     uint8_t muted;   // bit n = part n muted; bit PARTS = the drums
     MixStrip mix[MIX_STRIPS];  // the MIX page (older files: defaults)

@@ -9,10 +9,11 @@
 #include <stdio.h>
 #include <string.h>
 
-#define VERSION 16 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
+#define VERSION 17 // 2: slots, accents, song, swing; 3: name; 4: unsaved; 5: changed audio; 6: roll; 7: parts; 8: mixer;
                    // 9: tape sources; 10: sample edit; 11: arrangement, tape mutes;
                    // 12: FX automation; 13: patterns of 1-4 bars, 128 notes; 14: key, arp;
-                   // 15: mixer ECHO / VERB sends; 16: note flags (slide), synth EDIT, DRAW waves
+                   // 15: mixer ECHO / VERB sends; 16: note flags (slide), synth EDIT, DRAW waves;
+                   // 17: CHOP cut points
 #define MAX_PAYLOAD 12288
 
 typedef struct {
@@ -185,6 +186,14 @@ static void encode(Writer *w, const SaveState *st) {
         put(w, &pe->morph, sizeof(float));
         put(w, st->parts[k].wave.pt, DRAW_POINTS);
     }
+    put(w, st->sample_edit.cut, sizeof(st->sample_edit.cut));  // version 17
+    put(w, &st->kit.kit, 1);
+    put(w, &st->kit.edited, 1);
+    for (int k = 0; k < DRUM_LANES; k++) {
+        const uint8_t b[4] = {(uint8_t)(st->kit.lane[k].preset & 0xFF), (uint8_t)(st->kit.lane[k].preset >> 8),
+                              (uint8_t)st->kit.lane[k].tune, st->kit.lane[k].level};
+        put(w, b, 4);
+    }
 }
 
 static void get_edit(Reader *r, SynthEdit *e) {
@@ -288,7 +297,8 @@ static void decode(Reader *r, SaveState *st, int version) {
         get(r, &st->sample_edit.slices, 1);
         SampleEdit e = st->sample_edit;
         sampler_edit_clamp(&e);
-        if (memcmp(&e, &st->sample_edit, sizeof(e)) != 0) r->ok = false;  // out of range: damaged
+        if (e.start != st->sample_edit.start || e.end != st->sample_edit.end || e.slices != st->sample_edit.slices)
+            r->ok = false;  // out of range: damaged
     }
     if (version >= 11) {
         uint8_t loop;
@@ -343,6 +353,22 @@ static void decode(Reader *r, SaveState *st, int version) {
                     if (!(pe->snap_macro[s][m] >= 0.0f && pe->snap_macro[s][m] <= 1.0f)) pe->snap_macro[s][m] = 0.5f;
         }
     }
+    // CHOP's cuts (17); older songs chopped into equal slices.
+    drum_kit_stock(&st->kit, 0);
+    if (version >= 17) {
+        get(r, st->sample_edit.cut, sizeof(st->sample_edit.cut));
+        get(r, &st->kit.kit, 1);
+        get(r, &st->kit.edited, 1);
+        for (int k = 0; k < DRUM_LANES; k++) {
+            uint8_t b[4];
+            get(r, b, 4);
+            st->kit.lane[k] = (DrumLane){(uint16_t)(b[0] | b[1] << 8), (int8_t)b[2], b[3]};
+        }
+        drum_kit_clamp(&st->kit);
+    } else {
+        sampler_edit_even(&st->sample_edit);
+    }
+    sampler_edit_clamp(&st->sample_edit);
 }
 
 bool storage_save(const char *path, const SaveState *st) {

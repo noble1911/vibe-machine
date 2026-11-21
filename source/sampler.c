@@ -60,6 +60,17 @@ int sampler_boing(int16_t *buf, int max_frames) {
     return n;
 }
 
+// The room kept between neighbouring cuts (and START / END).
+static float cut_gap(const SampleEdit *e) {
+    const float g = (e->end - e->start) / (e->slices * 8.0f);
+    return g < 0.004f ? g : 0.004f;
+}
+
+void sampler_edit_even(SampleEdit *e) {
+    for (int k = 0; k < SAMPLER_MAX_SLICES - 1; k++)
+        e->cut[k] = k < e->slices - 1 ? e->start + (e->end - e->start) * (k + 1) / e->slices : 0.0f;
+}
+
 void sampler_edit_clamp(SampleEdit *e) {
     const float min_len = 0.02f;
     if (!(e->start >= 0.0f)) e->start = 0.0f;  // NaN too
@@ -67,21 +78,143 @@ void sampler_edit_clamp(SampleEdit *e) {
     if (e->start > 1.0f - min_len) e->start = 1.0f - min_len;
     if (e->end < e->start + min_len) e->end = e->start + min_len;
     if (e->slices == 1 || e->slices > SAMPLER_MAX_SLICES) e->slices = 0;
+    const int n = e->slices > 0 ? e->slices - 1 : 0;
+    for (int k = 0; k < n; k++)
+        if (!(e->cut[k] == e->cut[k])) {  // NaN: start again from equal slices
+            sampler_edit_even(e);
+            break;
+        }
+    const float gap = n ? cut_gap(e) : 0.0f;
+    float lo = e->start + gap;  // forwards: each cut after the one before
+    for (int k = 0; k < n; k++) {
+        if (e->cut[k] < lo) e->cut[k] = lo;
+        lo = e->cut[k] + gap;
+    }
+    float hi = e->end - gap;  // backwards: each cut before the one after
+    for (int k = n - 1; k >= 0; k--) {
+        if (e->cut[k] > hi) e->cut[k] = hi;
+        hi = e->cut[k] - gap;
+    }
+    for (int k = n; k < SAMPLER_MAX_SLICES - 1; k++) e->cut[k] = 0.0f;
+}
+
+float sampler_bound(const SampleEdit *e, int b) {
+    if (b <= 0 || e->slices <= 0) return e->start;
+    if (b >= e->slices) return e->end;
+    return e->cut[b - 1];
 }
 
 int sampler_region(const SampleEdit *e, int frames, int slice, int *first) {
-    int a = (int)(e->start * frames), b = (int)(e->end * frames);
+    float fa = e->start, fb = e->end;
+    if (slice >= 0 && e->slices > 0) {
+        const int k = slice % e->slices;
+        fa = sampler_bound(e, k);
+        fb = sampler_bound(e, k + 1);
+    }
+    int a = (int)(fa * frames), b = (int)(fb * frames);
     if (a < 0) a = 0;
     if (b > frames) b = frames;
     if (b <= a) b = a + 1 <= frames ? a + 1 : a;
-    if (slice >= 0 && e->slices > 0) {
-        const int n = b - a, k = slice % e->slices;
-        const int sa = a + (int)((long)n * k / e->slices), sb = a + (int)((long)n * (k + 1) / e->slices);
-        a = sa;
-        b = sb;
-    }
     *first = a;
     return b - a;
+}
+
+float sampler_snap(const int16_t *buf, int frames, float pos) {
+    const int at = (int)(pos * frames), reach = SAMPLER_RATE / 400;  // 2.5 ms
+    for (int d = 0; d <= reach; d++)
+        for (int s = -1; s <= 1; s += 2) {
+            const int i = at + d * s;
+            if (i <= 0 || i >= frames) continue;
+            if ((buf[i - 1] < 0) != (buf[i] < 0) || buf[i] == 0) return (i + 0.5f) / frames;
+        }
+    return pos;
+}
+
+int sampler_auto_chop(const int16_t *buf, int frames, SampleEdit *e) {
+    const int want = e->slices - 1;
+    if (want <= 0) return 0;
+    if (!buf || frames <= 0) {
+        sampler_edit_even(e);
+        return 0;
+    }
+    // Level in 5 ms hops across the region.
+    const int hop = SAMPLER_RATE / 200, a = (int)(e->start * frames), b = (int)(e->end * frames);
+    const int hops = (b - a) / hop;
+    if (hops < 8) {
+        sampler_edit_even(e);
+        return 0;
+    }
+    float *env = malloc(sizeof(float) * (size_t)hops * 2);
+    if (!env) {
+        sampler_edit_even(e);
+        return 0;
+    }
+    float *onset = env + hops, peak = 0.0f;
+    for (int h = 0; h < hops; h++) {
+        double s = 0;
+        for (int i = 0; i < hop; i++) s += abs(buf[a + h * hop + i]);
+        env[h] = (float)(s / hop);
+        peak = env[h] > peak ? env[h] : peak;
+    }
+    // An attack: the level jumps well above the last 20 ms, and it's loud
+    // enough to matter.
+    for (int h = 0; h < hops; h++) {
+        float before = 0.0f;
+        for (int j = 1; j <= 4; j++) before += h - j >= 0 ? env[h - j] : env[0];
+        before /= 4.0f;
+        const float rise = logf((env[h] + 30.0f) / (before + 30.0f));
+        onset[h] = env[h] > peak * 0.08f && rise > 0.6f ? rise * sqrtf(env[h] / peak) : 0.0f;
+    }
+    // The strongest attacks, kept apart (and away from START, which is
+    // already a boundary).
+    const int apart = hops / (e->slices * 3) > 8 ? hops / (e->slices * 3) : 8;  // at least 40 ms
+    int picked[SAMPLER_MAX_SLICES - 1], got = 0;
+    while (got < want) {
+        int best = -1;
+        for (int h = apart; h < hops - 2; h++) {
+            if (onset[h] <= 0.0f || (best >= 0 && onset[h] <= onset[best])) continue;
+            bool clear = true;
+            for (int k = 0; k < got && clear; k++) clear = abs(h - picked[k]) >= apart;
+            if (clear) best = h;
+        }
+        if (best < 0) break;
+        picked[got++] = best;
+    }
+    free(env);
+    const int hits = got;
+    // Just before each attack (2 ms), as fractions; then fill any missing
+    // cuts by splitting the longest slice.
+    float cuts[SAMPLER_MAX_SLICES - 1];
+    for (int k = 0; k < got; k++) {
+        const int f = a + picked[k] * hop - SAMPLER_RATE / 500;
+        cuts[k] = sampler_snap(buf, frames, (float)f / frames);
+    }
+    while (got < want) {
+        float bounds[SAMPLER_MAX_SLICES + 1];
+        int nb = 0;
+        bounds[nb++] = e->start;
+        for (int k = 0; k < got; k++) bounds[nb++] = cuts[k];
+        bounds[nb++] = e->end;
+        for (int i = 1; i < nb; i++)  // sort (few)
+            for (int j = i; j > 0 && bounds[j] < bounds[j - 1]; j--) {
+                float t = bounds[j];
+                bounds[j] = bounds[j - 1];
+                bounds[j - 1] = t;
+            }
+        int widest = 0;
+        for (int i = 1; i < nb - 1; i++)
+            if (bounds[i + 1] - bounds[i] > bounds[widest + 1] - bounds[widest]) widest = i;
+        cuts[got++] = sampler_snap(buf, frames, (bounds[widest] + bounds[widest + 1]) / 2.0f);
+    }
+    for (int i = 1; i < want; i++)
+        for (int j = i; j > 0 && cuts[j] < cuts[j - 1]; j--) {
+            float t = cuts[j];
+            cuts[j] = cuts[j - 1];
+            cuts[j - 1] = t;
+        }
+    for (int k = 0; k < SAMPLER_MAX_SLICES - 1; k++) e->cut[k] = k < want ? cuts[k] : 0.0f;
+    sampler_edit_clamp(e);
+    return hits;
 }
 
 int sampler_slice_of_pitch(int pitch, int slices) {

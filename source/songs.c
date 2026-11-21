@@ -77,7 +77,9 @@ bool song_exists(const char *root, const char *name) {
 }
 
 bool song_delete(const char *root, const char *name) {
-    static const char *const files[] = {"song.vms", "tape1.wav", "tape2.wav", "tape3.wav", "tape4.wav", "mic.wav"};
+    static const char *const files[] = {"song.vms", "tape1.wav", "tape2.wav", "tape3.wav", "tape4.wav", "mic.wav",
+                                        "drum1.wav", "drum2.wav", "drum3.wav", "drum4.wav", "drum5.wav", "drum6.wav",
+                                        "drum7.wav", "drum8.wav"};
     char path[160];
     for (unsigned i = 0; i < sizeof(files) / sizeof(files[0]); i++) {
         song_path(root, name, files[i], path, sizeof(path));

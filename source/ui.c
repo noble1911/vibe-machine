@@ -183,7 +183,29 @@ int ui_hit_synth_extra(int x, int y) {
     const int py = SYN_TILE_Y0 + (SOUNDS_SHOWN / SYN_TILE_COLS) * SYN_TILE_PITCH_Y;
     if (in_box(x, y, px - 1, py - 1, SYN_TILE_W + 2, SYN_TILE_H + 2)) return SYN_HIT_PRESETS;
     if (in_box(x, y, SYN_TILE_X0 - 1, SYN_EDIT_Y - 1, SYN_EDIT_W + 2, SYN_TILE_H + 4)) return SYN_HIT_EDIT;
+    if (in_box(x, y, SYN_KIT_X - 1, SYN_EDIT_Y - 1, SYN_EDIT_W + 2, SYN_TILE_H + 4)) return SYN_HIT_KIT;
     return SYN_HIT_NONE;
+}
+
+int ui_hit_kit(int x, int y) {
+    if (in_box(x, y, KIT_PREV_X - 2, KIT_HEAD_Y - 3, KIT_ARROW_W + 3, KIT_HEAD_H + 5)) return KIT_HIT_PREV;
+    if (in_box(x, y, KIT_NEXT_X - 1, KIT_HEAD_Y - 3, KIT_ARROW_W + 3, KIT_HEAD_H + 5)) return KIT_HIT_NEXT;
+    if (in_box(x, y, KIT_NAME_X, KIT_HEAD_Y - 3, KIT_NAME_W, KIT_HEAD_H + 5)) return KIT_HIT_NAME;
+    for (int l = 0; l < DRUM_LANES; l++)
+        if (in_box(x, y, KIT_LANE_X0 + (l % 2) * KIT_LANE_PITCH_X - 1, KIT_LANE_Y0 + (l / 2) * KIT_LANE_PITCH_Y - 1,
+                   KIT_LANE_W + 2, KIT_LANE_H + 2))
+            return KIT_HIT_LANE + l;
+    if (in_box(x, y, KIT_PREV_X - 2, KIT_SMP_Y - 2, KIT_ARROW_W + 3, KIT_SMP_H + 3)) return KIT_HIT_SPREV;
+    if (in_box(x, y, KIT_SNEXT_X - 1, KIT_SMP_Y - 2, KIT_ARROW_W + 3, KIT_SMP_H + 3)) return KIT_HIT_SNEXT;
+    if (in_box(x, y, KIT_MIC_X - 1, KIT_SMP_Y - 2, KIT_MIC_W + 3, KIT_SMP_H + 3)) return KIT_HIT_MIC;
+    if (in_box(x, y, KIT_TUNE_X - 2, KIT_SLIDER_Y - 2, KIT_SLIDER_W + 4, KIT_SLIDER_H + 6)) return KIT_HIT_TUNE;
+    if (in_box(x, y, KIT_LEVEL_X - 2, KIT_SLIDER_Y - 2, KIT_SLIDER_W + 4, KIT_SLIDER_H + 6)) return KIT_HIT_LEVEL;
+    return KIT_HIT_NONE;
+}
+
+float ui_kit_slider(int x, int x0) {
+    const float v = (float)(x - x0 - 3) / (KIT_SLIDER_W - 6);
+    return v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v;
 }
 
 int ui_hit_edit(int x, int y) {
@@ -251,6 +273,7 @@ bool ui_hit_synth_rec(int x, int y) { return in_box(x, y, SYN_REC_X - 3, SYN_DIC
 
 int ui_hit_sampler(int x, int y) {
     if (in_box(x, y, SMP_CHOP_X - 2, SYN_DICE_Y - 3, SMP_CHOP_W + 3, SYN_DICE_W + 4)) return SMP_HIT_CHOP;
+    if (in_box(x, y, SMP_TOKIT_X - 2, SYN_DICE_Y - 3, SMP_TOKIT_W + 3, SYN_DICE_W + 4)) return SMP_HIT_TOKIT;
     if (in_box(x, y, SMP_LIB_X - 1, SYN_DICE_Y - 3, SMP_LIB_W + 3, SYN_DICE_W + 4)) return SMP_HIT_LIB;
     if (in_box(x, y, SMP_WAVE_X - 8, SMP_WAVE_Y - 4, SMP_WAVE_W + 16, SMP_WAVE_H + SMP_GRIP_H + 6)) return SMP_HIT_WAVE;
     for (int m = 0; m < 2; m++)

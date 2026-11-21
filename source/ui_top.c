@@ -521,6 +521,22 @@ static void draw_caption(const AppState *app) {
     ui_text(tx, y + 6.5f, 0.46f, rgba(ink_on(t, face), 0xFF), 0, "%s", app->caption);
 }
 
+// Notices ("A STORED", "SAVE FAILED"...): a sticker along the bottom of the
+// top screen, so they never cover what you're touching. It pops up with a
+// little bounce and slides away at the end. (Above the story's caption.)
+static void draw_notice(const AppState *app) {
+    if (app->notice_frames <= 0 || app->busy) return;
+    const Theme *t = ui_theme();
+    const float h = 26, rest = TOP_H - (app->caption ? 34 : 0) - h - 6;
+    const int age = app->notice_age, left = app->notice_frames;
+    float y = rest;
+    if (age < 8) y = rest + (h + 8) * (1.0f - age / 8.0f) - sinf(age / 8.0f * 3.14159f) * 4.0f;  // pop up
+    if (left < 8) y = rest + (h + 8) * (1.0f - left / 8.0f);                                     // slide away
+    const uint32_t face = t->pal[0];
+    sh_card(8, y, TOP_W - 16, h, rgba(face, 0xFF), rgba(t->ink, 0xFF), 4);
+    ui_text(TOP_W / 2.0f, y + 5.5f, 0.46f, rgba(ink_on(t, face), 0xFF), C2D_AlignCenter, "%s", app->notice);
+}
+
 void ui_draw_top(const AppState *app, const AudioStats *stats, const int16_t *scope, float eye) {
     if (ui_theme()->sunset)
         draw_sunset(eye);
@@ -531,4 +547,5 @@ void ui_draw_top(const AppState *app, const AudioStats *stats, const int16_t *sc
     draw_fx_overlay(app);
     draw_hud(app, stats);
     draw_caption(app);
+    draw_notice(app);
 }

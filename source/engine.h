@@ -12,7 +12,8 @@
 // own sound); synth 10 is AMY's built-in General MIDI drum kit.
 #define PARTS 3
 #define SYNTH_LEAD 1  // part 0
-#define SYNTH_DRUMS 10
+#define SYNTH_DRUMS 10  // how the sequencer and keys address the drums (engine.c maps it to the lanes)
+#define DRUM_SYNTH0 11  // drum lane n plays on AMY synth DRUM_SYNTH0 + n
 static inline int part_synth(int part) { return 1 + part; }
 
 #define LEAD_VOICES 6
@@ -41,6 +42,11 @@ void engine_load_sound(int part, int sound, int patch, const SynthEdit *edit);
 void engine_apply_edit(int part, const SynthEdit *edit);
 // The DRAW sound's wave for a part: one cycle of DRAW_CYCLE samples (-1..1).
 void engine_load_wave(int part, const int16_t *cycle, int n);
+// The drum kit: each lane's sample, tuning and level (drums.h).
+#include "drums.h"
+void engine_set_kit(const DrumKit *k);
+// A lane's own sample (for DRUM_USER_PRESET + lane), mono at `rate` Hz.
+bool engine_load_drum_sample(int lane, const int16_t *data, int frames, int rate);
 // Pitch bend, in semitones (+-2 at full tilt), on every part.
 void engine_pitch_bend(float semitones);
 // Set macro m (0..1) of the CUSTOM sound a part is playing.

@@ -6,8 +6,10 @@ Three instrument parts plus drums, nine original synth engines (one of them
 a wave you draw with the stylus) plus the Juno-6 and DX7 banks, an EDIT
 layer that reaches inside any of them (a drawable envelope, filter, LFO,
 mono and glide, unison, DX7 brightness, A/B morphing, mutation) with
-presets to keep what you make, a sampler (microphone, tape or WAV; trim it, chop it
-into slices across the keys), a 16-step sequencer and piano
+presets to keep what you make, seven drum kits (TR-808, TR-909, Linn 9000, MR-12 and more)
+plus kits you build yourself from any of their 155 samples or your own, a sampler
+(microphone, tape or WAV; trim it, chop it at the hits into slices across the keys or
+onto the drum lanes), a 16-step sequencer and piano
 roll with 8 pattern slots and song mode, a mixer with drive, crush, tone, pan and
 echo / reverb sends on every part, four performance effects you play with the stylus,
 and a 4-track tape recorder,
@@ -43,6 +45,8 @@ at a time, from the keys to the mixdown (also the app playing itself, with
 | ![SYNTH creature pad](docs/images/synth-creature.png) | **SYNTH**: eleven sounds, each with a googly-eyed mascot. Drag the mascot around the pad to play its two macros. **DRAW** lets you draw the wave itself. **EDIT** opens any sound up: draw its envelope, play its filter and LFO on XY pads, make it MONO with GLIDE, stack unison, brighten a DX7, MUTATE it, store A and B and MORPH between them. **PRESET** saves and loads your sounds. |
 | ![SYNTH EDIT, drawing the envelope](docs/images/synth-edit.png) | **EDIT**: drag the envelope's handles; FILT and LFO are XY pads (here the LFO's speed and depth, wobbling the filter); VOICE has MONO, GLIDE, UNISON, BRIGHT, MUTATE and A/B MORPH. |
 | ![SYNTH DRAW](docs/images/synth-draw.png) | **DRAW**: draw one cycle of a wave with the stylus and play it on the keys. It changes while the note sounds. |
+| ![The KIT view](docs/images/kit.png) | **KIT**: seven drum kits (TR-808, TR-909, Linn 9000, MR-12, Tokyo Synthetics, Power, Percussion). Build your own: any of the 155 drum samples (or your MIC sample) on any lane, tuned and levelled. The closed hat chokes the open one. |
+| ![The MIC sampler, chopped](docs/images/sampler-chop.png) | **MIC sampler**: CHOP cuts at the hits (drag any cut; they snap to zero crossings), each key plays a slice, and **▶KIT** puts the slices on the drum lanes. |
 | ![SYNTH patch dots](docs/images/synth-bank.png) | The **Juno-6** and **DX7** banks: 128 patches each, as dots to tap or slide across. |
 | ![SONG sheet](docs/images/song-sheet.png) | **SONG sheet**: arrange patterns into a song: rows of slots, repeated ×1–8, with parts dropped out for intros and breakdowns, and an ending. |
 | ![MIX page](docs/images/mix.png) | **MIX**: a channel strip for each part and the drums: fader, LED meter, DRIVE, CRUSH, ECHO and VERB sends, TONE and PAN knobs, MUTE and SOLO. **MIXDOWN** records the finished song to a stereo WAV. |
@@ -92,6 +96,8 @@ The [tutorial](docs/TUTORIAL.md) explains every page in detail.
   the whole song, stereo, at the 3DS's own 32.7 kHz, as you heard it.
 - **Samples** live in `sdmc:/3ds/vibe-machine/samples/`; copy your own WAVs
   in there too.
+- **Drum lanes** playing your own sample keep it as `drum1.wav`…`drum8.wav`
+  in the song's folder.
 - **Sounds** you save from SYNTH → PRESET go in
   `sdmc:/3ds/vibe-machine/presets/` as small `.vmp` files.
 - The WAVs are ordinary files: copy them off the SD card into any audio
@@ -100,7 +106,8 @@ The [tutorial](docs/TUTORIAL.md) explains every page in detail.
 ## Building
 
 Requires [devkitPro](https://devkitpro.org/wiki/Getting_Started) with the
-3DS packages:
+3DS packages, and python3 (the first build packs AMY's drum kits into
+`romfs/drums.bin` with `tools/make-drums.sh`):
 
 ```sh
 sudo dkp-pacman -S 3ds-dev
@@ -126,11 +133,11 @@ runs eight probes:
 
 | Probe | Checks |
 |---|---|
-| sound | Every sound makes a note, at a matched level, and both of its macros audibly change it; chopped samples play the right slice on each key; EDIT: an untouched edit changes nothing, CUTOFF darkens, a slow ATTACK swells, the LFO wobbles, MONO plays one note, UNISON still sounds on fewer voices, GLIDE slides, DRAW plays in tune and bends two semitones; every sound survives a full edit |
+| sound | Every sound makes a note, at a matched level, and both of its macros audibly change it; chopped samples play the right slice on each key; EDIT: an untouched edit changes nothing, CUTOFF darkens, a slow ATTACK swells, the LFO wobbles, MONO plays one note, UNISON still sounds on fewer voices, GLIDE slides, DRAW plays in tune and bends two semitones; every sound survives a full edit; every lane of all seven drum kits plays, TUNE and LEVEL work, a lane plays your own sample, the closed hat chokes the open one |
 | fx | Bypass is bit-exact; sweep darkens and brightens; crush quantises; stutter repeats at exactly the tempo-synced length; tape stops and recovers |
 | seq | 16ths land on time, to the sample; swing gaps are right; accents hit harder; a queued pattern switches on the bar line; song mode chains the right slots; piano-roll notes hold for their length (over the bar line too), chords sound together, live notes keep the length you held; muted parts and drums stay silent |
 | tape | Playback at pitch, an octave up at 2×, reverse, mute, wipe; a track set to one strip records just that strip |
-| logic | Save files, WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling, EDIT morph and mutate, drawn waves, presets |
+| logic | Save files, WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling, CHOP cuts (uneven, kept in order, pushed by START, auto-cut at the hits, zero-crossing snap), drum kits, EDIT morph and mutate, drawn waves, presets |
 | songs | Song names, listing (sorted, hundreds of songs), save, load, overwrite, delete; the sample library's listing |
 | dual | AMY's oscillators split between two threads at a voice boundary render exactly (bit for bit) what one thread does |
 | mix | Each part reaches only its own strip; level, mute and pan are exact; DRIVE squares the wave off and CRUSH steps it while the level stays within a few dB; another strip's effects leave a part bit-for-bit alone; the master echo still reaches every part |
@@ -150,6 +157,7 @@ probe on each push ([workflow](.github/workflows/build.yml)). Pushing a
 | `source/synthedit.c`, `drawwave.c`, `presets.c` | The EDIT layer (values, morph, mutate), DRAW waves, saved sounds |
 | `source/seq.c` | Sequencer: slots, song, swing, accents; clock runs on the audio thread |
 | `source/mixer.c` | MIX strips: one AMY bus per part, DRIVE / CRUSH / level / pan in AMY's bus hook, summed into a master bus |
+| `source/drums.c`, `drum_kits.h` | The drum kits and your own; `drum_kits.h` is generated from AMY's kits by `tools/gen-drums.py` |
 | `source/fx.c`, `tape.c` | Performance FX and the 4-track tape |
 | `source/mic.c`, `sampler.c`, `samples.c` | Microphone capture; take tidying, START/END, CHOP slices, resampling; the sample library |
 | `source/songs.c`, `storage.c`, `wav.c` | Named songs, the save format, WAV files |

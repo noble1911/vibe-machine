@@ -21,19 +21,39 @@ void sampler_overview(const int16_t *buf, int frames, float *out, int points);
 
 // The MIC sound's edit of the take: which part plays (START..END, as
 // fractions of the take), and CHOP: 0 = the region plays pitched across
-// the keys; otherwise it's cut into `slices` equal slices, one per key.
+// the keys; otherwise it's cut into `slices` slices, one per key, at the
+// cut points (fractions of the take, in order between START and END:
+// slice k runs from the cut before it to the cut after it).
 typedef struct {
     float start, end;  // 0..1, start < end
     uint8_t slices;    // 0, or 2..SAMPLER_MAX_SLICES
+    float cut[SAMPLER_MAX_SLICES - 1];  // the first slices - 1 are used; the rest are 0
 } SampleEdit;
 
 static inline void sampler_edit_default(SampleEdit *e) {
     e->start = 0.0f;
     e->end = 1.0f;
     e->slices = 0;
+    for (int k = 0; k < SAMPLER_MAX_SLICES - 1; k++) e->cut[k] = 0.0f;
 }
-// Keep an edit sane (order, minimum length, slice count).
+// Keep an edit sane: order, minimum length, slice count, and the cuts in
+// order inside START..END with a little room between them (pushed along,
+// not reordered, when START or END are dragged over them).
 void sampler_edit_clamp(SampleEdit *e);
+// Equal slices: the cuts spread evenly between START and END.
+void sampler_edit_even(SampleEdit *e);
+// Where slice boundary b is (0 = START, slices = END), as a fraction.
+float sampler_bound(const SampleEdit *e, int b);
+
+// CHOP to the hits: put the cuts on the strongest attacks (drum hits,
+// syllables) between START and END, just before each one and on a zero
+// crossing. Where there are fewer hits than cuts, the longest slices are
+// split evenly. Returns how many cuts landed on a hit.
+int sampler_auto_chop(const int16_t *buf, int frames, SampleEdit *e);
+// The nearest zero crossing to `pos` (a fraction of the take), within a
+// couple of milliseconds; `pos` itself if there isn't one. A slice that
+// starts on one doesn't click.
+float sampler_snap(const int16_t *buf, int frames, float pos);
 
 // Frames of a `frames`-long take that the region (slice < 0) or slice
 // `slice` covers. Returns the length and sets *first.

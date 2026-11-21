@@ -21,6 +21,17 @@
 enum { M_TRI = 0, M_TRI_OUTLINE, M_TRI_STRIPED, M_TRI_DOTTED, M_CIRCLE, M_RING, M_BAR,
        M_SQUIGGLE, M_ZIGZAG, M_BOLT, M_DOTS, M_CROSS, M_SPOT };
 
+// AMY's built-in wavetables (WAVY) come after its built-in drum samples:
+// the full TR-808 bank in the Gamma9001 build (the app), the small one
+// otherwise.
+#ifdef GAMMA9001
+#define WT_BASE 19
+#else
+#define WT_BASE 11
+#endif
+#define STR_(x) #x
+#define STR(x) STR_(x)
+
 enum { S_JUNO, S_DX7, S_PLUCK, S_SQUELCH, S_BELL, S_BREEZE, S_SUPERSAW, S_FOLD, S_WAVY, S_MIC, S_DRAW, S_COUNT };
 
 static const Sound kSounds[S_COUNT] = {
@@ -47,7 +58,7 @@ static const Sound kSounds[S_COUNT] = {
                 "v0w4GF1GD3GM1A5,1,350,0.6,250,0",
                 {"FOLD", "CRUSH"}, {0.4f, 0.0f}},
     [S_WAVY] = {"WAVY", "WAVY", "morphing wavetables", M_TRI_DOTTED, SOUND_CUSTOM, 0, 0, 4, 1.6f,
-                "v1w0f0.25,0a1,,0,0Zv0w19p11L1d0.5,,,,,0.45A20,1,500,0.7,400,0",
+                "v1w0f0.25,0a1,,0,0Zv0w19p" STR(WT_BASE) "L1d0.5,,,,,0.45A20,1,500,0.7,400,0",
                 {"MORPH", "TABLE"}, {0.5f, 0.0f}},
     // Plays AMY memory PCM preset 200 (SAMPLER_PRESET): the take's START..END
     // region (or, chopped, a slice per key: see engine.c).
@@ -112,7 +123,7 @@ bool sound_macro_wire(int index, int m, float t, int synth, char *out, size_t le
             return true;
         // WAVY: position within the table, which of the five tables.
         case S_WAVY * 2 + 0: snprintf(out, len, "i%dv0d%.3f", synth, t); return true;
-        case S_WAVY * 2 + 1: snprintf(out, len, "i%dv0p%d", synth, 11 + (int)(t * 4.99f)); return true;
+        case S_WAVY * 2 + 1: snprintf(out, len, "i%dv0p%d", synth, WT_BASE + (int)(t * 4.99f)); return true;
         // MIC: how long each note lasts while held (short = tight chops; at
         // the top it plays to the end), and a low-pass tone.
         case S_MIC * 2 + 0:

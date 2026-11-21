@@ -10,6 +10,8 @@
 
 #include "amy.h"
 #include "drawwave.h"
+#include "drums.h"
+#include "engine.h"
 #include "sampler.h"
 #include "sounds.h"
 
@@ -134,6 +136,46 @@ static void load_edit(int i, const SynthEdit *e) {
     render(0.05);
 }
 
+// --- drums, as engine.c plays them: a sample player per lane ------------
+static DrumKit s_kit;
+static void kit_setup(void) {
+    for (int lane = 0; lane < DRUM_LANES; lane++) {
+        char m[64];
+        snprintf(m, sizeof(m), "i%div2uv0w7", DRUM_SYNTH0 + lane);
+        wire(m);
+        snprintf(m, sizeof(m), "i%dv0f,,,,,,0", DRUM_SYNTH0 + lane);
+        wire(m);
+    }
+}
+static void kit_load(const DrumKit *k) {
+    s_kit = *k;
+    for (int lane = 0; lane < DRUM_LANES; lane++) {
+        char m[48];
+        snprintf(m, sizeof(m), "i%dv0p%d", DRUM_SYNTH0 + lane, k->lane[lane].preset);
+        wire(m);
+    }
+    render(0.02);
+}
+static void drum(int lane, float vel) {
+    if (lane == DRUM_LANE_HAT) {  // the choke
+        amy_event c = amy_default_event();
+        c.synth = DRUM_SYNTH0 + DRUM_LANE_OPEN;
+        c.velocity = 0.0f;
+        amy_add_event(&c);
+    }
+    amy_event e = amy_default_event();
+    e.synth = (uint8_t)(DRUM_SYNTH0 + lane);
+    e.midi_note = drum_lane_note(&s_kit, lane);
+    e.velocity = vel * drum_lane_gain(&s_kit, lane);
+    amy_add_event(&e);
+}
+static Measure drum_hit(int lane) {
+    drum(lane, 0.72f);
+    Measure m = render(0.05);  // the attack: some hits are 20 ms clicks
+    render(2.0);  // let it finish
+    return m;
+}
+
 static void fresh_edit(int i, SynthEdit *e) {
     float d[ED_PARAMS];
     sound_edit_defaults(i, d);
@@ -210,6 +252,7 @@ int main(void) {
         SampleEdit ed;
         sampler_edit_default(&ed);
         ed.slices = 2;
+        sampler_edit_even(&ed);
         for (int k = 0; k < 2; k++) {
             int first, len = sampler_region(&ed, n, k, &first);
             int16_t *ram = pcm_load(SAMPLER_PRESET + 1 + k, (uint32_t)len, SAMPLER_RATE, 1, 60.0f, 0, 0);
@@ -424,6 +467,77 @@ int main(void) {
             Measure m = play(0.4);
             CHECK(m.rms > 0.004 && m.rms < 0.5, "  %-8s edited: rms %.4f", sound_get(i)->name, m.rms);
         }
+        // --- DRUMS -------------------------------------------------------------
+        printf("\nDRUMS (rms of each lane's hit)\n");
+        {
+            FILE *f = fopen("build/drums.bin", "rb");
+            static int16_t *bank;
+            long n = 0;
+            if (f) {
+                fseek(f, 0, SEEK_END);
+                n = ftell(f);
+                fseek(f, 0, SEEK_SET);
+                bank = malloc((size_t)n);
+                if (bank && fread(bank, 1, (size_t)n, f) == (size_t)n) amy_set_gamma9001_pcm(bank);
+                fclose(f);
+            }
+            CHECK(n > 3000000, "  drums.bin loaded (%ld bytes)", n);
+        }
+        kit_setup();
+        float lo = 1, hi = 0;
+        for (int k = 0; k < drum_kit_count(); k++) {
+            DrumKit kit;
+            drum_kit_stock(&kit, k);
+            kit_load(&kit);
+            printf("  %-17s", drum_kit_name(k));
+            bool ok = true;
+            for (int l = 0; l < DRUM_LANES; l++) {
+                const Measure m = drum_hit(l);
+                printf(" %s %.3f", drum_lane_name(l), m.rms);
+                ok = ok && m.rms > 0.002 && m.rms < 0.6;
+                lo = m.rms < lo ? (float)m.rms : lo;
+                hi = m.rms > hi ? (float)m.rms : hi;
+            }
+            printf(" %s\n", ok ? "ok" : "FAIL");
+            failures += !ok;
+        }
+        DrumKit kit;
+        drum_kit_stock(&kit, 1);  // TR-909
+        kit_load(&kit);
+        const Measure snare = drum_hit(1);
+        drum_lane_set_tune(&kit, 1, 12);
+        kit_load(&kit);
+        const Measure up = drum_hit(1);
+        CHECK(up.bright > snare.bright * 1.3, "  TUNE +12: the snare brightens %.3f -> %.3f", snare.bright, up.bright);
+        drum_lane_set_tune(&kit, 1, 0);
+        drum_lane_set_level(&kit, 1, 50);
+        kit_load(&kit);
+        const Measure half = drum_hit(1);
+        CHECK(half.rms / snare.rms > 0.4 && half.rms / snare.rms < 0.7, "  LEVEL 50%%: about half, rms %.4f -> %.4f",
+              snare.rms, half.rms);
+        // A lane of your own: the MIC's boing on the CLAP lane.
+        static int16_t boing[SAMPLER_RATE];
+        const int bn = sampler_boing(boing, SAMPLER_RATE);
+        int16_t *ram = pcm_load(DRUM_USER_PRESET + 4, (uint32_t)bn, SAMPLER_RATE, 1, 60.0f, 0, 0);
+        memcpy(ram, boing, (size_t)bn * sizeof(int16_t));
+        drum_lane_use_own(&kit, 4);
+        kit_load(&kit);
+        const Measure own = drum_hit(4);
+        CHECK(own.rms > 0.01, "  a lane of your own plays it: rms %.4f", own.rms);
+        // The closed hat chokes the open one.
+        drum_kit_stock(&kit, 0);
+        kit_load(&kit);
+        drum(DRUM_LANE_OPEN, 0.72f);
+        render(0.05);
+        const Measure ring = render(0.3);
+        render(3.0);
+        drum(DRUM_LANE_OPEN, 0.72f);
+        render(0.05);
+        drum(DRUM_LANE_HAT, 0.72f);
+        render(0.1);  // the closed hat itself is short
+        const Measure choked = render(0.25);
+        render(3.0);
+        CHECK(choked.rms < ring.rms * 0.3, "  the closed hat chokes the open one: tail rms %.4f -> %.4f", ring.rms, choked.rms);
 #undef CHECK
     }
     amy_stop();

@@ -1,5 +1,6 @@
 // logic_probe -- host checks for the pure-logic modules: save files and
 // the dice groove generator.
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -10,6 +11,7 @@
 #include "wav.h"
 #include "drawwave.h"
 #include "presets.h"
+#include "drums.h"
 #include "storage.h"
 #include "synthedit.h"
 
@@ -45,6 +47,11 @@ int main(void) {
         draw_preset(&a.parts[k].wave, k);
     }
     a.has_edit = true;
+    drum_kit_stock(&a.kit, 2);         // a Linn 9000 kit...
+    drum_lane_step(&a.kit, 1, 1);      // ...with another snare,
+    drum_lane_set_tune(&a.kit, 2, -5);  // a lower hat,
+    drum_lane_set_level(&a.kit, 6, 150);
+    drum_lane_use_own(&a.kit, 4);       // and its own clap
     a.part = 2;
     a.muted = 0x2 | (1u << PARTS);  // part 2 and the drums
     for (int k = 0; k < MIX_STRIPS; k++) {  // a mixer with everything moved
@@ -54,7 +61,9 @@ int main(void) {
     a.solo = 0x4;
     const int8_t srcs[TAPE_TRACKS] = {TAPE_SRC_ALL, MIX_DRUMS, 0, 2};
     memcpy(a.tape_source, srcs, sizeof(srcs));
-    a.sample_edit = (SampleEdit){0.125f, 0.875f, 8};
+    a.sample_edit = (SampleEdit){0.125f, 0.875f, 8, {0}};
+    sampler_edit_even(&a.sample_edit);
+    a.sample_edit.cut[2] = 0.33f;  // one cut moved by hand
     a.arr.count = 3;
     a.arr.loop = true;
     a.arr.rows[0] = (SeqArrRow){0, 4, 0};
@@ -296,9 +305,42 @@ int main(void) {
         music_set_key(0, 0);
     }
 
+    // --- drum kits ------------------------------------------------------------
+    {
+        DrumKit k;
+        drum_kit_stock(&k, 1);
+        check(drum_kit_count() == 7 && k.edited == 0 && k.lane[0].level == 100, "seven stock kits, as they come");
+        bool all = true;
+        for (int i = 0; i < drum_kit_count(); i++) {
+            drum_kit_stock(&k, i);
+            for (int l = 0; l < DRUM_LANES; l++) all = all && drum_lane_gain(&k, l) > 0.5f && drum_lane_note(&k, l) > 20;
+        }
+        check(all, "every lane of every kit has a sample, a note and a level");
+        int lanes_ok = 0;
+        for (int l = 0; l < DRUM_LANES; l++) {
+            int n[MUSIC_MAX_NOTES];
+            music_key_notes(l, PLAY_DRUM, 0, n);
+            lanes_ok += drum_lane_of_note(n[0]) == l;
+        }
+        check(lanes_ok == DRUM_LANES && drum_lane_of_note(60) == -1, "each drum key's note finds its lane");
+        drum_kit_stock(&k, 0);
+        const uint16_t first = k.lane[0].preset;
+        for (int i = 0; i < 155; i++) drum_lane_step(&k, 0, 1);
+        check(k.lane[0].preset == first && (k.edited & 1), "stepping through all 155 samples comes back round");
+        drum_lane_set_tune(&k, 0, 99);
+        drum_lane_set_level(&k, 0, 999);
+        check(k.lane[0].tune == DRUM_TUNE_MAX && k.lane[0].level == DRUM_LEVEL_MAX, "TUNE and LEVEL stay in range");
+        drum_lane_use_own(&k, 3);
+        check(k.lane[3].preset == DRUM_USER_PRESET + 3 && drum_lane_note(&k, 3) == 60.0f, "a lane can play its own sample");
+        k.lane[5].preset = 9999;  // damaged: back to the kit's own
+        drum_kit_clamp(&k);
+        check(k.lane[5].preset != 9999 && k.lane[3].preset == DRUM_USER_PRESET + 3, "an unknown sample falls back to the kit's");
+    }
+
     // --- sample edits ---------------------------------------------------------
     {
-        SampleEdit e = {0.25f, 0.75f, 4};
+        SampleEdit e = {0.25f, 0.75f, 4, {0}};
+        sampler_edit_even(&e);
         int first, n = sampler_region(&e, 1000, -1, &first);
         check(first == 250 && n == 500, "START..END picks the middle of the take");
         int f1, n1 = sampler_region(&e, 1000, 1, &f1), f3, n3 = sampler_region(&e, 1000, 3, &f3);
@@ -308,9 +350,52 @@ int main(void) {
         int right = 0;
         for (int i = 0; i < 10; i++) right += sampler_slice_of_pitch(pitches[i], 4) == want[i];
         check(right == 10, "the keys walk through the slices, wrapping; sharps take the slice below");
-        SampleEdit bad = {0.9f, 0.1f, 1};
+        SampleEdit bad = {0.9f, 0.1f, 1, {0}};
         sampler_edit_clamp(&bad);
         check(bad.start < bad.end && bad.slices == 0, "a back-to-front edit is put right");
+
+        // Cuts moved by hand: slices of different lengths.
+        SampleEdit u = {0.0f, 1.0f, 4, {0.1f, 0.5f, 0.6f}};
+        int fa, na = sampler_region(&u, 1000, 0, &fa), fb, nb = sampler_region(&u, 1000, 1, &fb);
+        int fc, nc = sampler_region(&u, 1000, 3, &fc);
+        check(fa == 0 && na == 100 && fb == 100 && nb == 400 && fc == 600 && nc == 400, "uneven cuts make uneven slices");
+        // Cuts out of order or outside START..END are put back in line.
+        SampleEdit m2 = {0.2f, 0.8f, 4, {0.7f, 0.1f, 0.95f}};
+        sampler_edit_clamp(&m2);
+        bool ordered = m2.start < m2.cut[0] && m2.cut[0] < m2.cut[1] && m2.cut[1] < m2.cut[2] && m2.cut[2] < m2.end;
+        check(ordered && m2.cut[3] == 0.0f, "cuts stay in order inside START..END");
+        // Moving START past cuts pushes them along rather than crossing them.
+        SampleEdit pu = {0.0f, 1.0f, 4, {0.25f, 0.5f, 0.75f}};
+        pu.start = 0.6f;
+        sampler_edit_clamp(&pu);
+        check(pu.cut[0] > 0.6f && pu.cut[0] < pu.cut[1] && pu.cut[2] < 1.0f, "START dragged over the cuts pushes them along");
+
+        // Auto-chop: four drum-like hits (a click and a decay) at known places
+        // in a quiet bed; CHOP 4 cuts just before hits 2, 3 and 4.
+        static int16_t loop[SAMPLER_RATE * 2];
+        const int n2 = SAMPLER_RATE * 2, at[4] = {800, 9000, 15000, 26000};
+        for (int i = 0; i < n2; i++) loop[i] = (int16_t)(((i * 7919) % 200) - 100);  // a quiet hiss
+        for (int h = 0; h < 4; h++)
+            for (int i = 0; i < 3000 && at[h] + i < n2; i++)
+                loop[at[h] + i] += (int16_t)(20000.0 * exp(-i / 500.0) * sin(i * 0.31));
+        SampleEdit ac = {0.0f, 1.0f, 4, {0}};
+        const int hits = sampler_auto_chop(loop, n2, &ac);
+        int near_hits = 0;
+        for (int k = 0; k < 3; k++) {
+            const int f = (int)(ac.cut[k] * n2);
+            near_hits += f <= at[k + 1] && f > at[k + 1] - SAMPLER_RATE / 100;  // within 10 ms before
+        }
+        check(hits == 3 && near_hits == 3, "CHOP 4 cuts just before each hit");
+        // No hits (a steady tone): even slices instead.
+        for (int i = 0; i < n2; i++) loop[i] = (int16_t)(8000 * sin(i * 0.05));
+        SampleEdit flat = {0.0f, 1.0f, 4, {0}};
+        const int fh = sampler_auto_chop(loop, n2, &flat);
+        check(fh == 0 && fabsf(flat.cut[1] - 0.5f) < 0.01f, "with no hits, the slices are even");
+        // Snapping lands on a zero crossing.
+        const float sn = sampler_snap(loop, n2, 0.3f);
+        const int si = (int)(sn * n2);
+        check(si > 0 && ((loop[si - 1] < 0) != (loop[si] < 0) || loop[si] == 0) && fabsf(sn - 0.3f) < 0.003f,
+              "a cut snaps to the nearest zero crossing");
         static int16_t in[2205], out[4000];
         for (int i = 0; i < 2205; i++) in[i] = (int16_t)(i * 10);
         int m = sampler_resample(in, 2205, 22050, out, 4000, SAMPLER_RATE);
