@@ -29,7 +29,7 @@ jobs:
       # The devkitPro image has no git; without it actions/checkout falls
       # back to a tarball download that cannot fetch submodules (AMY).
       - name: Install git
-        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 curl unzip  # python3: the drum kits (tools/make-drums.sh); curl/unzip: the CIA tools
+        run: apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3  # python3: the drum kits (tools/make-drums.sh)
 
       - uses: actions/checkout@v7
         with:
@@ -42,8 +42,39 @@ jobs:
       - name: Build
         run: make -j"$(nproc)"
 
-      # The CIA installer needs makerom (Project_CTR) and bannertool: pinned
-      # releases, checked against their hashes before they run.
+      - name: Collect licences
+        run: cp third_party/amy/LICENSE LICENSE-AMY.txt
+
+      - name: Upload build
+        uses: actions/upload-artifact@v7
+        with:
+          name: vibe-machine-${{ github.sha }}
+          path: |
+            vibe-machine.3dsx
+            vibe-machine.elf
+            vibe-machine.smdh
+            romfs
+            LICENSE
+            LICENSE-AMY.txt
+          if-no-files-found: error
+
+  # The CIA installer, packed on a plain Ubuntu runner (makerom's prebuilt
+  # binary needs a newer glibc than the devkitPro image has), from the build
+  # job's ELF and romfs. Tagged builds publish the release from here.
+  cia:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7  # cia/ and tools/make-cia.sh (no submodules needed)
+
+      - name: The build
+        uses: actions/download-artifact@v7
+        with:
+          name: vibe-machine-${{ github.sha }}
+          path: out
+
+      # makerom (Project_CTR) and bannertool: pinned releases, checked
+      # against their hashes before they run.
       - name: CIA tools
         run: |
           mkdir -p /tmp/ctr && cd /tmp/ctr
@@ -56,21 +87,17 @@ jobs:
           chmod +x makerom/makerom bannertool/linux-x86_64/bannertool
 
       - name: Build the CIA
-        run: make cia MAKEROM=/tmp/ctr/makerom/makerom BANNERTOOL=/tmp/ctr/bannertool/linux-x86_64/bannertool
+        run: |
+          MAKEROM=/tmp/ctr/makerom/makerom BANNERTOOL=/tmp/ctr/bannertool/linux-x86_64/bannertool \
+            sh tools/make-cia.sh out/vibe-machine.elf out/vibe-machine.smdh out/romfs vibe-machine.cia
+          cp out/LICENSE-AMY.txt LICENSE-AMY.txt
+          cp out/vibe-machine.3dsx .
 
-      - name: Collect licences
-        run: cp third_party/amy/LICENSE LICENSE-AMY.txt
-
-      - name: Upload build
+      - name: Upload the CIA
         uses: actions/upload-artifact@v7
         with:
-          name: vibe-machine-${{ github.sha }}
-          path: |
-            vibe-machine.3dsx
-            vibe-machine.cia
-            vibe-machine.smdh
-            LICENSE
-            LICENSE-AMY.txt
+          name: vibe-machine-cia-${{ github.sha }}
+          path: vibe-machine.cia
           if-no-files-found: error
 
       - name: Publish release

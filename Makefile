@@ -45,9 +45,8 @@ APP_TITLE	:=	Vibe Machine
 APP_DESCRIPTION	:=	Pocket synth & tape groovebox
 APP_AUTHOR	:=	noble1911
 ICON		:=	cia/icon.png
-# CIA (make cia): a title ID in the homebrew range, and the tools to build it
-# (makerom, bannertool: see .github/workflows/build.yml for where they come from).
-APP_UNIQUE_ID	:=	0xFB5E1
+# CIA (make cia, tools/make-cia.sh): the tools to build it (makerom,
+# bannertool: see .github/workflows/build.yml for where they come from).
 MAKEROM		?=	makerom
 BANNERTOOL	?=	bannertool
 
@@ -233,11 +232,7 @@ endif
 # The CIA installer: the same app as the .3dsx, as a HOME Menu title, with
 # its banner (box art) and a little jingle.
 cia: all
-	@$(BANNERTOOL) makebanner -i cia/banner.png -a cia/banner.wav -o $(BUILD)/banner.bnr
-	@$(MAKEROM) -f cia -o $(TARGET).cia -elf $(TARGET).elf -rsf cia/app.rsf -icon $(TARGET).smdh \
-		-banner $(BUILD)/banner.bnr -exefslogo -target t \
-		-DAPP_TITLE="$(APP_TITLE)" -DAPP_UNIQUE_ID=$(APP_UNIQUE_ID) -DAPP_ROMFS=$(ROMFS)
-	@echo built $(TARGET).cia
+	@MAKEROM="$(MAKEROM)" BANNERTOOL="$(BANNERTOOL)" sh tools/make-cia.sh $(TARGET).elf $(TARGET).smdh $(ROMFS) $(TARGET).cia
 
 clean:
 	@echo clean ...
