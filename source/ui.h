@@ -302,6 +302,25 @@ typedef enum {
 #define FX_AUTO_H 7
 #define FX_AUTO_X0 (FX_PAD_X + 8)
 #define FX_AUTO_PITCH ((FX_PAD_W - 16) / 16.0f)
+// Both FX views: PLAY (the XY pad above) and PUNCH stickers in the tab row.
+#define FX_MODE_X0 212
+#define FX_MODE_W 50
+#define FX_MODE_PITCH 54
+// PUNCH: a 4x4 grid of pads, a strip of the bar's 16 steps under it, and
+// its own HOLD in the tab row.
+#define PUNCH_HOLD_X 148
+#define PUNCH_HOLD_W 56
+#define PUNCH_X0 4
+#define PUNCH_Y0 25
+#define PUNCH_PAD_W 75
+#define PUNCH_PAD_H 27
+#define PUNCH_PITCH_X 79
+#define PUNCH_PITCH_Y 30
+#define PUNCH_COLS 4
+#define PUNCH_STRIP_X0 4
+#define PUNCH_STRIP_Y 147
+#define PUNCH_STRIP_H 11
+#define PUNCH_STRIP_PITCH 19.5f
 
 // TAPE page: track stickers (tap: arm, M: mute, hold: wipe) and SEQ LINK on
 // the left; the scrolling 4-lane tape window (drag to scratch), transport
@@ -498,6 +517,10 @@ int ui_hit_bank_cell(int x, int y);  // 0..127, or -1
 int ui_hit_fx_sticker(int x, int y);  // an FxKind, FX_HIT_HOLD, or -1
 bool ui_in_fx_pad(int x, int y);
 int ui_hit_fx_auto(int x, int y);  // an automation step cell, or -1
+int ui_hit_fx_mode(int x, int y);  // 0 PLAY, 1 PUNCH, or -1
+bool ui_hit_punch_hold(int x, int y);
+int ui_hit_punch_pad(int x, int y);   // a PunchKind, or -1
+int ui_hit_punch_step(int x, int y);  // a cell of the step strip (0..15), or -1
 bool ui_hit_songs_button(int x, int y);  // on the SOUND page
 // MIX page: a MixHit (knobs offset by MixKnob), and the strip it is on.
 int ui_hit_mix(int x, int y, int *strip);

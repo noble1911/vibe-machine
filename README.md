@@ -11,7 +11,9 @@ plus kits you build yourself from any of their 155 samples or your own, a sample
 (microphone, tape or WAV; trim it, chop it at the hits into slices across the keys or
 onto the drum lanes), a 16-step sequencer and piano
 roll with 8 pattern slots and song mode, a mixer with drive, crush, tone, pan and
-echo / reverb sends on every part, four performance effects you play with the stylus,
+echo / reverb sends on every part, four performance effects you play with the stylus
+on an XY pad plus sixteen beat-locked punch-in effects (loops, shuffle, reverse,
+scratch, octaves, riser, gate, kills, a dub echo) you can hold or sequence,
 and a 4-track tape recorder,
 all on an original 3DS, with stereoscopic 3D visuals that dance to what you
 play.
@@ -50,7 +52,9 @@ at a time, from the keys to the mixdown (also the app playing itself, with
 | ![SYNTH patch dots](docs/images/synth-bank.png) | The **Juno-6** and **DX7** banks: 128 patches each, as dots to tap or slide across. |
 | ![SONG sheet](docs/images/song-sheet.png) | **SONG sheet**: arrange patterns into a song: rows of slots, repeated ×1–8, with parts dropped out for intros and breakdowns, and an ending. |
 | ![MIX page](docs/images/mix.png) | **MIX**: a channel strip for each part and the drums: fader, LED meter, DRIVE, CRUSH, ECHO and VERB sends, TONE and PAN knobs, MUTE and SOLO. **MIXDOWN** records the finished song to a stereo WAV. |
-| ![FX page, STUTTER](docs/images/fx-stutter.png) | **FX**: CRUSH, SWEEP, STUTTER and TAPE STOP, played on an XY pad. HOLD lets them stack. |
+| ![FX page, STUTTER](docs/images/fx-stutter.png) | **FX → PLAY**: CRUSH, SWEEP, STUTTER and TAPE STOP, played on an XY pad. HOLD lets them stack. |
+| ![FX page, PUNCH: SHUFFLE held](docs/images/punch.png) | **FX → PUNCH**: sixteen punch-in effects, each with its own little mascot. Hold a pad and it comes in on the next 16th: LOOP 1/4 to 1/32, TRIPLET, SHUFFLE (the last bar's 16ths in a new order), REVERSE, SCRATCH, OCTAVE UP / DOWN, RISER, LO-FI, GATE, KILL LO / HI, and DUB, an echo throw that rings on after you let go. Slide across them for rolls; HOLD stacks them. |
+| ![PUNCH-ins on steps](docs/images/punch-steps.png) | Put punch-ins on steps with the strip under the pads (or record them live): the pattern plays them, exactly on their 16ths, and they're saved with the song. |
 | ![FX automation playing a recorded sweep](docs/images/fx-auto.png) | Record your FX moves into a pattern and it plays them back: the strip along the pad shows which steps have one. |
 | ![FX page, CRUSH with the top screen pixelating](docs/images/fx-crush.png) | The top screen reacts to the effects: it pixelates, freezes, glitches and slows down with the tape. |
 | ![TAPE page](docs/images/tape.png) | **TAPE**: four 60-second tracks that record everything, or one part or the drums at a time (which then mute live, so you hear them once). Scratch the tape, play it in reverse, vary its speed. |
@@ -134,10 +138,10 @@ runs eight probes:
 | Probe | Checks |
 |---|---|
 | sound | Every sound makes a note, at a matched level, and both of its macros audibly change it; chopped samples play the right slice on each key; EDIT: an untouched edit changes nothing, CUTOFF darkens, a slow ATTACK swells, the LFO wobbles, MONO plays one note, UNISON still sounds on fewer voices, GLIDE slides, DRAW plays in tune and bends two semitones; every sound survives a full edit; every lane of all seven drum kits plays, TUNE and LEVEL work, a lane plays your own sample, the closed hat chokes the open one |
-| fx | Bypass is bit-exact; sweep darkens and brightens; crush quantises; stutter repeats at exactly the tempo-synced length; tape stops and recovers |
-| seq | 16ths land on time, to the sample; swing gaps are right; accents hit harder; a queued pattern switches on the bar line; song mode chains the right slots; piano-roll notes hold for their length (over the bar line too), chords sound together, live notes keep the length you held; muted parts and drums stay silent |
+| fx | Bypass is bit-exact; sweep darkens and brightens; crush quantises; stutter repeats at exactly the tempo-synced length; tape stops and recovers. PUNCH: bypass is bit-exact (and again once DUB has rung out); a press, a quick tap or a sequenced step engages exactly on the next 1/16 (at once when stopped); every LOOP and TRIPLET repeats at exactly its note length, held past the ring's length; REVERSE is the last beat backwards, sample for sample; SHUFFLE permutes the bar's 16ths and repeats the new bar exactly; SCRATCH repeats every beat; OCTAVE UP / DOWN play at 2× / ½×; RISER climbs; GATE opens and shuts on its 16ths; the kills cut what they should; LO-FI dulls and crackles; DUB echoes a dotted 1/8 later, ping-pong; effects combine in order; none of the sixteen clicks going in or out |
+| seq | 16ths land on time, to the sample; sequenced PUNCH-ins reach the audio thread on their step; swing gaps are right; accents hit harder; a queued pattern switches on the bar line; song mode chains the right slots; piano-roll notes hold for their length (over the bar line too), chords sound together, live notes keep the length you held; muted parts and drums stay silent |
 | tape | Playback at pitch, an octave up at 2×, reverse, mute, wipe; a track set to one strip records just that strip |
-| logic | Save files, WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling, CHOP cuts (uneven, kept in order, pushed by START, auto-cut at the hits, zero-crossing snap), drum kits, EDIT morph and mutate, drawn waves, presets |
+| logic | Save files (and older ones still loading), WAV files, dice grooves (always in key), MIC take tidying, sample START/END and slices, resampling, CHOP cuts (uneven, kept in order, pushed by START, auto-cut at the hits, zero-crossing snap), drum kits, EDIT morph and mutate, drawn waves, presets |
 | songs | Song names, listing (sorted, hundreds of songs), save, load, overwrite, delete; the sample library's listing |
 | dual | AMY's oscillators split between two threads at a voice boundary render exactly (bit for bit) what one thread does |
 | mix | Each part reaches only its own strip; level, mute and pan are exact; DRIVE squares the wave off and CRUSH steps it while the level stays within a few dB; another strip's effects leave a part bit-for-bit alone; the master echo still reaches every part |
@@ -152,13 +156,13 @@ probe on each push ([workflow](.github/workflows/build.yml)). Pushing a
 |---|---|
 | `source/main.c` | Frame loop; buttons and touch → notes, sequencer, tape, songs |
 | `source/engine.c` | Thread-safe wrapper around AMY; renders each block on both CPU cores (`amy_split.c`) |
-| `source/audio_out.c` | Audio thread: sequencer clock → AMY (parts → mixer → master) → FX → tape → DSP |
+| `source/audio_out.c` | Audio thread: sequencer clock → AMY (parts → mixer → master) → tape playback → PUNCH → FX → tape recording → DSP |
 | `source/sounds.c` | The synth engines: AMY patch strings + two macros each, and how EDIT reaches into each one |
 | `source/synthedit.c`, `drawwave.c`, `presets.c` | The EDIT layer (values, morph, mutate), DRAW waves, saved sounds |
 | `source/seq.c` | Sequencer: slots, song, swing, accents; clock runs on the audio thread |
 | `source/mixer.c` | MIX strips: one AMY bus per part, DRIVE / CRUSH / level / pan in AMY's bus hook, summed into a master bus |
 | `source/drums.c`, `drum_kits.h` | The drum kits and your own; `drum_kits.h` is generated from AMY's kits by `tools/gen-drums.py` |
-| `source/fx.c`, `tape.c` | Performance FX and the 4-track tape |
+| `source/fx.c`, `punch.c`, `tape.c` | Performance FX (the XY pad), the PUNCH-in effects, and the 4-track tape |
 | `source/mic.c`, `sampler.c`, `samples.c` | Microphone capture; take tidying, START/END, CHOP slices, resampling; the sample library |
 | `source/songs.c`, `storage.c`, `wav.c` | Named songs, the save format, WAV files |
 | `source/dice.c` | Weighted random grooves |

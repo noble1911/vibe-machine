@@ -71,6 +71,7 @@ typedef enum {
     TOUCH_SYNTH_PAD,
     TOUCH_BANK,
     TOUCH_FX_PAD,
+    TOUCH_PUNCH,        // on a PUNCH pad (s_app.punch_touch; sliding moves between pads)
     TOUCH_REC,
     TOUCH_TAPE_SCRUB,
     TOUCH_TAPE_SPEED,
@@ -645,7 +646,7 @@ static bool lane_take(int lane, const int16_t *data, int frames) {
 }
 
 static void lane_wav_path(char *out, size_t len, const char *dir, int lane) {
-    snprintf(out, len, "%s/drum%d.wav", dir, lane + 1);
+    if (snprintf(out, len, "%s/drum%d.wav", dir, lane + 1) >= (int)len) out[0] = '\0';  // too long: no path
 }
 
 // Each lane's own sample to / from a folder (the song's, or the autosave's).
@@ -1263,6 +1264,7 @@ static void new_song(void) {
     s_app.arr_view = false;
     s_app.octave = 0;
     for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
+    s_app.punch_latched = 0;
     s_app.song_name[0] = '\0';
     song_mark_clean();
     refresh_songs();
@@ -1649,6 +1651,85 @@ static void fx_sticker(int hit) {
         fx_set((FxKind)hit, false, s_app.fx_x[hit], s_app.fx_y[hit]);
     }
     s_app.fx_sel = hit;
+}
+
+// --------------------------------------------------------------- PUNCH ----
+// Hold a pad: on (from the next 1/16); let go: off. Slide across the grid
+// to go from one to the next. With HOLD on, a tap leaves a pad on (several
+// can stack) and a second tap lets it go. The strip under the grid puts the
+// last pad you touched on steps of the bar; recording, the pad you hold goes
+// into the steps it plays on.
+static bool s_punch_was_latched;
+
+static uint16_t punch_live(void) {
+    uint16_t m = s_app.punch_latched;
+    if (s_app.punch_touch >= 0) m |= PUNCH_BIT(s_app.punch_touch);
+    return m;
+}
+
+static void punch_pad_down(int k) {
+    s_app.punch_sel = k;
+    s_app.punch_touch = k;
+    s_punch_was_latched = (s_app.punch_latched & PUNCH_BIT(k)) != 0;
+    punch_set_live(punch_live());
+}
+
+static void punch_pad_move(int k) {
+    if (k == s_app.punch_touch) return;
+    s_app.punch_touch = k;  // (-1: slid off the grid)
+    if (k >= 0) {
+        s_app.punch_sel = k;
+        s_punch_was_latched = (s_app.punch_latched & PUNCH_BIT(k)) != 0;
+    }
+    punch_set_live(punch_live());
+}
+
+static void punch_pad_up(void) {
+    const int k = s_app.punch_touch;
+    if (k >= 0 && s_app.punch_hold) {
+        if (s_punch_was_latched) s_app.punch_latched &= (uint16_t)~PUNCH_BIT(k);
+        else s_app.punch_latched |= PUNCH_BIT(k);
+    }
+    s_app.punch_touch = -1;
+    punch_set_live(punch_live());
+}
+
+static void punch_hold_toggle(void) {
+    s_app.punch_hold = !s_app.punch_hold;
+    if (!s_app.punch_hold) s_app.punch_latched = 0;  // HOLD off lets go of everything it held
+    punch_set_live(punch_live());
+}
+
+// The strip: the selected pad on / off on that step of the bar on screen.
+static void punch_step_toggle(int cell) {
+    const int step = s_app.bar_page * SEQ_STEPS + cell, k = s_app.punch_sel;
+    if (step >= seq_len(&s_app.pattern)) return;
+    const uint16_t m = s_app.pattern.punch[step] ^ PUNCH_BIT(k);
+    seq_set_punch(step, m);
+    s_app.pattern.punch[step] = m;
+    char msg[40];
+    snprintf(msg, sizeof(msg), "%s %s STEP %d", punch_name((PunchKind)k), (m & PUNCH_BIT(k)) ? "ON" : "OFF", step + 1);
+    notice(msg);
+}
+
+static void punch_mode(bool punch) {
+    if (punch && !s_app.fx_punch) notice("PUNCH: HOLD A PAD. STRIP: ITS STEPS");
+    s_app.fx_punch = punch;
+}
+
+// Each frame: tell the audio thread what's held; while recording, the pad
+// under the stylus goes into the step it's playing on.
+static void punch_update(void) {
+    punch_set_live(punch_live());
+    s_app.punch = punch_state();
+    const SeqStatus *st = &s_app.seq;
+    if (!st->playing || !st->recording || s_app.punch_touch < 0) return;
+    const uint16_t rec = PUNCH_BIT(s_app.punch_touch) & s_app.punch.active;
+    const int step = s_app.punch.step;
+    if (rec && step >= 0 && step < SEQ_STEPS_MAX && (s_app.pattern.punch[step] & rec) != rec) {
+        seq_set_punch(step, s_app.pattern.punch[step] | rec);
+        s_app.pattern.punch[step] |= rec;
+    }
 }
 
 static void set_param(int i, float v) {
@@ -2451,6 +2532,27 @@ static void touch_begin(int x, int y) {
         }
         return;
     }
+    if (s_app.page == PAGE_FX && ui_hit_fx_mode(x, y) >= 0) {
+        punch_mode(ui_hit_fx_mode(x, y) == 1);
+        s_touch = TOUCH_IGNORE;
+        return;
+    }
+    if (s_app.page == PAGE_FX && s_app.fx_punch) {
+        const int pad = ui_hit_punch_pad(x, y), cell = ui_hit_punch_step(x, y);
+        if (ui_hit_punch_hold(x, y)) {
+            punch_hold_toggle();
+            s_touch = TOUCH_IGNORE;
+        } else if (pad >= 0) {
+            punch_pad_down(pad);
+            s_touch = TOUCH_PUNCH;
+        } else if (cell >= 0) {
+            punch_step_toggle(cell);
+            s_touch = TOUCH_IGNORE;
+        } else {
+            s_touch = TOUCH_IGNORE;
+        }
+        return;
+    }
     if (s_app.page == PAGE_FX) {
         int hit = ui_hit_fx_sticker(x, y), step = ui_hit_fx_auto(x, y);
         if (step >= 0) step = page_step(step);
@@ -2549,6 +2651,7 @@ static void touch_begin(int x, int y) {
 static void handle_touch(u32 down, u32 held, u32 up) {
     if (up & KEY_TOUCH) {
         if (s_touch == TOUCH_FX_PAD) fx_pad_release();
+        if (s_touch == TOUCH_PUNCH) punch_pad_up();
         if (s_touch == TOUCH_ROLL_NOTE) roll_end();
         if (s_touch == TOUCH_PART_HOLD && s_part_hold_frames < PART_MUTE_FRAMES) switch_part(s_app.part_hold);
         s_app.part_hold = -1;
@@ -2666,6 +2769,7 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             fx_pad_move(nx, ny);
             break;
         }
+        case TOUCH_PUNCH: punch_pad_move(ui_hit_punch_pad(tp.px, tp.py)); break;
         case TOUCH_TAPE_SCRUB: {
             // Drag the tape like a record: 1 px of finger = 1 px of tape.
             const float secs_per_px = TAPE_WIN_SECONDS / TAPE_WIN_W;
@@ -2983,6 +3087,12 @@ static void story_scroll_chords(void) { s_app.roll_scroll = music_roll_row(57, f
 #define GRIPX(f) ((int)(SMP_WAVE_X + (f) * SMP_WAVE_W))
 #define FXPX(f) ((int)(FX_PAD_X + 10 + (f) * (FX_PAD_W - 20)))
 #define FXPY(f) ((int)(FX_PAD_Y + 10 + (1.0f - (f)) * (FX_PAD_H - 30)))
+#define FXMODEX(i) (FX_MODE_X0 + (i) * FX_MODE_PITCH + FX_MODE_W / 2)
+#define PHOLDX (PUNCH_HOLD_X + PUNCH_HOLD_W / 2)
+#define PUNCHX(k) (PUNCH_X0 + ((k) % PUNCH_COLS) * PUNCH_PITCH_X + PUNCH_PAD_W / 2)
+#define PUNCHY(k) (PUNCH_Y0 + ((k) / PUNCH_COLS) * PUNCH_PITCH_Y + PUNCH_PAD_H / 2)
+#define PSTEPX(c) ((int)(PUNCH_STRIP_X0 + (c) * PUNCH_STRIP_PITCH + PUNCH_STRIP_PITCH / 2))
+#define PSTEPY (PUNCH_STRIP_Y + PUNCH_STRIP_H / 2)
 #define TBTNY (TAPE_BTN_Y + TAPE_BTN_H / 2)
 #define TWINY (TAPE_WIN_Y + TAPE_WIN_H / 2)
 #define SONGBTNY(i) (SONG_BTN_Y0 + (i) * SONG_BTN_PITCH + SONG_BTN_H / 2)
@@ -3232,18 +3342,51 @@ static const StoryEv kStory[] = {
     HOLD(FXPX(0.5f), FXPY(0.5f), 60),
     WAIT(30),
 
-    CAP(35, "MIX: DRIVE, CRUSH, TONE, PAN, MUTE, SOLO"),
+    CAP(35, "PUNCH: HOLD A PAD, IT LANDS ON THE 16TH"),
+    TAP(FXMODEX(1), TABY),
+    HOLDMS(PUNCHX(PUNCH_LOOP8), PUNCHY(PUNCH_LOOP8), 1600),
+    DRAG(PUNCHX(PUNCH_LOOP4), PUNCHY(PUNCH_LOOP4), PUNCHX(PUNCH_LOOP32), PUNCHY(PUNCH_LOOP32), 110),  // a roll
+    HOLDMS(PUNCHX(PUNCH_TRIPLET), PUNCHY(PUNCH_TRIPLET), 1200),
+    HOLDMS(PUNCHX(PUNCH_REVERSE), PUNCHY(PUNCH_REVERSE), 1100),
+    HOLDMS(PUNCHX(PUNCH_SHUFFLE), PUNCHY(PUNCH_SHUFFLE), 2300),
+    HOLDMS(PUNCHX(PUNCH_SCRATCH), PUNCHY(PUNCH_SCRATCH), 1300),
+    CAP(36, "PUNCH: OCTAVES, RISER, GATE, KILLS, DUB"),
+    HOLDMS(PUNCHX(PUNCH_OCT_UP), PUNCHY(PUNCH_OCT_UP), 1100),
+    HOLDMS(PUNCHX(PUNCH_OCT_DOWN), PUNCHY(PUNCH_OCT_DOWN), 1100),
+    HOLDMS(PUNCHX(PUNCH_RISER), PUNCHY(PUNCH_RISER), 2200),
+    HOLDMS(PUNCHX(PUNCH_LOFI), PUNCHY(PUNCH_LOFI), 1300),
+    HOLDMS(PUNCHX(PUNCH_GATE), PUNCHY(PUNCH_GATE), 1500),
+    HOLDMS(PUNCHX(PUNCH_KILL_LOW), PUNCHY(PUNCH_KILL_LOW), 1000),
+    HOLDMS(PUNCHX(PUNCH_KILL_HIGH), PUNCHY(PUNCH_KILL_HIGH), 1000),
+    HOLDMS(PUNCHX(PUNCH_DUB), PUNCHY(PUNCH_DUB), 500),
+    WAITSEC(2),  // (the echo rings on)
+    CAP(37, "HOLD STACKS THEM; THE STRIP SEQUENCES THEM"),
+    TAP(PHOLDX, TABY),
+    TAP(PUNCHX(PUNCH_GATE), PUNCHY(PUNCH_GATE)), TAP(PUNCHX(PUNCH_KILL_HIGH), PUNCHY(PUNCH_KILL_HIGH)),
+    WAITSEC(2),
+    TAP(PHOLDX, TABY),  // HOLD off: they all let go
+    TAP(PUNCHX(PUNCH_LOOP16), PUNCHY(PUNCH_LOOP16)),
+    TAP(PSTEPX(6), PSTEPY), TAP(PSTEPX(7), PSTEPY), TAP(PSTEPX(14), PSTEPY), TAP(PSTEPX(15), PSTEPY),
+    TAP(PUNCHX(PUNCH_REVERSE), PUNCHY(PUNCH_REVERSE)),
+    TAP(PSTEPX(11), PSTEPY), TAP(PSTEPX(12), PSTEPY),
+    WAITSEC(5),
+    TAP(PSTEPX(11), PSTEPY), TAP(PSTEPX(12), PSTEPY),  // (off again for the rest of the tour)
+    TAP(PUNCHX(PUNCH_LOOP16), PUNCHY(PUNCH_LOOP16)),
+    TAP(PSTEPX(6), PSTEPY), TAP(PSTEPX(7), PSTEPY), TAP(PSTEPX(14), PSTEPY), TAP(PSTEPX(15), PSTEPY),
+    TAP(FXMODEX(0), TABY),
+
+    CAP(38, "MIX: DRIVE, CRUSH, TONE, PAN, MUTE, SOLO"),
     TAP(TABX(PAGE_MIX), TABY),
     DRAG(KNOBX(0, MIX_DRIVE), KNOBY(MIX_DRIVE), KNOBX(0, MIX_DRIVE), KNOBY(MIX_DRIVE) - 40, 30),
     DRAG(KNOBX(MIX_DRUMS, MIX_CRUSH), KNOBY(MIX_CRUSH), KNOBX(MIX_DRUMS, MIX_CRUSH), KNOBY(MIX_CRUSH) - 25, 30),
     DRAG(KNOBX(1, MIX_PAN), KNOBY(MIX_PAN), KNOBX(1, MIX_PAN), KNOBY(MIX_PAN) + 16, 25),
     DRAG(FADERX(2), CAPY(0.75f), FADERX(2), CAPY(0.55f), 25),
-    CAP(36, "ECHO AND VERB SENDS ON EVERY PART"),
+    CAP(39, "ECHO AND VERB SENDS ON EVERY PART"),
     DRAG(KNOBX(MIX_DRUMS, MIX_ECHO), KNOBY(MIX_ECHO), KNOBX(MIX_DRUMS, MIX_ECHO), KNOBY(MIX_ECHO) + 40, 30),
     DRAG(KNOBX(MIX_DRUMS, MIX_VERB), KNOBY(MIX_VERB), KNOBX(MIX_DRUMS, MIX_VERB), KNOBY(MIX_VERB) + 40, 30),
     WAIT(60),
 
-    CAP(37, "TAPE: RECORD THE JAM, THEN SCRATCH IT"),
+    CAP(40, "TAPE: RECORD THE JAM, THEN SCRATCH IT"),
     TAP(TABX(PAGE_TAPE), TABY),
     TAP(TAPE_REC_X + TAPE_BTN_W / 2, TBTNY),
     TAP(TAPE_PLAY_X + TAPE_BTN_W / 2, TBTNY),
@@ -3259,7 +3402,7 @@ static const StoryEv kStory[] = {
     WAITSEC(2),
     TAP(TAPE_PLAY_X + TAPE_BTN_W / 2, TBTNY),
 
-    CAP(38, "HOLD SONG: ARRANGE THE PATTERNS"),
+    CAP(41, "HOLD SONG: ARRANGE THE PATTERNS"),
     TAP(TABX(PAGE_SEQ), TABY),
     TAP(ROLLX, SLY),
     HOLD(SONGX, SLY, 40),
@@ -3267,7 +3410,7 @@ static const StoryEv kStory[] = {
     TAP(CELLX(1), CELLY(1)), TAP(SLX(0), SLY), TAP(CELLX(1), CELLY(1)), TAP(CELLX(1), CELLY(1)),
     WAIT(120),
 
-    CAP(39, "SAVE IT, THEN MIX IT DOWN TO A WAV"),
+    CAP(42, "SAVE IT, THEN MIX IT DOWN TO A WAV"),
     TAP(TABX(PAGE_SOUND), TABY),
     TAP(SONGS_BTN_X + SONGS_BTN_W / 2, SONGS_BTN_Y + SONGS_BTN_H / 2),
     TAP(SONGBTNX, SONGBTNY(0)),
@@ -3550,6 +3693,7 @@ int main(void) {
     s_app.active_slider = -1;
     s_app.page = PAGE_SOUND;
     for (int k = 0; k < FX_COUNT; k++) s_app.fx_x[k] = s_app.fx_y[k] = 0.5f;
+    s_app.punch_touch = -1;
 
     romfsInit();  // the drum kits' samples live in the app's romfs
     engine_init();
@@ -3775,6 +3919,7 @@ int main(void) {
         mix_update();
         if (s_app.smp_flash_frames > 0) s_app.smp_flash_frames--;
         fx_automation();
+        punch_update();
         mixdown_tick();
 
         AudioStats stats = audio_out_stats();

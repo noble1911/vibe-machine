@@ -8,6 +8,7 @@
 #include "drawwave.h"
 #include "drums.h"
 #include "mixer.h"
+#include "punch.h"
 #include "synthedit.h"
 #include "sampler.h"
 #include "music.h"
@@ -96,6 +97,12 @@ typedef struct {
     bool fx_hold;               // HOLD: effects stay on after the stylus lifts
     bool fx_latched[FX_COUNT];  // effects left on by HOLD
     float fx_x[FX_COUNT], fx_y[FX_COUNT];
+    bool fx_punch;              // the FX page shows PUNCH (the 4x4 pads) instead of PLAY (the XY pad)
+    PunchState punch;           // what the audio thread's PUNCH is doing (read back each frame)
+    int punch_sel;              // the pad last touched: the step strip shows (and edits) its steps
+    int punch_touch;            // the pad under the stylus, or -1
+    bool punch_hold;            // PUNCH's HOLD: pads stay on after the stylus lifts
+    uint16_t punch_latched;     // pads left on by it
     // MIC sampler
     bool mic_ok;                // microphone service available
     bool mic_rec;               // recording right now

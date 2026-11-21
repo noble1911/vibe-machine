@@ -394,6 +394,29 @@ int ui_hit_fx_auto(int x, int y) {
     return s < SEQ_STEPS ? s : -1;
 }
 
+int ui_hit_fx_mode(int x, int y) {
+    for (int i = 0; i < 2; i++)
+        if (in_box(x, y, FX_MODE_X0 + i * FX_MODE_PITCH - 1, TAB_Y - 2, FX_MODE_W + 2, TAB_H + 4)) return i;
+    return -1;
+}
+
+bool ui_hit_punch_hold(int x, int y) { return in_box(x, y, PUNCH_HOLD_X - 1, TAB_Y - 2, PUNCH_HOLD_W + 2, TAB_H + 4); }
+
+int ui_hit_punch_pad(int x, int y) {
+    // Generous: the gaps between pads belong to the nearest one, so a
+    // stylus sliding across the grid never drops out between pads.
+    const float fx = (x - PUNCH_X0 + (PUNCH_PITCH_X - PUNCH_PAD_W) / 2.0f) / PUNCH_PITCH_X;
+    const float fy = (y - PUNCH_Y0 + (PUNCH_PITCH_Y - PUNCH_PAD_H) / 2.0f) / PUNCH_PITCH_Y;
+    if (fx < 0 || fy < 0 || fx >= PUNCH_COLS || fy >= PUNCH_COUNT / PUNCH_COLS) return -1;
+    return (int)fy * PUNCH_COLS + (int)fx;
+}
+
+int ui_hit_punch_step(int x, int y) {
+    if (y < PUNCH_STRIP_Y - 2 || y > PUNCH_STRIP_Y + PUNCH_STRIP_H + 4 || x < PUNCH_STRIP_X0) return -1;
+    const int s = (int)((x - PUNCH_STRIP_X0) / PUNCH_STRIP_PITCH);
+    return s < SEQ_STEPS ? s : -1;
+}
+
 bool ui_in_fx_pad(int x, int y) { return in_box(x, y, FX_PAD_X, FX_PAD_Y, FX_PAD_W, FX_PAD_H); }
 
 static void pad_pos(int x, int y, int px, int py, int pw, int ph, float *nx, float *ny) {

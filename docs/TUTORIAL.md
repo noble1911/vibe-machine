@@ -578,6 +578,14 @@ stereo WAV file, at full quality:
 
 ![FX page with STUTTER](images/fx-stutter.png)
 
+The FX page has two views, picked with the stickers at the right of the tab
+row: **PLAY**, four effects on an XY pad (below), and **PUNCH**, sixteen
+punch-in effects on pads ([PUNCH](#punch-sixteen-punch-in-effects)). Both
+work on the whole mix, and you can use them together: a dot on the PUNCH
+sticker means punch-ins are running while you're on PLAY.
+
+### PLAY: the XY pad
+
 Pick an effect on the left, then **touch the pad**: the effect is on while
 your stylus is down, and X and Y shape it. The pad's background shows what
 the axes do.
@@ -613,6 +621,59 @@ Moves belong to the pattern (slot), so a chorus slot can have its own
 filter sweep, and they're saved with the song.
 
 ![CRUSH pixelating the top screen](images/fx-crush.png)
+
+### PUNCH: sixteen punch-in effects
+
+![PUNCH: SHUFFLE held, the top screen showing where in the old bar each 16th comes from](images/punch.png)
+
+Tap **PUNCH** in the tab row. **Hold a pad**: its effect is on; **let go**:
+it's off. Everything lands on the beat: an effect comes in (and goes out) on
+the next 1/16 of the sequencer, and every repeat is a note value at the
+song's tempo, so it can't fall out of time. A pad waiting for its 16th
+flashes its border; a pad that's on drops down and lights up. With the
+sequencer stopped there's no beat to wait for, so it starts at once.
+
+| Pad | What it does | Top screen |
+|---|---|---|
+| **1/4**, **1/8**, **1/16**, **1/32** | Beat repeat: what plays from the 16th you hit, repeated every 1/4 … 1/32 note | The scene loops with it, flashing on every repeat |
+| **TRIPLET** | Repeats in threes against the beat (1/8-note triplets) | Loops too |
+| **SHUFFLE** | The last bar's sixteen 16ths, replayed in a new order (on-beats stay on-beats, the downbeat stays first), then that new bar again | A row of cards shows which 16th of the old bar is playing |
+| **REVERSE** | The last beat, backwards | Runs backwards |
+| **SCRATCH** | The record pulled back and pushed forward under your hand, twice a beat | Wobbles with the record |
+| **OCT UP**, **OCT DN** | The whole mix an octave up (2×) or down (½×), kept in time | Runs at double / half speed |
+| **RISER** | Pitch and a high-pass filter climb over a bar: the build before a drop | A tide of light rises |
+| **LO-FI** | Wobbly old tape, a small dull speaker, dust and crackle | Warm, dusty and scan-lined |
+| **GATE** | Chops the sound to a rhythm locked to the bar (x.xx .xx. x.xx .x.x) | The lights go out with it |
+| **KILL LO**, **KILL HI** | DJ kills: the bass gone, or the top gone | The lower / upper half dims |
+| **DUB** | Throws what's playing into a dotted-1/8 echo that bounces left and right and **keeps ringing after you let go** | Ripples, until the echo dies |
+
+- **Slide** across the pads without lifting: each takes over on the next
+  16th. Slide from **1/4** along to **1/32** for a roll that speeds up.
+- A **quick tap** still plays one 16th.
+- **Several at once**: with **HOLD** (in the tab row) on, a tap leaves a
+  pad on (it gets a pin) and a second tap lets it go, so you can stack
+  them; turn HOLD off to let go of them all. Held pads and the one under
+  your stylus combine in a fixed order: one repeater (the shortest loop
+  wins; then TRIPLET, SCRATCH, REVERSE, SHUFFLE) → OCT / RISER → LO-FI →
+  KILL LO → KILL HI → GATE → DUB. So LOOP 1/16 + GATE gates the loop, and
+  DUB catches everything before it.
+- Every change fades over a few milliseconds, so nothing clicks.
+
+**Putting punch-ins on steps.** The pad you touched last has a folded
+corner, and the strip of 16 cells under the grid is the bar (the one on
+screen on SEQ): cells in that pad's colour are the steps it's on. **Tap a
+cell** to put it on that step, or take it off. Small marks in a cell are
+other pads' steps; the pips on a pad count its steps in this bar. While
+the pattern plays, each step turns its effects on for exactly that step
+(two steps of 1/16 in a row: one stuttered 16th repeated). Or record them:
+with **●** on and the sequencer playing, every step you hold a pad through
+goes into the pattern (**REC** shows by the strip). Your stylus always
+plays on top of what's sequenced.
+
+Punch-ins belong to the pattern (slot), like FX moves, and are saved with
+the song. ✕ on SEQ clears them along with the rest of the pattern.
+
+![PUNCH steps: REVERSE (the folded-corner pad) on steps 12 and 13 in its colour, LOOP 1/16's steps as small marks, the top screen looping along](images/punch-steps.png)
 
 ## 11. The TAPE page: recording tracks
 
@@ -740,8 +801,8 @@ fly out at you.
 
 **Tape a performance**
 1. TAPE → track 1 → ● → ▶ (the beat starts with it).
-2. Switch to FX and play STUTTER and SWEEP over the beat. It all goes onto
-   tape.
+2. Switch to FX and play STUTTER and SWEEP over the beat, or PUNCH in a
+   few loops and a GATE. It all goes onto tape.
 3. ■, then pick track 2 and record a melody over it.
 4. Drag the speed strip to **REV** and listen to it backwards.
 
@@ -762,6 +823,13 @@ fly out at you.
 1. FX → TAPE, HOLD on, touch the pad near the right ("slow stop") and high
    (wobble): the whole mix drops like a dying cassette.
 2. Tap TAPE again to let it spin back up.
+
+**A drop**
+1. FX → PUNCH. Over the last bar before the chorus, hold **RISER**.
+2. Just before the one, slide to **1/8**, then on along to **1/32**.
+3. Let go on the one, and hit **DUB** on the last beat of the chorus so it
+   echoes into the next bar.
+4. To keep it, record it: ● on, START, and do it again.
 
 ## 15. Troubleshooting
 
