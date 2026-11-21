@@ -466,9 +466,16 @@ void engine_load_wave(int part, const int16_t *pcm, int n) {
     if (part < 0 || part >= PARTS || n <= 0) return;
     // AMY's wavetable oscillator (w19) plays the preset as cycles of n
     // samples, pitched by the note. It wants two (it morphs between them):
-    // the same cycle, twice. Overwriting the RAM is heard straight away.
+    // the same cycle, twice. Overwriting the RAM is heard straight away, so
+    // while drawing (many times a second) the preset already there is
+    // written over in place: no free and malloc under the lock.
+    const uint16_t preset = (uint16_t)(DRAW_PRESET + part);
     LightLock_Lock(&s_lock);
-    int16_t *ram = pcm_load((uint16_t)(DRAW_PRESET + part), (uint32_t)(2 * n), 44100, 1, 60.0f, 0, 0);
+    uint32_t frames = 0, rate = 0;
+    uint8_t channels = 0;
+    int16_t *ram = (int16_t *)pcm_get_memory_preset(preset, &frames, &channels, &rate, NULL);
+    if (!ram || frames != (uint32_t)(2 * n) || channels != 1 || rate != 44100)
+        ram = pcm_load(preset, (uint32_t)(2 * n), 44100, 1, 60.0f, 0, 0);
     if (ram) {
         memcpy(ram, pcm, (size_t)n * sizeof(int16_t));
         memcpy(ram + n, pcm, (size_t)n * sizeof(int16_t));
