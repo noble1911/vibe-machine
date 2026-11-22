@@ -75,6 +75,9 @@ static void render_worker(void *arg) {
         const uint64_t t0 = svcGetSystemTick();
         amy_render(s_split, AMY_OSCS, 1);
         s_core1_ticks = (uint32_t)(svcGetSystemTick() - t0);
+#ifdef VM_SLOW_WORKER  // a test build: core 1 is never idle between blocks, as on a loaded 3DS
+        svcSleepThread(3000000);
+#endif
         __atomic_store_n(&s_job, JOB_IDLE, __ATOMIC_RELEASE);
         LightEvent_Signal(&s_done);
     }
@@ -746,10 +749,19 @@ const int16_t *engine_render_block(void (*safe_point)(void)) {
     const uint64_t t_park = svcGetSystemTick();
 
     // 2. The safe point.
-    while (__atomic_load_n(&s_want, __ATOMIC_ACQUIRE) > 0) {  // UI calls waiting: let them in
+    // UI calls waiting: let them in. BOTH locks go: AMY's own render lock
+    // too (a patch or sample load takes it, in amy_settle_deltas; holding
+    // it here while waiting for that very call to finish froze the app).
+    while (__atomic_load_n(&s_want, __ATOMIC_ACQUIRE) > 0) {
+#ifndef VM_OLD_PARK  // (a test build can bring the freeze back, to prove the test catches it)
+        amy_release_render_lock();
+#endif
         LightLock_Unlock(&s_lock);
         svcSleepThread(50000);
         LightLock_Lock(&s_lock);
+#ifndef VM_OLD_PARK
+        amy_grab_render_lock();
+#endif
     }
     {
         const float w = (float)(svcGetSystemTick() - t_park);

@@ -99,6 +99,9 @@ ifdef RECORD
 CFLAGS	+=	-DVM_RECORD
 endif
 
+# Extra flags for a test build, e.g. make EXTRA="-DVM_SLOW_WORKER" (engine.c).
+CFLAGS	+=	$(EXTRA)
+
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++11
 
 ASFLAGS	:=	-g $(ARCH)
