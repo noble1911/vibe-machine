@@ -114,6 +114,7 @@ typedef struct {
     float w_core0;                 // core 0's own work per block (render + mixdown + effects)
     float w_core1, w_core1_max;    // core 1's render per block
     float w_total;                 // the block, start to finish
+    float w_fill, w_hook;          // the mixdown per block, and the part of it that's the mixer's own hook
     uint32_t w_over, w_blocks;     // blocks that took longer than real time, of how many
     uint32_t stalls;
 } EnginePerf;

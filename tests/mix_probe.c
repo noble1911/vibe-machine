@@ -329,6 +329,68 @@ int main(void) {
     check("full sends with the effects off change nothing", fabs(db(mono(&sent[1]), mono(&sent[0]))) < 0.05, "%+.3f dB",
           db(mono(&sent[1]), mono(&sent[0])), 0);
 
+    // The echo and reverb fall asleep when nothing feeds them (mixer.h), and
+    // wake with the first note: the tail is the same as if they never slept.
+    mix_echo(0.3f);
+    mix_verb(0.3f);
+    Measure tail[2];
+    for (int k = 0; k < 2; k++) {
+        if (k) {
+            mixer_set_fx_level(0, 0.3f);
+            mixer_set_fx_level(1, 0.3f);
+        }
+        render(6.0);
+        if (k)
+            check("silence: the echo and the reverb fall asleep", mixer_fx_asleep(0) && mixer_fx_asleep(1), "echo %.0f reverb %.0f",
+                  mixer_fx_asleep(0), mixer_fx_asleep(1));
+        note(saw, 57, 0.8f);
+        render(0.3);
+        if (k)
+            check("a note wakes them", !mixer_fx_asleep(0) && !mixer_fx_asleep(1), "echo %.0f reverb %.0f", mixer_fx_asleep(0),
+                  mixer_fx_asleep(1));
+        note(saw, 57, 0.0f);
+        render(0.3);
+        tail[k] = render(0.6);
+    }
+    check("...and the tail is what it was without the nap", mono(&tail[0]) > 1e-4 && fabs(db(mono(&tail[1]), mono(&tail[0]))) < 0.2,
+          "%.5f, %+.3f dB", mono(&tail[0]), db(mono(&tail[1]), mono(&tail[0])));
+    // A strip's TONE is a filter that never rings down to exactly nothing:
+    // that mustn't keep the strip, and so the effects, awake for good.
+    s_strip[1].knob[MIX_TONE] = 0.85f;
+    apply(1, true);
+    note(saw, 57, 0.8f);
+    render(0.3);
+    note(saw, 57, 0.0f);
+    render(8.0);
+    check("...also after a strip with its TONE turned", mixer_fx_asleep(0) && mixer_fx_asleep(1), "echo %.0f reverb %.0f",
+          mixer_fx_asleep(0), mixer_fx_asleep(1));
+    s_strip[1].knob[MIX_TONE] = 0.5f;
+    apply(1, true);
+    // Sends that differ (the reverb's bus is the echo's plus the difference).
+    Measure uneven[3];
+    for (int k = 0; k < 3; k++) {
+        s_strip[1].knob[MIX_ECHO] = k == 1 ? 0.0f : 1.0f;
+        s_strip[1].knob[MIX_VERB] = k == 2 ? 0.0f : 1.0f;
+        apply(1, true);
+        render(4.0);
+        note(saw, 57, 0.8f);
+        render(0.3);
+        note(saw, 57, 0.0f);
+        render(0.3);
+        uneven[k] = render(0.6);
+    }
+    check("the echo's send off: a smaller tail, not none", mono(&uneven[1]) > 1e-5 && mono(&uneven[1]) < mono(&uneven[0]) * 0.95,
+          "%.5f vs %.5f", mono(&uneven[1]), mono(&uneven[0]));
+    check("the reverb's send off: a smaller tail, not none", mono(&uneven[2]) > 1e-5 && mono(&uneven[2]) < mono(&uneven[0]) * 0.95,
+          "%.5f vs %.5f", mono(&uneven[2]), mono(&uneven[0]));
+    s_strip[1].knob[MIX_ECHO] = s_strip[1].knob[MIX_VERB] = 1.0f;
+    apply(1, true);
+    mixer_set_fx_level(0, -1.0f);
+    mixer_set_fx_level(1, -1.0f);
+    mix_echo(0.0f);
+    mix_verb(0.0f);
+    render(1.0);
+
     // How high the meters go for a loud part, so the UI can scale them.
     s_strip[1].level = 1.0f;
     apply(1, true);

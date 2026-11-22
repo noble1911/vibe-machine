@@ -64,6 +64,13 @@ void mixer_set_gain(int strip, const MixStrip *s, bool audible);
 
 // AMY's bus post-process hook (amy_config.amy_external_bus_postprocess_hook).
 void mixer_hook(uint16_t bus, int32_t *buf, uint16_t len);
+// The level the echo (0) / reverb (1) should return at. Once told, the
+// mixer holds an effect at 0 (asleep: AMY skips it) while nothing is sent to
+// it and its tail has died, and wakes it on the first block that sends.
+void mixer_set_fx_level(int fx, float level);
+bool mixer_fx_asleep(int fx);
+// Ticks the hook took since the last call of this (the perf log).
+uint32_t mixer_hook_ticks(void);
 
 // Loudest sample (0..1, after level and pan) a strip has sent since the last
 // call. For the meters.
@@ -76,3 +83,6 @@ void mixer_set_master_volume(float volume);
 // master during it, mono, full scale +-1.0 (as heard, before the master's
 // tone, echo, reverb and the FX). AMY_BLOCK_SIZE frames. For the tape.
 const float *mixer_strip_block(int strip);
+// Which strips to keep that copy of (bit k: strip k). All, to start with;
+// the app keeps only the ones a tape track records. The others' are stale.
+void mixer_keep_strips(unsigned mask);

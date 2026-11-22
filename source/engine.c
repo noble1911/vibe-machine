@@ -61,7 +61,7 @@ static uint32_t s_fill_ticks, s_engine_ticks;  // the last block's mixdown, and 
 static EnginePerf s_perf;
 static struct {
     uint32_t blocks, over;
-    float weight, weight_max, core0, core1, core1_max, total;
+    float weight, weight_max, core0, core1, core1_max, total, hook, fill;
 } s_win;
 
 static void render_worker(void *arg) {
@@ -184,7 +184,7 @@ static char s_core_report[400];
 // original 3DS runs its own services (the one that carries sound to the DSP
 // among them): ask for too much and THEY starve, which is heard as gaps
 // even with nothing playing. 0: don't use core 1 at all.
-static volatile int s_core1_limit = 50;  // measured on an original 3DS: 50-65% ran gap-free; 80% starved the system, 30% and less starved the synth
+static volatile int s_core1_limit = 65;  // measured on an original 3DS: 50-65% ran gap-free; 80% starved the system, 30% and less starved the synth
 static bool s_worker_core1;
 static u8 s_probe_stack[4096] __attribute__((aligned(8)));
 static void probe_entry(void *arg) {
@@ -664,10 +664,12 @@ void engine_set_param(EngineParam param, float v) {
         case PARAM_ECHO:  // how loud the echo comes back (the strips' sends feed it)
             e.bus = MIX_ECHO_BUS;
             e.echo_level = v;
+            mixer_set_fx_level(0, v);
             break;
         case PARAM_REVERB:
             e.bus = MIX_VERB_BUS;
             e.reverb_level = v;
+            mixer_set_fx_level(1, v);
             break;
         case PARAM_VOLUME:  // the dry mix and both returns together
             e.volume = v * 2.5f;
@@ -714,6 +716,7 @@ const int16_t *engine_render_block(void (*safe_point)(void)) {
     }
     amy_grab_render_lock();
     vm_amy_pipeline = 1;
+    vm_amy_mix_from = MIX_MASTER_BUS;  // (the strips' buses are emptied by the mixer's hook)
 
     // 1. This block's render, finished and merged.
     const uint64_t t_wait = svcGetSystemTick();
@@ -802,6 +805,8 @@ const int16_t *engine_render_block(void (*safe_point)(void)) {
     const uint64_t tf = svcGetSystemTick();
     const int16_t *block = amy_fill_buffer();
     s_fill_ticks = (uint32_t)(svcGetSystemTick() - tf);
+    s_win.hook += (float)mixer_hook_ticks();
+    s_win.fill += (float)s_fill_ticks;
 
     // 5. Our share of the next block.
     const uint64_t t0 = svcGetSystemTick();
@@ -855,6 +860,7 @@ EnginePerf engine_perf(void) {
         p.w_weight = s_win.weight / n, p.w_weight_max = s_win.weight_max;
         p.w_core0 = s_win.core0 / n / block, p.w_core1 = s_win.core1 / n / block, p.w_core1_max = s_win.core1_max / block;
         p.w_total = s_win.total / n / block;
+        p.w_hook = s_win.hook / n / block, p.w_fill = s_win.fill / n / block;
         p.w_over = s_win.over, p.w_blocks = s_win.blocks;
     }
     memset(&s_win, 0, sizeof(s_win));

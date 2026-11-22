@@ -253,6 +253,15 @@ void tape_play_block(int16_t *io, int frames, int rate) {
     for (int t = 0; t < TAPE_TRACKS; t++) s_level[t] = lvl[t] > s_level[t] ? lvl[t] : s_level[t] * 0.9f;
 }
 
+unsigned tape_strip_sources(void) {
+    unsigned mask = 0;
+    for (int t = 0; t < TAPE_TRACKS; t++) {
+        const int src = s_source[t];
+        if (src >= 0 && src < TAPE_SOURCES) mask |= 1u << src;
+    }
+    return mask;
+}
+
 void tape_record_block(const int16_t *io, const float *const *strips, int frames) {
     if (!s_block_rec || frames != s_block_frames) return;
     const int rt = s_block_rt, src = s_source[rt], decim = s_block_decim;

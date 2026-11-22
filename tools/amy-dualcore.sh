@@ -19,6 +19,7 @@ for f in "$SRC"/*.c "$SRC"/*.h; do
 #define AMY_SAMPLE_RATE 44100\
 #endif\
 extern int vm_amy_pipeline;\
+extern int vm_amy_mix_from;\
 void vm_amy_merge_cores(void);\
 void vm_amy_advance_time(void);/' "$f" > "$DST/.amy.h.new"
         grep -q 'defined (VM_AMY_DUALCORE)' "$DST/.amy.h.new" && grep -q 'VM_AMY_SAMPLE_RATE' "$DST/.amy.h.new" ||
@@ -32,11 +33,15 @@ void vm_amy_advance_time(void);/' "$f" > "$DST/.amy.h.new"
         # the renderer (the engine advances it at a fixed point). Both stay
         # as they were unless vm_amy_pipeline is set.
         sed -e 's/^        for (int16_t i=0; i < AMY_BLOCK_SIZE \* AMY_NCHANS; ++i)  fbl\[0\]\[bus\]\[i\] += fbl\[1\]\[bus\]\[i\];$/        for (int16_t i=0; !vm_amy_pipeline \&\& i < AMY_BLOCK_SIZE * AMY_NCHANS; ++i)  fbl[0][bus][i] += fbl[1][bus][i];/' \
-            -e 's/^    amy_global.total_blocks++;$/    if (!vm_amy_pipeline) amy_global.total_blocks++;/' "$f" > "$DST/.amy.c.new"
+            -e 's/^    amy_global.total_blocks++;$/    if (!vm_amy_pipeline) amy_global.total_blocks++;/' \
+            -e 's/^            for (int bus = 0; bus <= amy_global.highest_bus; ++bus) {$/            for (int bus = vm_amy_mix_from; bus <= amy_global.highest_bus; ++bus) {/' "$f" > "$DST/.amy.c.new"
         cat >> "$DST/.amy.c.new" <<'PIPE'
 
 // --- Vibe Machine's pipeline hooks (tools/amy-dualcore.sh) ---
 int vm_amy_pipeline = 0;
+// The first bus the final mixdown adds up. The mixer's hook empties the
+// strips' buses into the master, so the engine starts it at the master.
+int vm_amy_mix_from = 0;
 void vm_amy_merge_cores(void) {
     for (int bus = 0; bus <= amy_global.highest_bus; ++bus)
         for (int i = 0; i < AMY_BLOCK_SIZE * AMY_NCHANS; ++i) fbl[0][bus][i] += fbl[1][bus][i];
@@ -47,7 +52,8 @@ void vm_amy_advance_time(void) {
     amy_global.time = amy_global.total_samples * (1.0f / AMY_SAMPLE_RATE);
 }
 PIPE
-        grep -q '!vm_amy_pipeline \&\& i < AMY_BLOCK_SIZE' "$DST/.amy.c.new" && grep -q 'if (!vm_amy_pipeline) amy_global.total_blocks++;' "$DST/.amy.c.new" ||
+        grep -q '!vm_amy_pipeline \&\& i < AMY_BLOCK_SIZE' "$DST/.amy.c.new" && grep -q 'if (!vm_amy_pipeline) amy_global.total_blocks++;' "$DST/.amy.c.new" &&
+            grep -q 'for (int bus = vm_amy_mix_from; bus <= amy_global.highest_bus' "$DST/.amy.c.new" ||
             { echo "amy-dualcore.sh: amy.c changed upstream, update the patterns" >&2; exit 1; }
         if cmp -s "$DST/.amy.c.new" "$DST/amy.c"; then rm "$DST/.amy.c.new"; else mv "$DST/.amy.c.new" "$DST/amy.c"; fi
     elif ! cmp -s "$f" "$DST/$b"; then

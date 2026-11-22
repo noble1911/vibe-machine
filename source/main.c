@@ -3177,10 +3177,11 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
     // SELECT held: the circle pad bends the pitch (springs back when you
     // let go). SELECT tapped -- quickly, without bending -- next sound.
     static bool s_bent;
-    // L + R + SELECT: step the share of core 1 the synth asks for (tuning,
-    // for now: the best value is being found on real hardware).
+#ifdef VM_TUNE
+    // L + R + SELECT (a tuning build, make TUNE=1): step the share of core 1
+    // the synth asks for. 65% measured best on an original 3DS.
     if ((held & (KEY_L | KEY_R)) == (KEY_L | KEY_R) && (down & KEY_SELECT)) {
-        static const int steps[] = {50, 65, 80, 0, 15, 30};
+        static const int steps[] = {65, 80, 0, 15, 30, 50};
         int i = 0;
         while (i < 6 && steps[i] != engine_core1_limit()) i++;
         const int pct = steps[(i + 1) % 6];
@@ -3191,6 +3192,7 @@ static void handle_buttons(u32 down, u32 held, u32 up, u32 repeat) {
         notice(msg);
         s_bent = true;  // (this SELECT isn't "next sound")
     }
+#endif
     static unsigned s_select_down;
     if (down & KEY_SELECT) s_select_down = s_app.frame;
     if (held & KEY_SELECT) {
@@ -4273,7 +4275,7 @@ int main(void) {
         mixdown_tick();
 
         AudioStats stats = audio_out_stats();
-#ifndef VM_DEMO
+#if defined(VM_TUNE) && !defined(VM_DEMO)  // (make TUNE=1: a tuning build)
         {   // perf log (sdmc:/3ds/vibe-machine/perf.txt, started afresh each run):
             // every 2 s while something plays, where each audio block's time
             // went, as percentages of real time. For tuning on real hardware.
@@ -4293,7 +4295,7 @@ int main(void) {
                     fprintf(pf, "%u %d %.0f | %.0f %.0f %.0f | %.0f | %.0f %.0f | %.0f %.0f %u | %.2f %u %04X | %d"
                                 " | cb %lu gap %lums | wake %lu gap %lums | found empty 0:%lu 1:%lu 2:%lu 3:%lu 4:%lu | fill %lums queue %luus"
                                 " | wait %.0f park %.0f lock %.0f | sounds %d %d %d patches %d %d %d"
-                                " | window: weight avg %.0f max %.0f, core0 avg %.0f, core1 avg %.0f max %.0f, total avg %.0f, over100 %lu of %lu\n",
+                                " | window: weight avg %.0f max %.0f, core0 avg %.0f, core1 avg %.0f max %.0f, total avg %.0f, over100 %lu of %lu, mixdown %.0f of which hook %.0f | echo %.0f verb %.0f\n",
                             (unsigned)s_app.frame, (int)s_app.page, (double)ep.oscs, (double)(ep.render0 * 100),
                             (double)(ep.fill * 100), (double)(ep.post * 100), (double)(ep.core1 * 100),
                             (double)(ep.total * 100), (double)(ep.total_max * 100), (double)(stats.load * 100),
@@ -4307,7 +4309,8 @@ int main(void) {
                             s_app.parts[0].patch, s_app.parts[1].patch, s_app.parts[2].patch, (double)ep.w_weight,
                             (double)ep.w_weight_max, (double)(ep.w_core0 * 100), (double)(ep.w_core1 * 100),
                             (double)(ep.w_core1_max * 100), (double)(ep.w_total * 100), (unsigned long)ep.w_over,
-                            (unsigned long)ep.w_blocks);
+                            (unsigned long)ep.w_blocks, (double)(ep.w_fill * 100), (double)(ep.w_hook * 100),
+                            (double)(s_app.params[PARAM_ECHO] * 100), (double)(s_app.params[PARAM_REVERB] * 100));
                     lines++;
                 }
                 if (!s_app.seq.playing && !s_app.tape.playing && s_app.frame % 300 == 0) fflush(pf);  // (the SD card: only when stopped)

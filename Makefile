@@ -99,6 +99,11 @@ ifdef RECORD
 CFLAGS	+=	-DVM_RECORD
 endif
 
+ifdef TUNE
+# A tuning build: the perf log (sdmc:/3ds/vibe-machine/perf.txt), the mixer's
+# own timer, and L+R+SELECT stepping core 1's allowance.
+CFLAGS	+=	-DVM_TUNE
+endif
 # Extra flags for a test build, e.g. make EXTRA="-DVM_SLOW_WORKER" (engine.c).
 CFLAGS	+=	$(EXTRA)
 

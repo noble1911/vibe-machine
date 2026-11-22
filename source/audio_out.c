@@ -163,6 +163,7 @@ static void fill_wavebuf(ndspWaveBuf *wb) {
         const uint64_t t0 = svcGetSystemTick();
         // The sequencer's clock runs inside the engine's block, at its safe
         // point (block_safe_point, below).
+        mixer_keep_strips(tape_strip_sources());  // (only the strips a tape track records keep their own copy)
         const int16_t *block = engine_render_block(block_safe_point);
         // PUNCH and the FX pad's recorded moves follow the step whose notes
         // are in THIS block: the one the sequencer fired a block ago.

@@ -875,8 +875,11 @@ fly out at you.
   `sdmc:/3ds/`. Run the DSP1 homebrew once. In Azahar, run
   `sh tools/azahar-sd-setup.sh` instead.
 - **MIC says N/A**: the microphone service didn't start. Restart the app.
-- **The CPU meter is high or there are gaps**: SUPERSAW chords, long FX
-  chains and four busy tape tracks add up on an original 3DS. Use fewer
-  voices, or bounce parts to tape.
+- **The CPU meter is high or there are gaps**: JUNO and DX7 are the heavy
+  sounds, and long notes that ring over each other (strings, pads with a
+  slow release) pile up. Two JUNO parts with a lighter third are
+  comfortable on an original 3DS; three, or a DX7 playing chords, can
+  break up. Use a lighter sound on one part, shorter releases, or fewer
+  notes at once, or bounce a part to tape.
 - **Where are my files?** In `sdmc:/3ds/vibe-machine/`. Songs are folders
   in `songs/`, and the WAVs open in any audio editor.

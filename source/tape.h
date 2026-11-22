@@ -65,6 +65,8 @@ float tape_peak(int track, int block);
 // thread, see tape_mark_saved_at). A track is dirty
 // once it has been recorded over or wiped since it was last saved/loaded.
 bool tape_dirty(int track);
+// The MIX strips some track is set to record on its own (bit k: strip k).
+unsigned tape_strip_sources(void);
 const int16_t *tape_track_data(int track, int *frames);  // frames = recorded length
 void tape_mark_saved(int track);
 // The same, for the version `generation` (tape_track_generation() read

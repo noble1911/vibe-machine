@@ -52,6 +52,7 @@ static int s_block_no;
 static int s_pipe_split = -1;  // the split of the render in flight (-1: none yet)
 static const int16_t *block_pipeline(int *split_seen) {
     vm_amy_pipeline = 1;
+    vm_amy_mix_from = MIX_MASTER_BUS;  // as the engine does: must not change a sample
     if (s_pipe_split >= 0) {
         pthread_mutex_lock(&s_m);
         while (!s_done) pthread_cond_wait(&s_c, &s_m);
@@ -174,6 +175,11 @@ static void scene(int split_mode, int *splits_min, int *splits_max) {
     }
     *splits_min = mn;
     *splits_max = mx;
+    if (s_pipe_split >= 0) {  // the pipeline's last render is still in flight: let it finish
+        pthread_mutex_lock(&s_m);
+        while (!s_done) pthread_cond_wait(&s_c, &s_m);
+        pthread_mutex_unlock(&s_m);
+    }
     amy_stop();
 }
 
