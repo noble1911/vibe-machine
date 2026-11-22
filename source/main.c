@@ -2941,11 +2941,15 @@ static void touch_begin(int x, int y) {
     s_touch = TOUCH_IGNORE;
 }
 
+static int s_bank_pending = -1, s_bank_wait;  // the patch the stylus is on, loaded once it rests there
+
 static void handle_touch(u32 down, u32 held, u32 up) {
     if (up & KEY_TOUCH) {
         if (s_touch == TOUCH_FX_PAD) fx_pad_release();
         if (s_touch == TOUCH_PUNCH) punch_pad_up();
         if (s_touch == TOUCH_ROLL_NOTE) roll_end();
+        if (s_touch == TOUCH_BANK && s_bank_pending >= 0) change_patch(s_bank_pending);
+        s_bank_pending = -1;
         if (s_touch == TOUCH_PART_HOLD && s_part_hold_frames < PART_MUTE_FRAMES) switch_part(s_app.part_hold);
         s_app.part_hold = -1;
         s_app.part_hold_t = 0.0f;
@@ -3049,9 +3053,16 @@ static void handle_touch(u32 down, u32 held, u32 up) {
             // Slide across the dots to audition patches.
             int cell = ui_hit_bank_cell(tp.px, tp.py);
             const Sound *snd = sound_get(s_app.sound);
+            // (A patch loads once the stylus has rested on its dot a moment,
+            // or lifts: loading one stops the sound for an instant, so
+            // sliding across twenty of them mustn't load all twenty.)
             if (cell >= 0 && cell < snd->bank_count && cell != s_paint_step) {
                 s_paint_step = cell;
-                change_patch(snd->bank_first + cell);
+                s_bank_pending = snd->bank_first + cell;
+                s_bank_wait = 0;
+            } else if (s_bank_pending >= 0 && ++s_bank_wait >= 9) {
+                change_patch(s_bank_pending);
+                s_bank_pending = -1;
             }
             break;
         }
@@ -4281,7 +4292,8 @@ int main(void) {
                     const AudioDiag ad = audio_out_diag();
                     fprintf(pf, "%u %d %.0f | %.0f %.0f %.0f | %.0f | %.0f %.0f | %.0f %.0f %u | %.2f %u %04X | %d"
                                 " | cb %lu gap %lums | wake %lu gap %lums | found empty 0:%lu 1:%lu 2:%lu 3:%lu 4:%lu | fill %lums queue %luus"
-                                " | wait %.0f park %.0f | sounds %d %d %d\n",
+                                " | wait %.0f park %.0f lock %.0f | sounds %d %d %d patches %d %d %d"
+                                " | window: weight avg %.0f max %.0f, core0 avg %.0f, core1 avg %.0f max %.0f, total avg %.0f, over100 %lu of %lu\n",
                             (unsigned)s_app.frame, (int)s_app.page, (double)ep.oscs, (double)(ep.render0 * 100),
                             (double)(ep.fill * 100), (double)(ep.post * 100), (double)(ep.core1 * 100),
                             (double)(ep.total * 100), (double)(ep.total_max * 100), (double)(stats.load * 100),
@@ -4291,7 +4303,11 @@ int main(void) {
                             (unsigned long)ad.filled[0], (unsigned long)ad.filled[1], (unsigned long)ad.filled[2],
                             (unsigned long)ad.filled[3], (unsigned long)ad.filled[4], (unsigned long)(ad.fill_us / 1000),
                             (unsigned long)ad.queue_us, (double)(ep.wait_max * 100), (double)(ep.park_max * 100),
-                            s_app.parts[0].sound, s_app.parts[1].sound, s_app.parts[2].sound);
+                            (double)(ep.lock_max * 100), s_app.parts[0].sound, s_app.parts[1].sound, s_app.parts[2].sound,
+                            s_app.parts[0].patch, s_app.parts[1].patch, s_app.parts[2].patch, (double)ep.w_weight,
+                            (double)ep.w_weight_max, (double)(ep.w_core0 * 100), (double)(ep.w_core1 * 100),
+                            (double)(ep.w_core1_max * 100), (double)(ep.w_total * 100), (unsigned long)ep.w_over,
+                            (unsigned long)ep.w_blocks);
                     lines++;
                 }
                 if (!s_app.seq.playing && !s_app.tape.playing && s_app.frame % 300 == 0) fflush(pf);  // (the SD card: only when stopped)

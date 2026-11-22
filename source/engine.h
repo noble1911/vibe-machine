@@ -108,6 +108,13 @@ typedef struct {
     float share_used;  // (internal: the smoothed share)
     float wait_max;    // the longest wait for core 1 to finish its share (blocks)
     float park_max;    // the longest the audio thread stood aside for UI calls (blocks)
+    float lock_max;    // the longest it waited for the engine's lock (a patch loading on the UI side)
+    // The window since the last engine_perf(): true averages and peaks.
+    float w_weight, w_weight_max;  // what was sounding, in plain oscillators
+    float w_core0;                 // core 0's own work per block (render + mixdown + effects)
+    float w_core1, w_core1_max;    // core 1's render per block
+    float w_total;                 // the block, start to finish
+    uint32_t w_over, w_blocks;     // blocks that took longer than real time, of how many
     uint32_t stalls;
 } EnginePerf;
 EnginePerf engine_perf(void);

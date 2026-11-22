@@ -59,6 +59,10 @@ static float s_cost0, s_cost1;  // smoothed ticks per sounding oscillator on eac
 static float s_fixed0;          // smoothed ticks of core 0's other work per block (mixdown + PUNCH / FX / tape)
 static uint32_t s_fill_ticks, s_engine_ticks;  // the last block's mixdown, and all of engine_render_block
 static EnginePerf s_perf;
+static struct {
+    uint32_t blocks, over;
+    float weight, weight_max, core0, core1, core1_max, total;
+} s_win;
 
 static void render_worker(void *arg) {
     (void)arg;
@@ -701,6 +705,10 @@ const int16_t *engine_render_block(void (*safe_point)(void)) {
     const uint64_t t_block = svcGetSystemTick();
     if (!s_audio_tls) s_audio_tls = getThreadLocalStorage();
     LightLock_Lock(&s_lock);
+    {   // (how long the UI side kept us out: a patch loading, say)
+        const float w = (float)(svcGetSystemTick() - t_block);
+        if (w > s_perf.lock_max) s_perf.lock_max = w;
+    }
     amy_grab_render_lock();
     vm_amy_pipeline = 1;
 
@@ -808,6 +816,19 @@ void engine_block_done(uint32_t total_ticks) {
     const float fixed = (float)(s_fill_ticks + post);
     s_fixed0 = s_fixed0 > 0.0f ? s_fixed0 + (fixed - s_fixed0) * (1.0f / 256.0f) : fixed;
     s_perf.post += ((float)post - s_perf.post) * PERF_K;
+    {   // this block, into the window
+        const float block = (float)AMY_BLOCK_SIZE / AMY_SAMPLE_RATE * SYSCLOCK_ARM11;
+        const float w = (float)(s_oscs0 + s_oscs1), c1 = s_in_flight ? (float)s_core1_ticks : 0.0f;
+        const float core0 = (float)s_r0_ticks + (float)s_fill_ticks + (float)post;  // its own work (not the waiting)
+        s_win.blocks++;
+        s_win.weight += w;
+        if (w > s_win.weight_max) s_win.weight_max = w;
+        s_win.core0 += core0;
+        s_win.core1 += c1;
+        if (c1 > s_win.core1_max) s_win.core1_max = c1;
+        s_win.total += (float)total_ticks;
+        if ((float)total_ticks > block) s_win.over++;
+    }
     s_perf.total += ((float)total_ticks - s_perf.total) * PERF_K;
     if ((float)total_ticks > s_perf.total_max) s_perf.total_max = (float)total_ticks;
 }
@@ -816,7 +837,16 @@ EnginePerf engine_perf(void) {
     EnginePerf p = s_perf;
     const float block = (float)AMY_BLOCK_SIZE / AMY_SAMPLE_RATE * SYSCLOCK_ARM11;  // ticks in a block's time
     p.render0 /= block, p.core1 /= block, p.fill /= block, p.post /= block, p.total /= block, p.total_max /= block;
-    p.wait_max /= block, p.park_max /= block;
+    p.wait_max /= block, p.park_max /= block, p.lock_max /= block;
+    if (s_win.blocks) {  // the window since the last call: true averages and peaks
+        const float n = (float)s_win.blocks;
+        p.w_weight = s_win.weight / n, p.w_weight_max = s_win.weight_max;
+        p.w_core0 = s_win.core0 / n / block, p.w_core1 = s_win.core1 / n / block, p.w_core1_max = s_win.core1_max / block;
+        p.w_total = s_win.total / n / block;
+        p.w_over = s_win.over, p.w_blocks = s_win.blocks;
+    }
+    memset(&s_win, 0, sizeof(s_win));
+    s_perf.lock_max = 0.0f;
     p.share = s_perf.share_used;  // (what core 1 was actually given: the balanced share, capped by its budget)
     p.stalls = s_worker_stalls;
     s_perf.total_max = s_perf.wait_max = s_perf.park_max = 0.0f;

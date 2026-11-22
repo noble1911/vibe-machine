@@ -37,7 +37,8 @@ enum { S_JUNO, S_DX7, S_PLUCK, S_SQUELCH, S_BELL, S_BREEZE, S_SUPERSAW, S_FOLD, 
 
 static const Sound kSounds[S_COUNT] = {
     [S_JUNO] = {"JUNO", "JUNO", "128 vintage poly patches", M_TRI, SOUND_BANK, 0, 128, 6, 2.2f, 0, {0, 0}, {0, 0}},
-    [S_DX7] = {"DX7", "DX7", "128 glassy FM patches", M_DOTS, SOUND_BANK, 128, 128, 6, 1.0f, 0, {0, 0}, {0, 0}},
+    // (Four voices: a DX7 voice is six operators, the heaviest thing here by far.)
+    [S_DX7] = {"DX7", "DX7", "128 glassy FM patches", M_DOTS, SOUND_BANK, 128, 128, 4, 1.0f, 0, {0, 0}, {0, 0}},
     [S_PLUCK] = {"PLUCK", "PLUK", "plucked strings that ring", M_ZIGZAG, SOUND_CUSTOM, 0, 0, 6, 4.5f,
                  "v0w6b0.996d0.3A0,1,10000,1,900,0",
                  {"DECAY", "PICK"}, {0.7f, 0.35f}},
